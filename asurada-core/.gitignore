@@ -1,0 +1,9 @@
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+runtime_logs/
+tmp/
+output/
+data/capture_samples/**/*.jsonl
+src/asurada.egg-info/

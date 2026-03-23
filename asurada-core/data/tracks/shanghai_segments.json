@@ -1,0 +1,58 @@
+{
+  "track": "Shanghai",
+  "lap_length_m": 5438.675,
+  "source": {
+    "braking_zones_svg": "/Users/sn5/asurada_simulator/tools/f1_recorder/data/20260319_015115_shanghai_lap_braking_zones.svg",
+    "corner_mins_svg": "/Users/sn5/asurada_simulator/tools/f1_recorder/data/20260319_015115_shanghai_lap_corner_mins.svg"
+  },
+  "braking_zones": [
+    {"name": "T14 Entry", "start_m": 4653.0, "end_m": 4751.0},
+    {"name": "T6 Entry", "start_m": 1467.0, "end_m": 1552.0},
+    {"name": "T11 Entry", "start_m": 3033.0, "end_m": 3106.0},
+    {"name": "T14 Rotation", "start_m": 4754.0, "end_m": 4777.0},
+    {"name": "T16 Entry", "start_m": 5115.0, "end_m": 5148.0},
+    {"name": "T8 Entry", "start_m": 2498.0, "end_m": 2520.0}
+  ],
+  "corner_apexes": [
+    {"name": "T1/T2", "distance_m": 890.0, "window_m": 95.0},
+    {"name": "T3", "distance_m": 996.0, "window_m": 70.0},
+    {"name": "T6", "distance_m": 1590.0, "window_m": 90.0},
+    {"name": "T7", "distance_m": 2403.0, "window_m": 75.0},
+    {"name": "T8", "distance_m": 2533.0, "window_m": 80.0},
+    {"name": "T9", "distance_m": 2620.0, "window_m": 65.0},
+    {"name": "T10", "distance_m": 2700.0, "window_m": 65.0},
+    {"name": "T11", "distance_m": 3167.0, "window_m": 90.0},
+    {"name": "T12", "distance_m": 3247.0, "window_m": 80.0},
+    {"name": "T13", "distance_m": 3330.0, "window_m": 80.0},
+    {"name": "T14", "distance_m": 4806.0, "window_m": 110.0},
+    {"name": "T16", "distance_m": 5184.0, "window_m": 85.0}
+  ],
+  "semantic_segments": [
+    {"name": "Main Straight", "zone_type": "deployment_straight", "start_m": 0.0, "end_m": 690.0, "usage": "primary_ers_deploy"},
+    {"name": "T1 Turn-in Build", "zone_type": "braking_entry", "start_m": 690.0, "end_m": 760.0, "usage": "front_end_commit"},
+    {"name": "T1/T2 High Load", "zone_type": "high_load_management", "start_m": 760.0, "end_m": 1080.0, "usage": "front_tyre_protection"},
+    {"name": "T3 Exit Traction", "zone_type": "exit_traction", "start_m": 1080.0, "end_m": 1280.0, "usage": "traction_release"},
+    {"name": "T4-T5 Accel Link", "zone_type": "exit_traction", "start_m": 1280.0, "end_m": 1385.0, "usage": "throttle_commit"},
+    {"name": "T6 Setup Straight", "zone_type": "deployment_straight", "start_m": 1385.0, "end_m": 1467.0, "usage": "brake_setup"},
+    {"name": "T6 Braking", "zone_type": "braking_entry", "start_m": 1467.0, "end_m": 1552.0, "usage": "late_brake_control"},
+    {"name": "T6 Mid Rotation", "zone_type": "apex_rotation", "start_m": 1552.0, "end_m": 1635.0, "usage": "yaw_balance"},
+    {"name": "T6 Traction Recovery", "zone_type": "exit_traction", "start_m": 1635.0, "end_m": 1705.0, "usage": "rear_grip_rebuild"},
+    {"name": "T6 Exit Traction Recovery", "zone_type": "exit_traction", "start_m": 1705.0, "end_m": 1995.0, "usage": "throttle_stabilize"},
+    {"name": "T7 Deployment Prep", "zone_type": "deployment_straight", "start_m": 1995.0, "end_m": 2360.0, "usage": "ers_prepare"},
+    {"name": "T7-T10 High Load", "zone_type": "high_load_management", "start_m": 2360.0, "end_m": 2725.0, "usage": "lateral_load_management"},
+    {"name": "T10 Exit Release", "zone_type": "exit_traction", "start_m": 2725.0, "end_m": 2865.0, "usage": "traction_release"},
+    {"name": "T11 Attack Build", "zone_type": "deployment_straight", "start_m": 2865.0, "end_m": 3033.0, "usage": "overtake_setup"},
+    {"name": "T11 Braking", "zone_type": "braking_entry", "start_m": 3033.0, "end_m": 3106.0, "usage": "defensive_braking"},
+    {"name": "T11-T13 Load Carry", "zone_type": "high_load_management", "start_m": 3106.0, "end_m": 3260.0, "usage": "mid_corner_patience"},
+    {"name": "T13 Exit Build", "zone_type": "exit_traction", "start_m": 3260.0, "end_m": 3365.0, "usage": "straight_launch_prep"},
+    {"name": "Back Straight", "zone_type": "deployment_straight", "start_m": 3365.0, "end_m": 4635.0, "usage": "primary_overtake_deploy"},
+    {"name": "T14 Overtake Commit", "zone_type": "deployment_straight", "start_m": 4635.0, "end_m": 4653.0, "usage": "brake_marker_commit"},
+    {"name": "T14 Braking", "zone_type": "braking_entry", "start_m": 4653.0, "end_m": 4751.0, "usage": "maximum_brake_pressure"},
+    {"name": "T14 Apex", "zone_type": "apex_rotation", "start_m": 4751.0, "end_m": 4865.0, "usage": "slow_corner_rotation"},
+    {"name": "T14 Exit", "zone_type": "exit_traction", "start_m": 4865.0, "end_m": 5055.0, "usage": "traction_rebuild"},
+    {"name": "T15 Brake Setup", "zone_type": "deployment_straight", "start_m": 5055.0, "end_m": 5115.0, "usage": "short_reset"},
+    {"name": "T16 Braking", "zone_type": "braking_entry", "start_m": 5115.0, "end_m": 5148.0, "usage": "final_brake_set"},
+    {"name": "T16 Apex", "zone_type": "apex_rotation", "start_m": 5148.0, "end_m": 5235.0, "usage": "exit_line_commit"},
+    {"name": "Pit Straight Launch", "zone_type": "deployment_straight", "start_m": 5235.0, "end_m": 5438.675, "usage": "lap_restart_accel"}
+  ]
+}

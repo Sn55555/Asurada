@@ -1,0 +1,29 @@
+{
+  "usage_hooks": {
+    "primary_ers_deploy": {"attack": 14, "ers": 10, "defend": 2, "tyre": 0, "dynamics": -2},
+    "primary_overtake_deploy": {"attack": 18, "ers": 12, "defend": 4, "tyre": 0, "dynamics": 0},
+    "overtake_setup": {"attack": 10, "ers": 6, "defend": 4, "tyre": 0, "dynamics": 2},
+    "ers_prepare": {"attack": 6, "ers": 8, "defend": 0, "tyre": 0, "dynamics": 0},
+    "front_tyre_protection": {"attack": -6, "ers": 0, "defend": 0, "tyre": 12, "dynamics": 8},
+    "lateral_load_management": {"attack": -4, "ers": 0, "defend": 2, "tyre": 10, "dynamics": 8},
+    "mid_corner_patience": {"attack": -5, "ers": 0, "defend": 0, "tyre": 8, "dynamics": 10},
+    "front_end_commit": {"attack": 0, "ers": 0, "defend": 8, "tyre": 4, "dynamics": 8},
+    "late_brake_control": {"attack": 2, "ers": 0, "defend": 12, "tyre": 4, "dynamics": 10},
+    "maximum_brake_pressure": {"attack": 4, "ers": 0, "defend": 14, "tyre": 4, "dynamics": 12},
+    "defensive_braking": {"attack": 0, "ers": 0, "defend": 12, "tyre": 2, "dynamics": 8},
+    "yaw_balance": {"attack": -2, "ers": 0, "defend": 0, "tyre": 4, "dynamics": 12},
+    "slow_corner_rotation": {"attack": -2, "ers": 0, "defend": 2, "tyre": 2, "dynamics": 12},
+    "rear_grip_rebuild": {"attack": -2, "ers": 0, "defend": 0, "tyre": 6, "dynamics": 8},
+    "throttle_stabilize": {"attack": -2, "ers": 2, "defend": 0, "tyre": 6, "dynamics": 6},
+    "traction_release": {"attack": 4, "ers": 2, "defend": 0, "tyre": 4, "dynamics": 4},
+    "throttle_commit": {"attack": 6, "ers": 2, "defend": 0, "tyre": 2, "dynamics": 2},
+    "traction_rebuild": {"attack": 2, "ers": 2, "defend": 2, "tyre": 4, "dynamics": 6},
+    "straight_launch_prep": {"attack": 8, "ers": 6, "defend": 2, "tyre": 0, "dynamics": 0},
+    "brake_setup": {"attack": 0, "ers": 2, "defend": 4, "tyre": 0, "dynamics": 2},
+    "brake_marker_commit": {"attack": 8, "ers": 4, "defend": 8, "tyre": 0, "dynamics": 4},
+    "short_reset": {"attack": 2, "ers": 4, "defend": 2, "tyre": 0, "dynamics": 0},
+    "final_brake_set": {"attack": 0, "ers": 0, "defend": 8, "tyre": 2, "dynamics": 6},
+    "exit_line_commit": {"attack": 4, "ers": 4, "defend": 2, "tyre": 2, "dynamics": 4},
+    "lap_restart_accel": {"attack": 10, "ers": 8, "defend": 0, "tyre": 0, "dynamics": 0}
+  }
+}

@@ -1,0 +1,200 @@
+{
+  "samples": [
+    {
+      "session_uid": "11681155589853237715",
+      "sample_name": "shanghai_qualifying_like_uid13",
+      "file_path": "/Users/sn5/Asurada/asurada-core/data/capture_samples/shanghai_race_weekend/shanghai_qualifying_like_uid13.jsonl",
+      "session_type_code": 13,
+      "session_label": "QualifyingLike(13)",
+      "confidence": "medium",
+      "reason": "Single-lap ranked competitive session with no points and final classification.",
+      "wall_seconds": 542.882,
+      "session": {
+        "track_id": 2,
+        "total_laps": 1,
+        "game_mode": 28,
+        "session_time_s_first": 0.0
+      },
+      "final": {
+        "session_time_s": 720.016296,
+        "player_position": 8,
+        "player_points": 0,
+        "player_num_laps": 1
+      },
+      "packet_counts": {
+        "Event": 299,
+        "Session": 1047,
+        "Participants": 107,
+        "CarSetups": 1047,
+        "CarDamage": 5219,
+        "TyreSets": 10434,
+        "LapPositions": 526,
+        "LapData": 15649,
+        "Motion": 15649,
+        "MotionEx": 15649,
+        "CarTelemetry": 15649,
+        "CarStatus": 15649,
+        "SessionHistory": 10452,
+        "FinalClassification": 2
+      },
+      "event_counts": {
+        "OVTK": 167,
+        "SPTP": 65,
+        "BUTN": 62,
+        "FTLP": 3,
+        "SSTA": 1,
+        "SEND": 1
+      }
+    },
+    {
+      "session_uid": "14150869158713609585",
+      "sample_name": "shanghai_short_result_like_uid8",
+      "file_path": "/Users/sn5/Asurada/asurada-core/data/capture_samples/shanghai_race_weekend/shanghai_short_result_like_uid8.jsonl",
+      "session_type_code": 8,
+      "session_label": "ShortResultLike(8)",
+      "confidence": "medium",
+      "reason": "Short competitive result session with final classification and non-zero points, but official mode name remains unresolved.",
+      "wall_seconds": 528.904,
+      "session": {
+        "track_id": 2,
+        "total_laps": 1,
+        "game_mode": 28,
+        "session_time_s_first": 0.0
+      },
+      "final": {
+        "session_time_s": 1080.235352,
+        "player_position": 1,
+        "player_points": 7,
+        "player_num_laps": 2
+      },
+      "packet_counts": {
+        "Event": 355,
+        "Session": 993,
+        "Participants": 101,
+        "CarSetups": 993,
+        "CarDamage": 4959,
+        "TyreSets": 9917,
+        "LapPositions": 497,
+        "LapData": 14875,
+        "Motion": 14875,
+        "MotionEx": 14875,
+        "CarTelemetry": 14875,
+        "CarStatus": 14875,
+        "SessionHistory": 9955,
+        "FinalClassification": 3
+      },
+      "event_counts": {
+        "OVTK": 200,
+        "SPTP": 89,
+        "BUTN": 61,
+        "FTLP": 3,
+        "SSTA": 1,
+        "SEND": 1
+      }
+    },
+    {
+      "session_uid": "18131203574741043245",
+      "sample_name": "shanghai_sprint_race_like_uid15",
+      "file_path": "/Users/sn5/Asurada/asurada-core/data/capture_samples/shanghai_race_weekend/shanghai_sprint_race_like_uid15.jsonl",
+      "session_type_code": 15,
+      "session_label": "SprintRaceLike(15)",
+      "confidence": "high",
+      "reason": "Race-like session with 3 laps, start/end events, adjacent official gap data, and 7-point finish.",
+      "wall_seconds": 350.237,
+      "session": {
+        "track_id": 2,
+        "total_laps": 3,
+        "game_mode": 0,
+        "session_time_s_first": 0.0
+      },
+      "final": {
+        "session_time_s": 332.558746,
+        "player_position": 2,
+        "player_points": 7,
+        "player_num_laps": 3
+      },
+      "packet_counts": {
+        "Event": 184,
+        "Session": 643,
+        "Participants": 66,
+        "CarSetups": 643,
+        "CarDamage": 3210,
+        "TyreSets": 6419,
+        "LapPositions": 322,
+        "LapData": 9627,
+        "Motion": 9627,
+        "MotionEx": 9627,
+        "CarTelemetry": 9627,
+        "CarStatus": 9627,
+        "SessionHistory": 6417,
+        "FinalClassification": 1
+      },
+      "event_counts": {
+        "OVTK": 95,
+        "SPTP": 60,
+        "COLL": 9,
+        "STLG": 5,
+        "FTLP": 5,
+        "BUTN": 2,
+        "PENA": 2,
+        "SSTA": 1,
+        "LGOT": 1,
+        "DRSE": 1,
+        "CHQF": 1,
+        "RCWN": 1,
+        "SEND": 1
+      }
+    },
+    {
+      "session_uid": "4014030831115520530",
+      "sample_name": "shanghai_feature_race_like_uid16",
+      "file_path": "/Users/sn5/Asurada/asurada-core/data/capture_samples/shanghai_race_weekend/shanghai_feature_race_like_uid16.jsonl",
+      "session_type_code": 16,
+      "session_label": "FeatureRaceLike(16)",
+      "confidence": "high",
+      "reason": "Race-like session with 5 laps, start/end events, adjacent official gap data, and 25-point win.",
+      "wall_seconds": 578.367,
+      "session": {
+        "track_id": 2,
+        "total_laps": 5,
+        "game_mode": 0,
+        "session_time_s_first": 0.0
+      },
+      "final": {
+        "session_time_s": 549.875122,
+        "player_position": 1,
+        "player_points": 25,
+        "player_num_laps": 5
+      },
+      "packet_counts": {
+        "Event": 213,
+        "Session": 1033,
+        "Participants": 105,
+        "CarSetups": 1033,
+        "CarDamage": 5159,
+        "TyreSets": 10316,
+        "LapPositions": 517,
+        "LapData": 15474,
+        "Motion": 15474,
+        "MotionEx": 15474,
+        "CarTelemetry": 15474,
+        "CarStatus": 15474,
+        "SessionHistory": 10354,
+        "FinalClassification": 3
+      },
+      "event_counts": {
+        "OVTK": 113,
+        "SPTP": 84,
+        "STLG": 5,
+        "FTLP": 3,
+        "BUTN": 2,
+        "SSTA": 1,
+        "LGOT": 1,
+        "DRSE": 1,
+        "COLL": 1,
+        "CHQF": 1,
+        "SEND": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asurada"
+version = "0.1.0"
+description = "Asurada racing strategy brain scaffold"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "OpenAI Codex" }]
+
+[project.scripts]
+asurada = "asurada.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
