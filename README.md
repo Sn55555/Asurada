@@ -1,6 +1,25 @@
 # Asurada Workspace
 
+Asurada 是一个面向赛车策略大脑项目的多模块工作区。
+
 Asurada is a multi-part workspace for the racing strategy-brain project.
+
+## 工作区组成
+
+仓库根目录当前作为以下模块的顶层容器：
+
+- [asurada-core](/Users/sn5/Asurada/asurada-core)
+  - 后端策略大脑
+  - packet 解码
+  - 标准化状态模型
+  - 分层策略引擎
+  - 回放日志与调试 dashboard
+- [ios-racetrack-analytics](/Users/sn5/Asurada/ios-racetrack-analytics)
+  - App 侧工程目录
+- [tools](/Users/sn5/Asurada/tools)
+  - 抓包文件、工具脚本和外部数据资产
+- [doc](/Users/sn5/Asurada/doc)
+  - 导出的项目文档
 
 This repository root currently acts as the top-level container for:
 
@@ -17,7 +36,13 @@ This repository root currently acts as the top-level container for:
 - [doc](/Users/sn5/Asurada/doc)
   - exported project documents
 
-## Current Tracking Scope
+## 当前版本管理范围
+
+当前仓库已提交并推送的主体是：
+
+- [asurada-core](/Users/sn5/Asurada/asurada-core)
+
+其余顶层目录当前保留在本地工作区中，默认不作为已提交历史的一部分。
 
 The repository currently commits the backend workspace in:
 
@@ -25,7 +50,19 @@ The repository currently commits the backend workspace in:
 
 The other top-level directories are present locally, but are not yet part of the committed project history by default.
 
-## Main Entry
+## 主入口
+
+如果当前工作重点是策略脑后端，请从这里开始：
+
+- [asurada-core/README.md](/Users/sn5/Asurada/asurada-core/README.md)
+
+关键后端项目文档：
+
+- [asurada-core/STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
+- [asurada-core/ARCHITECTURE.md](/Users/sn5/Asurada/asurada-core/ARCHITECTURE.md)
+- [asurada-core/PHASE1_ACCEPTANCE.md](/Users/sn5/Asurada/asurada-core/PHASE1_ACCEPTANCE.md)
+- [asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
+- [asurada-core/SESSION_TYPE_CLASSIFICATION.md](/Users/sn5/Asurada/asurada-core/SESSION_TYPE_CLASSIFICATION.md)
 
 If you are working on the strategy brain, start here:
 
@@ -39,19 +76,19 @@ Important backend project documents:
 - [asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
 - [asurada-core/SESSION_TYPE_CLASSIFICATION.md](/Users/sn5/Asurada/asurada-core/SESSION_TYPE_CLASSIFICATION.md)
 
-## Workspace Layout
+## 目录结构
 
 ```text
 Asurada/
-├── asurada-core/              backend strategy brain workspace
-├── ios-racetrack-analytics/   app workspace
-├── tools/                     captures and external utilities
-├── doc/                       exported project documents
-├── tmp/                       local temporary files
-└── .derived-data/             local build artifacts
+├── asurada-core/              后端策略脑工作区
+├── ios-racetrack-analytics/   App 工作区
+├── tools/                     抓包与外部工具
+├── doc/                       项目文档导出目录
+├── tmp/                       本地临时文件
+└── .derived-data/             本机构建产物
 ```
 
-## Backend Quick Start
+## 后端快速开始
 
 ```bash
 cd /Users/sn5/Asurada/asurada-core
@@ -62,6 +99,12 @@ python main.py --csv /Users/sn5/asurada_simulator/tools/f1_recorder/data/2026031
 python main.py --capture-jsonl /Users/sn5/Asurada/tools/captures/f1_25_udp_capture_20260321_024707.jsonl
 python main.py --build-dashboard
 ```
+
+## 说明
+
+- 根目录 `.gitignore` 只忽略明显的本机和临时产物。
+- `asurada-core/.gitignore` 负责后端工程自身的忽略规则，例如 `.venv/` 和 `runtime_logs/`。
+- 按 `session_uid` 切出来的大体积抓包样本默认不提交，只跟踪其 metadata。
 
 ## Notes
 
