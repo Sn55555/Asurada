@@ -111,6 +111,25 @@ Must contain:
 - dynamics phase summary
 - driver style summary
 
+### Regression Report
+
+Command:
+```bash
+cd /Users/sn5/Asurada/asurada-core
+source .venv/bin/activate
+python3 scripts/phase1_regression.py
+```
+
+File:
+- `runtime_logs/regression/latest_phase1_regression.json`
+
+Must contain:
+- full-capture health summary
+- per-session sample regression results
+- timing mode assertions
+- timing support assertions
+- session classification assertions
+
 ## Phase 1 Functional Acceptance
 
 ### Strategy Engine
@@ -156,3 +175,6 @@ Current status:
 ## Acceptance Status
 
 Phase 1 is accepted when all commands above run successfully and all required artifacts are generated from the current workspace.
+
+See also:
+- [PHASE1_CLOSEOUT.md](/Users/sn5/Asurada/asurada-core/PHASE1_CLOSEOUT.md)

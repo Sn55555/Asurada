@@ -6,6 +6,7 @@ import sys
 import tempfile
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
@@ -23,12 +24,18 @@ from asurada.replay import ReplayLogger
 from asurada.state import UnifiedStateStore
 from asurada.strategy import StrategyEngine
 
+DEFAULT_CAPTURE = Path("/Users/sn5/Asurada/tools/captures/f1_25_udp_capture_20260321_024707.jsonl")
+DEFAULT_SAMPLE_METADATA = Path(
+    "/Users/sn5/Asurada/asurada-core/data/capture_samples/shanghai_race_weekend/metadata.json"
+)
+DEFAULT_REPORT = Path("/Users/sn5/Asurada/asurada-core/runtime_logs/regression/latest_phase1_regression.json")
+
 
 class SilentVoiceOutput(ConsoleVoiceOutput):
     """Mute console strategy output during regression runs.
 
     备注:
-    回归脚本只关心结果是否满足断言，不需要把策略播报刷满终端。
+    回归脚本只关心断言结果，不需要把策略播报刷到终端。
     """
 
     def emit(self, decision) -> None:  # noqa: D401
@@ -36,31 +43,56 @@ class SilentVoiceOutput(ConsoleVoiceOutput):
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for the phase-one regression runner.
+
+    备注:
+    总抓包和分 session 样本的回归口径不同，所以分别保留 limit 参数。
+    """
+
     parser = argparse.ArgumentParser(description="Run phase-one offline regression checks.")
     parser.add_argument(
         "--capture-jsonl",
         type=Path,
-        default=Path("/Users/sn5/Asurada/tools/captures/f1_25_udp_capture_20260321_024707.jsonl"),
-        help="Path to the captured UDP JSONL sample.",
+        default=DEFAULT_CAPTURE,
+        help="Path to the full captured UDP JSONL sample.",
     )
     parser.add_argument(
         "--snapshot-limit",
         type=int,
         default=1200,
-        help="Stop after this many normalized snapshots have been produced.",
+        help="Stop the full-capture health check after this many normalized snapshots.",
+    )
+    parser.add_argument(
+        "--sample-metadata",
+        type=Path,
+        default=DEFAULT_SAMPLE_METADATA,
+        help="Path to extracted per-session sample metadata JSON.",
+    )
+    parser.add_argument(
+        "--sample-snapshot-limit",
+        type=int,
+        default=0,
+        help="Optional per-sample snapshot limit. Use 0 to process each sample fully.",
     )
     parser.add_argument(
         "--report-path",
         type=Path,
-        default=Path("/Users/sn5/Asurada/asurada-core/runtime_logs/regression/latest_phase1_regression.json"),
+        default=DEFAULT_REPORT,
         help="Where to write the regression summary JSON.",
     )
     return parser.parse_args()
 
 
 def main() -> int:
+    """Run the regression suite and emit a machine-readable report."""
+
     args = parse_args()
-    report = run_regression(args.capture_jsonl, args.snapshot_limit)
+    report = run_regression(
+        capture_path=args.capture_jsonl,
+        snapshot_limit=args.snapshot_limit,
+        sample_metadata_path=args.sample_metadata,
+        sample_snapshot_limit=args.sample_snapshot_limit,
+    )
     args.report_path.parent.mkdir(parents=True, exist_ok=True)
     args.report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[ASURADA][REGRESSION] report={args.report_path}")
@@ -68,7 +100,233 @@ def main() -> int:
     return 0 if report["passed"] else 1
 
 
-def run_regression(capture_path: Path, snapshot_limit: int) -> dict:
+def run_regression(
+    capture_path: Path,
+    snapshot_limit: int,
+    sample_metadata_path: Path,
+    sample_snapshot_limit: int,
+) -> dict[str, Any]:
+    """Run the full-capture health check plus per-session semantic assertions.
+
+    备注:
+    阶段一封板看两层结果：
+    1. 总抓包主链是否健康。
+    2. 已切出的比赛样本是否满足 session/timing 语义断言。
+    """
+
+    sample_metadata = load_sample_metadata(sample_metadata_path)
+    full_capture = analyze_capture(capture_path, snapshot_limit if snapshot_limit > 0 else None)
+    session_samples = [
+        analyze_sample_session(sample, sample_snapshot_limit if sample_snapshot_limit > 0 else None)
+        for sample in sample_metadata.get("samples", [])
+    ]
+
+    checks = {
+        "full_capture_passed": full_capture["passed"],
+        "sample_metadata_exists": sample_metadata_path.exists(),
+        "session_samples_present": bool(session_samples),
+        "all_session_samples_passed": all(item["passed"] for item in session_samples),
+    }
+    return {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "full_capture": full_capture,
+        "session_samples": session_samples,
+    }
+
+
+def load_sample_metadata(metadata_path: Path) -> dict[str, Any]:
+    """Load per-session sample metadata.
+
+    备注:
+    这里直接复用阶段一切出来的周末样本清单，避免回归脚本再硬编码多份路径。
+    """
+
+    if not metadata_path.exists():
+        return {"samples": []}
+    return json.loads(metadata_path.read_text(encoding="utf-8"))
+
+
+def analyze_sample_session(sample: dict[str, Any], snapshot_limit: int | None) -> dict[str, Any]:
+    """Run semantic assertions against one extracted session sample.
+
+    备注:
+    每个 session 样本都有不同的 timing 预期；这里只验证阶段一已经确认过的语义。
+    """
+
+    sample_path = Path(sample["file_path"])
+    summary = analyze_capture(sample_path, snapshot_limit)
+    expected = expected_sample_profile(sample)
+    assertions = build_sample_assertions(summary, sample, expected)
+    return {
+        "sample_name": sample.get("sample_name"),
+        "session_uid": sample.get("session_uid"),
+        "session_type_code": sample.get("session_type_code"),
+        "session_label": sample.get("session_label"),
+        "confidence": sample.get("confidence"),
+        "passed": summary["passed"] and all(item["passed"] for item in assertions),
+        "expected_profile": json_safe(expected),
+        "analysis": summary,
+        "assertions": assertions,
+    }
+
+
+def expected_sample_profile(sample: dict[str, Any]) -> dict[str, Any]:
+    """Return the expected timing/session profile for a known sample."""
+
+    label = sample.get("session_label", "")
+    if label == "QualifyingLike(13)":
+        return {
+            "timing_mode": "qualifying_like",
+            "timing_support_level": "official_preferred",
+            "session_type": "QualifyingLike(13)",
+            "dominant_gap_source_behind": "official_lapdata_adjacent",
+        }
+    if label == "ShortResultLike(8)":
+        return {
+            "timing_mode": "session_type_estimated",
+            "timing_support_level": "estimated_only",
+            "session_type": "ShortResultLike(8)",
+            "forbidden_dominant_gap_sources": {"official_lapdata_adjacent"},
+        }
+    if label == "SprintRaceLike(15)":
+        return {
+            "timing_mode": "race_like",
+            "timing_support_level": "official_preferred",
+            "session_type": "SprintRaceLike(15)",
+            "requires_official_gap": True,
+        }
+    if label == "FeatureRaceLike(16)":
+        return {
+            "timing_mode": "race_like",
+            "timing_support_level": "official_preferred",
+            "session_type": "FeatureRaceLike(16)",
+            "requires_official_gap": True,
+        }
+    return {}
+
+
+def build_sample_assertions(
+    summary: dict[str, Any],
+    sample: dict[str, Any],
+    expected: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build per-sample semantic assertions from capture analysis."""
+
+    analysis = summary["analysis"]
+    timing_mode_counts = analysis["timing_mode_counts"]
+    timing_support_counts = analysis["timing_support_counts"]
+    session_type_counts = analysis["session_type_counts"]
+    gap_source_ahead_counts = analysis["gap_source_ahead_counts"]
+    gap_source_behind_counts = analysis["gap_source_behind_counts"]
+    dominant_ahead = dominant_key(gap_source_ahead_counts)
+    dominant_behind = dominant_key(gap_source_behind_counts)
+
+    assertions = [
+        {
+            "name": "base_capture_health",
+            "passed": summary["passed"],
+            "detail": "Underlying sample replay must satisfy the generic phase-one health checks.",
+        }
+    ]
+
+    if "session_type" in expected:
+        actual = dominant_key(session_type_counts)
+        assertions.append(
+            {
+                "name": "session_type_label",
+                "passed": actual == expected["session_type"],
+                "expected": expected["session_type"],
+                "actual": actual,
+            }
+        )
+
+    if "timing_mode" in expected:
+        actual = dominant_key(timing_mode_counts)
+        assertions.append(
+            {
+                "name": "timing_mode",
+                "passed": actual == expected["timing_mode"],
+                "expected": expected["timing_mode"],
+                "actual": actual,
+            }
+        )
+
+    if "timing_support_level" in expected:
+        actual = dominant_key(timing_support_counts)
+        assertions.append(
+            {
+                "name": "timing_support_level",
+                "passed": actual == expected["timing_support_level"],
+                "expected": expected["timing_support_level"],
+                "actual": actual,
+            }
+        )
+
+    if "dominant_gap_source_behind" in expected:
+        assertions.append(
+            {
+                "name": "dominant_gap_source_behind",
+                "passed": dominant_behind == expected["dominant_gap_source_behind"],
+                "expected": expected["dominant_gap_source_behind"],
+                "actual": dominant_behind,
+            }
+        )
+
+    forbidden_gap_sources = expected.get("forbidden_dominant_gap_sources")
+    if forbidden_gap_sources:
+        forbidden_list = sorted(forbidden_gap_sources)
+        assertions.append(
+            {
+                "name": "dominant_gap_source_ahead_not_forbidden",
+                "passed": dominant_ahead not in forbidden_gap_sources,
+                "forbidden": forbidden_list,
+                "actual": dominant_ahead,
+            }
+        )
+        assertions.append(
+            {
+                "name": "dominant_gap_source_behind_not_forbidden",
+                "passed": dominant_behind not in forbidden_gap_sources,
+                "forbidden": forbidden_list,
+                "actual": dominant_behind,
+            }
+        )
+
+    if expected.get("requires_official_gap"):
+        official_ahead = gap_source_ahead_counts.get("official_lapdata_adjacent", 0)
+        official_behind = gap_source_behind_counts.get("official_lapdata_adjacent", 0)
+        assertions.append(
+            {
+                "name": "official_gap_present",
+                "passed": (official_ahead + official_behind) > 0,
+                "actual": {
+                    "ahead": official_ahead,
+                    "behind": official_behind,
+                },
+            }
+        )
+
+    final_summary = sample.get("final") or {}
+    if final_summary:
+        assertions.append(
+            {
+                "name": "final_classification_present",
+                "passed": bool(summary["analysis"]["final_classification_seen"]),
+                "expected": {
+                    "position": final_summary.get("player_position"),
+                    "points": final_summary.get("player_points"),
+                },
+                "actual": summary["analysis"]["latest_final_classification"],
+            }
+        )
+
+    return assertions
+
+
+def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str, Any]:
+    """Analyze one capture file and return health + semantic counters."""
+
     required_packet_kinds = {
         "Session",
         "LapData",
@@ -82,9 +340,19 @@ def run_regression(capture_path: Path, snapshot_limit: int) -> dict:
         "Event",
     }
     counter: Counter[str] = Counter()
+    timing_mode_counts: Counter[str] = Counter()
+    timing_support_counts: Counter[str] = Counter()
+    session_type_counts: Counter[str] = Counter()
+    gap_source_ahead_counts: Counter[str] = Counter()
+    gap_source_behind_counts: Counter[str] = Counter()
+    gap_confidence_ahead_counts: Counter[str] = Counter()
+    gap_confidence_behind_counts: Counter[str] = Counter()
+    event_code_counts: Counter[str] = Counter()
     snapshot_count = 0
-    last_debug: dict = {}
+    last_debug: dict[str, Any] = {}
     latest_state = None
+    latest_raw: dict[str, Any] = {}
+    latest_final_classification: dict[str, Any] = {}
 
     with tempfile.TemporaryDirectory(prefix="asurada-phase1-regression-") as tmp_dir:
         tmp_root = Path(tmp_dir)
@@ -104,6 +372,12 @@ def run_regression(capture_path: Path, snapshot_limit: int) -> dict:
             except PacketDecodeError:
                 continue
             counter[envelope.kind] += 1
+            if envelope.kind == "Event":
+                event_code = envelope.payload.get("body", {}).get("event_code")
+                if event_code:
+                    event_code_counts[str(event_code)] += 1
+            if envelope.kind == "FinalClassification":
+                latest_final_classification = dict(envelope.payload.get("body", {}))
             snapshot = assembler.push(envelope)
             if snapshot is None:
                 continue
@@ -115,8 +389,17 @@ def run_regression(capture_path: Path, snapshot_limit: int) -> dict:
             logger.append(state, decision)
             latest_state = state
             last_debug = decision.debug
+            latest_raw = dict(state.raw)
 
-            if snapshot_count >= snapshot_limit:
+            timing_mode_counts[str(latest_raw.get("timing_mode"))] += 1
+            timing_support_counts[str(latest_raw.get("timing_support_level"))] += 1
+            session_type_counts[str(latest_raw.get("session_type"))] += 1
+            gap_source_ahead_counts[str(latest_raw.get("gap_source_ahead"))] += 1
+            gap_source_behind_counts[str(latest_raw.get("gap_source_behind"))] += 1
+            gap_confidence_ahead_counts[str(latest_raw.get("gap_confidence_ahead"))] += 1
+            gap_confidence_behind_counts[str(latest_raw.get("gap_confidence_behind"))] += 1
+
+            if snapshot_limit is not None and snapshot_count >= snapshot_limit:
                 break
 
         dashboard_path = dashboard_builder.build_from_session_log(logger.path)
@@ -133,16 +416,39 @@ def run_regression(capture_path: Path, snapshot_limit: int) -> dict:
             "packet-filter",
             "Trigger Highlights",
             "Frame Change Diff",
+            "timing_support_level",
+            "gap_confidence_ahead",
         )
     )
     checks = {
         "capture_exists": capture_path.exists(),
         "required_packets_seen": not missing_required,
-        "min_snapshots": snapshot_count >= min(200, snapshot_limit),
+        "min_snapshots": snapshot_count >= min(200, snapshot_limit or 200),
         "latest_state_present": latest_state is not None,
         "risk_explain_present": has_risk_explain,
         "usage_bias_present": has_usage_bias,
         "dashboard_chain_ui_present": has_chain_ui,
+    }
+    analysis = {
+        "timing_mode_counts": dict(sorted(timing_mode_counts.items())),
+        "timing_support_counts": dict(sorted(timing_support_counts.items())),
+        "session_type_counts": dict(sorted(session_type_counts.items())),
+        "gap_source_ahead_counts": dict(sorted(gap_source_ahead_counts.items())),
+        "gap_source_behind_counts": dict(sorted(gap_source_behind_counts.items())),
+        "gap_confidence_ahead_counts": dict(sorted(gap_confidence_ahead_counts.items())),
+        "gap_confidence_behind_counts": dict(sorted(gap_confidence_behind_counts.items())),
+        "event_code_counts": dict(sorted(event_code_counts.items())),
+        "latest_raw": {
+            "session_type": latest_raw.get("session_type"),
+            "timing_mode": latest_raw.get("timing_mode"),
+            "timing_support_level": latest_raw.get("timing_support_level"),
+            "gap_source_ahead": latest_raw.get("gap_source_ahead"),
+            "gap_source_behind": latest_raw.get("gap_source_behind"),
+            "gap_confidence_ahead": latest_raw.get("gap_confidence_ahead"),
+            "gap_confidence_behind": latest_raw.get("gap_confidence_behind"),
+        },
+        "latest_final_classification": summarize_final_classification(latest_final_classification),
+        "final_classification_seen": bool(latest_final_classification),
     }
     return {
         "passed": all(checks.values()),
@@ -154,7 +460,42 @@ def run_regression(capture_path: Path, snapshot_limit: int) -> dict:
         "latest_track": latest_state.track if latest_state is not None else None,
         "latest_lap": latest_state.lap_number if latest_state is not None else None,
         "checks": checks,
+        "analysis": analysis,
     }
+
+
+def summarize_final_classification(final_classification: dict[str, Any]) -> dict[str, Any]:
+    """Extract a compact summary for regression output."""
+
+    if not final_classification:
+        return {}
+    player = final_classification.get("player") or {}
+    return {
+        "position": player.get("position"),
+        "points": player.get("points"),
+        "num_laps": player.get("num_laps"),
+        "result_status": player.get("result_status"),
+    }
+
+
+def dominant_key(counts: dict[str, int]) -> str | None:
+    """Return the dominant key from a frequency mapping."""
+
+    if not counts:
+        return None
+    return max(counts.items(), key=lambda item: item[1])[0]
+
+
+def json_safe(value: Any) -> Any:
+    """Convert nested regression payloads into JSON-safe values."""
+
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    if isinstance(value, set):
+        return [json_safe(item) for item in sorted(value)]
+    return value
 
 
 if __name__ == "__main__":

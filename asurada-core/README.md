@@ -12,11 +12,16 @@ This workspace owns the backend-side real-time data path:
 
 See also:
 - [STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
+- [PHASE1_ACCEPTANCE.md](/Users/sn5/Asurada/asurada-core/PHASE1_ACCEPTANCE.md)
+- [PHASE1_CLOSEOUT.md](/Users/sn5/Asurada/asurada-core/PHASE1_CLOSEOUT.md)
 - [ARCHITECTURE.md](/Users/sn5/Asurada/asurada-core/ARCHITECTURE.md)
 - [PACKET_FIELD_COVERAGE.md](/Users/sn5/Asurada/asurada-core/PACKET_FIELD_COVERAGE.md)
 - [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
 - [STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
 - [SESSION_TYPE_CLASSIFICATION.md](/Users/sn5/Asurada/asurada-core/SESSION_TYPE_CLASSIFICATION.md)
+- [PARSED_FIELDS_AND_MODEL_USAGE_CN.md](/Users/sn5/Asurada/asurada-core/PARSED_FIELDS_AND_MODEL_USAGE_CN.md)
+- [REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md](/Users/sn5/Asurada/asurada-core/REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md)
+- [PROJECT_TIMELINE_AND_RISKS_CN.md](/Users/sn5/Asurada/asurada-core/PROJECT_TIMELINE_AND_RISKS_CN.md)
 
 ## Current Inputs
 
@@ -139,7 +144,7 @@ python3 scripts/phase1_regression.py --snapshot-limit 400
 
 Artifact:
 - `runtime_logs/regression/latest_phase1_regression.json`
-  - fixed-capture parser and dashboard health summary
+  - full-capture health summary and per-session semantic assertions
 
 ## Session Samples
 

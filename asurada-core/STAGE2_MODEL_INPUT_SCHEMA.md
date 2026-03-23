@@ -307,6 +307,8 @@ Fields:
   - treat `low` as weak or masked features
   - drop `none` from supervised timing tasks
   - current capture validation already supports race-like session codes `15 / 16`
+  - current capture validation also supports `session_type 13` as `qualifying_like + official_preferred`
+  - current capture validation does not support promoting `session_type 8` beyond `estimated_only`
 
 ## Units And Expected Ranges
 
@@ -416,7 +418,8 @@ Recommendation:
 
 Reason:
 - time assembly and source tagging are now explicit
-- race / qualifying samples are still needed before treating them as protocol-final timing features
+- race-like `15 / 16` and qualifying-like `13` now have usable validation
+- `session_type 8` and any remaining unknown codes still need caution before being treated as protocol-final timing features
 
 ### Additional Structured History Features
 

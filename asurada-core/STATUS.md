@@ -186,7 +186,7 @@
 - [x] `packet 15` 正式命名为 `LapPositions`
 - [x] `LobbyInfo` 正文解析（待样本验证）
 - [x] 标准 `Event` union detail 结构化
-- [ ] 基于剩余 qualifying-like / 未知 session code 的 timing 最终验证
+- [ ] 基于剩余未知 session code 与 `session_type 8` 的 timing 最终验证
 
 优化空间：
 
@@ -201,6 +201,7 @@
 - [x] gap 来源已写入 `raw` 与 debug 链路
 - [x] timing mode / support level / confidence tier 已写入 `raw` 与 debug 链路
 - [x] 当前抓包里的 race-like `session_type 15 / 16` 已完成 timing 样本验证
+- [x] 当前抓包里的 qualifying-like `session_type 13` 已完成 timing 样本验证
 - [x] `Session` 固定尾部设置字段已从 trailer 拆成正式命名结构
 - [x] `session_type 8 / 13 / 15 / 16` 已建立项目内稳定归类
 - [x] 比赛后半段样本已按 `session_uid` 切分为阶段二可复用数据集
@@ -365,7 +366,7 @@
 ## 9. 日志、回放、报告
 
 状态：`已完成`  
-完成度：`90%`
+完成度：`96%`
 
 已完成：
 
@@ -373,6 +374,8 @@
 - [x] `capture_summary.json`
 - [x] lap report JSON
 - [x] dashboard 基于日志重建
+- [x] 固定样本自动回归脚本
+- [x] 分 session 语义断言回归矩阵
 
 相关文件：
 
@@ -380,10 +383,6 @@
 - [reports.py](/Users/sn5/Asurada/asurada-core/src/asurada/reports.py)
 - [runtime_logs/session_log.jsonl](/Users/sn5/Asurada/asurada-core/runtime_logs/session_log.jsonl)
 - [runtime_logs/capture_summary.json](/Users/sn5/Asurada/asurada-core/runtime_logs/capture_summary.json)
-
-未完成：
-
-- [x] 固定样本自动回归脚本
 
 优化空间：
 
@@ -444,6 +443,7 @@
 - [x] README
 - [x] 架构文档
 - [x] 阶段一验收文档
+- [x] 阶段一封板文档
 - [x] 字段覆盖文档
 - [x] 未完成字段文档
 - [x] 阶段二模型 schema 文档
@@ -455,6 +455,7 @@
 - [README.md](/Users/sn5/Asurada/asurada-core/README.md)
 - [ARCHITECTURE.md](/Users/sn5/Asurada/asurada-core/ARCHITECTURE.md)
 - [PHASE1_ACCEPTANCE.md](/Users/sn5/Asurada/asurada-core/PHASE1_ACCEPTANCE.md)
+- [PHASE1_CLOSEOUT.md](/Users/sn5/Asurada/asurada-core/PHASE1_CLOSEOUT.md)
 - [PACKET_FIELD_COVERAGE.md](/Users/sn5/Asurada/asurada-core/PACKET_FIELD_COVERAGE.md)
 - [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
 - [STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
@@ -540,8 +541,8 @@
 ### 如果目标是提高工程质量
 
 1. [x] 增加自动回归测试
-2. [ ] 增加 parser 样本断言
-3. [ ] 增加 dashboard 健康检查
+2. [x] 增加 parser 样本断言
+3. [x] 增加 dashboard 健康检查
 4. [ ] 增加协议完成度跟踪表
 
 ## 当前一句话判断

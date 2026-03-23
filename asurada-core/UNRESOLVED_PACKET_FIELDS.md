@@ -207,7 +207,9 @@ Current status:
 - `timing_mode`, `timing_support_level`, and explicit gap-source metadata are now exposed
 - gap confidence tiers are now exposed for player and rival timing
 - current capture now includes race-like session types `15 / 16`, and those paths have been promoted to `official_preferred`
-- still needs final validation for the remaining non-time-trial session codes before being treated as protocol-final across all modes
+- `session_type 13` now has qualifying-like sample validation and remains `official_preferred`
+- `session_type 8` remains mixed and stays in `estimated_only`
+- still needs final validation for any remaining non-time-trial session codes before being treated as protocol-final across all modes
 
 ### Rival Gap Semantics
 
@@ -220,7 +222,9 @@ Current status:
 - fallback estimation now distinguishes same-lap and cross-lap total-distance sources
 - confidence tiers now distinguish `high / medium / low / none`
 - race-like sample validation now exists for session types `15 / 16`
-- still needs final validation for the remaining qualifying-like / unknown session codes before being treated as protocol-final timing
+- qualifying-like sample validation now exists for `session_type 13`
+- `session_type 8` still shows mixed gap provenance and remains non-final
+- still needs final validation for any remaining unknown session codes before being treated as protocol-final timing
 
 ### TyreSets
 
