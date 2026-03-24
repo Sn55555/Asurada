@@ -18,6 +18,7 @@ See also:
 - [PACKET_FIELD_COVERAGE.md](/Users/sn5/Asurada/asurada-core/PACKET_FIELD_COVERAGE.md)
 - [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
 - [STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
+- [PHASE2_MODEL_MATRIX_CN.md](/Users/sn5/Asurada/asurada-core/PHASE2_MODEL_MATRIX_CN.md)
 - [SESSION_TYPE_CLASSIFICATION.md](/Users/sn5/Asurada/asurada-core/SESSION_TYPE_CLASSIFICATION.md)
 - [PARSED_FIELDS_AND_MODEL_USAGE_CN.md](/Users/sn5/Asurada/asurada-core/PARSED_FIELDS_AND_MODEL_USAGE_CN.md)
 - [REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md](/Users/sn5/Asurada/asurada-core/REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md)
