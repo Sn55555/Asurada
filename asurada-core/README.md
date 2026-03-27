@@ -19,6 +19,7 @@ See also:
 - [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
 - [STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
 - [PHASE2_MODEL_MATRIX_CN.md](/Users/sn5/Asurada/asurada-core/PHASE2_MODEL_MATRIX_CN.md)
+- [training/README.md](/Users/sn5/Asurada/asurada-core/training/README.md)
 - [SESSION_TYPE_CLASSIFICATION.md](/Users/sn5/Asurada/asurada-core/SESSION_TYPE_CLASSIFICATION.md)
 - [PARSED_FIELDS_AND_MODEL_USAGE_CN.md](/Users/sn5/Asurada/asurada-core/PARSED_FIELDS_AND_MODEL_USAGE_CN.md)
 - [REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md](/Users/sn5/Asurada/asurada-core/REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md)
@@ -146,6 +147,30 @@ python3 scripts/phase1_regression.py --snapshot-limit 400
 Artifact:
 - `runtime_logs/regression/latest_phase1_regression.json`
   - full-capture health summary and per-session semantic assertions
+
+## Phase Two Dataset Export
+
+Build the first-pass phase-two feature and label tables from extracted session samples:
+
+```bash
+python3 scripts/export_phase2_training_data.py
+```
+
+Artifacts:
+- `training/exports/phase2_dataset_v1/features.csv`
+- `training/exports/phase2_dataset_v1/labels.csv`
+- `training/exports/phase2_dataset_v1/tactical_features_v1.csv`
+- `training/exports/phase2_dataset_v1/manifest.json`
+
+Train the first rear-threat baseline:
+
+```bash
+python3 scripts/train_rear_threat_baseline.py
+```
+
+Artifacts:
+- `training/reports/rear_threat_baseline/rear_threat_model_baseline.txt`
+- `training/reports/rear_threat_baseline/rear_threat_baseline_report.json`
 
 ## Session Samples
 
