@@ -142,8 +142,8 @@
 - 判断当前区段是否进入高风险防守窗口
 
 输入字段：
-- `gap_behind_s`
-- `gap_confidence_behind`
+- `official_gap_behind_s`
+- `official_gap_confidence_behind`
 - `timing_support_level`
 - `speed_kph`
 - `rivals[].speed_kph`
@@ -236,8 +236,8 @@
 
 输入字段：
 - `position_lost_recently`
-- `gap_ahead_s`
-- `gap_confidence_ahead`
+- `official_gap_ahead_s`
+- `official_gap_confidence_ahead`
 - `timing_support_level`
 - `drs_available`
 - `ers_pct`
@@ -328,8 +328,8 @@
 - `event_detail`
 - `lap_number`
 - `position`
-- `gap_ahead_s`
-- `gap_behind_s`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
 - `track_segment`
 - `track_usage`
 - `safety_car`
@@ -367,8 +367,8 @@
 输入字段：
 - `position`
 - `lap_distance_m`
-- `gap_ahead_s`
-- `gap_behind_s`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
 - `frame_identifier`
 - `session_time_s`
 - `lap_positions`
@@ -478,8 +478,8 @@
 输入字段：
 - 各模型输出分数
 - `timing_support_level`
-- `gap_confidence_ahead`
-- `gap_confidence_behind`
+- `official_gap_confidence_ahead`
+- `official_gap_confidence_behind`
 - session type
 - 特征缺失率
 - OOD 检测信号
@@ -646,8 +646,8 @@
 - `ers_deploy_mode`
 - `track_usage`
 - `driving_mode`
-- `gap_ahead_s`
-- `gap_behind_s`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
 
 输出字段：
 - `ers_risk_score`
@@ -749,8 +749,8 @@
 - 攻击窗口识别
 
 输入字段：
-- `gap_ahead_s`
-- `gap_confidence_ahead`
+- `official_gap_ahead_s`
+- `official_gap_confidence_ahead`
 - `timing_support_level`
 - `drs_available`
 - `ers_pct`
@@ -855,8 +855,8 @@
 - 综合评估前后车压迫态势
 
 输入字段：
-- `gap_ahead_s`
-- `gap_behind_s`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
 - `timing_support_level`
 - `rivals[].ers_pct`
 - `rivals[].tyre.wear_pct`

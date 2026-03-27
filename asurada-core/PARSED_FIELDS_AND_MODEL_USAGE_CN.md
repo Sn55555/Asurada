@@ -129,14 +129,22 @@
 | `delta_to_car_in_front_ms` | 与前车时间差 |
 | `delta_to_race_leader_minutes` | 与领跑者时间差分钟部分 |
 | `delta_to_race_leader_ms` | 与领跑者时间差 |
-| `delta_to_car_in_front_s` | 标准化前车秒差 |
-| `delta_to_race_leader_s` | 标准化领跑秒差 |
+| `official_delta_to_car_in_front_s` | 官方标准化前车秒差，仅在正式 timing 口径下可用 |
+| `official_delta_to_race_leader_s` | 官方标准化领跑秒差，仅在正式 timing 口径下可用 |
 | `timing_mode` | timing 解释模式 |
 | `timing_support_level` | timing 可用等级 |
-| `gap_source_ahead` | 前方 gap 来源 |
-| `gap_source_behind` | 后方 gap 来源 |
-| `gap_confidence_ahead` | 前方 gap 可信度 |
-| `gap_confidence_behind` | 后方 gap 可信度 |
+| `official_gap_ahead_s` | 官方前车秒差，供主链与模型使用 |
+| `official_gap_behind_s` | 官方后车秒差，供主链与模型使用 |
+| `official_gap_source_ahead` | 官方前方 gap 来源 |
+| `official_gap_source_behind` | 官方后方 gap 来源 |
+| `official_gap_confidence_ahead` | 官方前方 gap 可信度 |
+| `official_gap_confidence_behind` | 官方后方 gap 可信度 |
+| `estimated_gap_ahead_s` | 估算前车秒差，仅供 debug/HUD 参考 |
+| `estimated_gap_behind_s` | 估算后车秒差，仅供 debug/HUD 参考 |
+| `estimated_gap_source_ahead` | 估算前方 gap 来源，仅供 debug 使用 |
+| `estimated_gap_source_behind` | 估算后方 gap 来源，仅供 debug 使用 |
+| `estimated_gap_confidence_ahead` | 估算前方 gap 可信度，仅供 debug 使用 |
+| `estimated_gap_confidence_behind` | 估算后方 gap 可信度，仅供 debug 使用 |
 | `rival_gap_sources` | 对手 gap 来源列表 |
 | `pit_status` | 进站状态 |
 | `num_pit_stops` | 进站次数 |
@@ -169,8 +177,8 @@
 | 字段名 | 中文含义 |
 | --- | --- |
 | `position` | 当前名次 |
-| `gap_ahead_s` | 与前车秒差 |
-| `gap_behind_s` | 与后车秒差 |
+| `gap_ahead_s` | 与前车秒差，已收紧为官方口径主链字段 |
+| `gap_behind_s` | 与后车秒差，已收紧为官方口径主链字段 |
 | `speed_kph` | 当前速度 |
 | `throttle` | 油门开度 |
 | `brake` | 刹车开度 |
@@ -325,8 +333,8 @@
 | `name` | 对手名称 |
 | `position` | 对手名次 |
 | `lap` | 对手圈数 |
-| `gap_ahead_s` | 对手前方差值 |
-| `gap_behind_s` | 对手后方差值 |
+| `gap_ahead_s` | 对手前方官方差值 |
+| `gap_behind_s` | 对手后方官方差值 |
 | `gap_source` | 对手 gap 来源 |
 | `gap_confidence` | 对手 gap 可信度 |
 | `fuel_laps_remaining` | 对手燃油剩余圈数 |
@@ -639,16 +647,16 @@
 
 - `delta_to_car_in_front_ms`
 - `delta_to_race_leader_ms`
-- `gap_ahead_s`
-- `gap_behind_s`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
 
 原因：
 
 - 这些 timing 字段已经具备：
   - `timing_mode`
   - `timing_support_level`
-  - `gap_source_*`
-  - `gap_confidence_*`
+  - `official_gap_source_*`
+  - `official_gap_confidence_*`
 - 但它们仍然属于分会话类型逐步收口的字段
 - 当前 `session_type 15 / 16` 已有高质量验证
 - `8 / 13` 仍属于项目内稳定命名，但并非官方最终定名
@@ -656,6 +664,5 @@
 建议：
 
 - 训练时优先使用 `official_preferred + high`
-- `medium` 作为上下文辅助特征
-- `low` 作为弱特征或遮罩特征
+- `estimated_*` 只作为 debug/HUD 辅助，不进入主链训练特征
 - `none` 不进入 timing 监督任务

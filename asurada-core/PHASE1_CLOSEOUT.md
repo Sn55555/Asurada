@@ -76,6 +76,8 @@ Phase 1 is not closed against:
 ### Remaining External Validation Items
 
 - real `LobbyInfo` packet sample validation
+  - deferred out of phase-one closeout
+  - only resume after a real multiplayer sample is available
 - any future session code that does not exist in the current capture set
 - additional rare `Event` codes not present in the current capture set
 

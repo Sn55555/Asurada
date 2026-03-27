@@ -101,14 +101,22 @@ These fields already flow into `SessionState` and `raw`.
 - `delta_to_car_in_front_ms`
 - `delta_to_race_leader_minutes`
 - `delta_to_race_leader_ms`
-- `delta_to_car_in_front_s`
-- `delta_to_race_leader_s`
+- `official_delta_to_car_in_front_s`
+- `official_delta_to_race_leader_s`
 - `timing_mode`
 - `timing_support_level`
-- `gap_source_ahead`
-- `gap_source_behind`
-- `gap_confidence_ahead`
-- `gap_confidence_behind`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
+- `official_gap_source_ahead`
+- `official_gap_source_behind`
+- `official_gap_confidence_ahead`
+- `official_gap_confidence_behind`
+- `estimated_gap_ahead_s` (debug only)
+- `estimated_gap_behind_s` (debug only)
+- `estimated_gap_source_ahead` (debug only)
+- `estimated_gap_source_behind` (debug only)
+- `estimated_gap_confidence_ahead` (debug only)
+- `estimated_gap_confidence_behind` (debug only)
 - `rival_gap_sources`
 - `sector`
 - `pit_status`

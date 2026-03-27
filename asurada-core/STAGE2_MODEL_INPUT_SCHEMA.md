@@ -134,14 +134,18 @@ Purpose:
 
 Fields:
 - `position`
-- `gap_ahead_s`
-- `gap_behind_s`
+- `gap_ahead_s` (official-only normalized player gap)
+- `gap_behind_s` (official-only normalized player gap)
 - `timing_mode`
 - `timing_support_level`
-- `gap_source_ahead`
-- `gap_source_behind`
-- `gap_confidence_ahead`
-- `gap_confidence_behind`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
+- `official_gap_source_ahead`
+- `official_gap_source_behind`
+- `official_gap_confidence_ahead`
+- `official_gap_confidence_behind`
+- `estimated_gap_ahead_s` (debug only, do not train on)
+- `estimated_gap_behind_s` (debug only, do not train on)
 - `speed_kph`
 - `throttle`
 - `brake`
@@ -261,8 +265,8 @@ Fields per rival:
 - `name`
 - `position`
 - `lap`
-- `gap_ahead_s`
-- `gap_behind_s`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
 - `gap_source`
 - `gap_confidence`
 - `fuel_laps_remaining`
@@ -365,7 +369,7 @@ Fields:
 - `front_aero_height`, `rear_aero_height`, `height_of_cog_above_ground`
   - unit: meters-like game float
   - expected range: small positive floats
-- `gap_ahead_s`, `gap_behind_s`
+- `official_gap_ahead_s`, `official_gap_behind_s`
   - unit: seconds
   - expected range: `0 .. 999`
 
@@ -413,8 +417,8 @@ Recommendation:
 
 - `delta_to_car_in_front_ms`
 - `delta_to_race_leader_ms`
-- `gap_ahead_s`
-- `gap_behind_s`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
 
 Reason:
 - time assembly and source tagging are now explicit

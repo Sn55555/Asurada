@@ -213,17 +213,18 @@ Current status:
 
 ### Rival Gap Semantics
 
-- `gap_ahead_s`
-- `gap_behind_s`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
+- `estimated_gap_ahead_s` (debug only)
+- `estimated_gap_behind_s` (debug only)
 
 Current status:
-- available in normalized state
-- immediate front / behind gap now prefers official `LapData` adjacent delta semantics
-- fallback estimation now distinguishes same-lap and cross-lap total-distance sources
-- confidence tiers now distinguish `high / medium / low / none`
+- normalized state and player-facing `gap_ahead_s / gap_behind_s` now use official-only timing
+- estimated gap values remain available only as debug-sidecar fields
+- `official_lapdata_adjacent` is the only high-confidence mainline source
 - race-like sample validation now exists for session types `15 / 16`
 - qualifying-like sample validation now exists for `session_type 13`
-- `session_type 8` still shows mixed gap provenance and remains non-final
+- `session_type 8` still lacks stable official timing coverage and remains non-final for timing use
 - still needs final validation for any remaining unknown session codes before being treated as protocol-final timing
 
 ### TyreSets

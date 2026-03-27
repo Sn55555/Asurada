@@ -184,7 +184,9 @@
 未完成：
 
 - [x] `packet 15` 正式命名为 `LapPositions`
-- [x] `LobbyInfo` 正文解析（待样本验证）
+- [x] `LobbyInfo` 正文解析
+  - 后续项：真实联机样本验证
+  - 不阻塞阶段一封板
 - [x] 标准 `Event` union detail 结构化
 - [ ] 基于剩余未知 session code 与 `session_type 8` 的 timing 最终验证
 
@@ -484,7 +486,9 @@
 - [ ] `LapData` 前车 / 领跑 delta 语义最终校准
 - [ ] rival gap 官方时差口径
 - [x] `LapPositions` 命名
-- [x] `LobbyInfo` 正文解析（待样本验证）
+- [x] `LobbyInfo` 正文解析
+  - 后续项：真实联机样本验证
+  - 当前已移出阶段一必收口范围
 - [x] `Session` trailer 未命名字段拆解
 - [ ] 稀有 `Event` detail 样本验证补齐
 
