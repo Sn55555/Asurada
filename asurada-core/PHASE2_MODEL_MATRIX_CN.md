@@ -189,6 +189,15 @@
 主要功能：
 - 判断当前更适合硬防、软防，还是让位后保反击
 
+当前状态：
+- `已做 baseline 尝试`
+- `当前暂停`
+- 原因：现阶段 `yield_vs_fight` 后验标签与样本覆盖仍不稳定，继续强推训练会拖慢阶段二主线
+- 重启条件：
+  - 更稳定的后验 `yield_vs_fight` 标签
+  - 更完整的攻防专题样本
+  - 或可独立验证的防守/失位/反击事件序列
+
 输入字段：
 - `rear_threat_score`
 - `rear_threat_level`
@@ -282,6 +291,23 @@
 主要功能：
 - 在“存在攻击机会”的前提下，判断是否值得真正投入资源去超车
 
+当前状态：
+- `已做 baseline 尝试`
+- `当前可用`
+- 当前验证：
+  - 已通过 `player + rear_rival` 双视角攻击样本导出打通跨 session 外部 test
+  - 已通过 `uid15` 第 2 圈显式切出 exported val，不再依赖 `train_holdout_split`
+  - 当前训练主样本来自 `uid15` 第 1/3 圈
+  - 当前 exported val 主样本来自 `uid15` 第 2 圈
+  - 当前外部 test 主样本来自 `uid16`
+- 当前指标：
+  - `accuracy=0.9996`
+  - `positive precision=0.7647`
+  - `positive recall=1.0000`
+- 下一步收口条件：
+  - 继续增强 `attack_commit_proxy_label` 的 DRS 和持续逼近信号
+  - 补更多有官方前车 gap 的 race-like 样本，验证稳定性是否可持续
+
 输入字段：
 - `attack_opportunity_score`
 - `ers_pct`
@@ -322,6 +348,14 @@
 
 主要功能：
 - 评估碰撞、处罚、起步、最快圈、安全车等事件对当前与后续策略的影响
+
+当前状态：
+- `已做 baseline 尝试`
+- `当前暂停`
+- 原因：当前事件样本量偏小，且跨 `session` 分布差异明显；在全事件集合与 race-like 子集上都未得到稳定 baseline
+- 重启条件：
+  - 补更多 race-like 事件样本
+  - 或重做更稳定的事件后验影响标签
 
 输入字段：
 - `event_code`
@@ -747,6 +781,25 @@
 
 主要功能：
 - 攻击窗口识别
+
+当前状态：
+- `已做 baseline 尝试`
+- `当前可用`
+- 当前验证：
+  - 已通过 `player + rear_rival` 双视角攻击样本导出打通跨 session 外部 test
+  - 已通过 `uid15` 第 2 圈显式切出 exported val，不再依赖 `train_holdout_split`
+  - 当前训练主样本来自 `uid15` 第 1/3 圈
+  - 当前 exported val 主样本来自 `uid15` 第 2 圈
+  - 当前外部 test 主样本来自 `uid16`
+- 当前指标：
+  - `accuracy=0.9994`
+  - `positive precision=1.0000`
+  - `positive recall=0.7931`
+- 当前意义：
+  - `front_attack_commit_model` 已有可训练上游，不再只依赖规则型 `attack_opportunity_label`
+- 下一步收口条件：
+  - 验证 `attack_opportunity -> front_attack_commit` 在更多 race-like session 中的稳定性
+  - 继续观察 exported val 与外部 test 的 recall 差异
 
 输入字段：
 - `official_gap_ahead_s`

@@ -81,6 +81,45 @@
   - 当前结论：已得到第一版可用 baseline
   - 当前指标：`accuracy=0.9799`、`positive precision=1.0000`、`positive recall=0.8182`
   - 当前阈值：验证集自动扫描选择 `threshold=0.4`
+- `yield_vs_defend_model` baseline 已尝试
+  - 当前结论：训练链路已打通，但标签稳定性不足，暂不作为阶段二当前推进主线
+  - 当前状态：`暂停`
+  - 重启条件：拿到更稳定的后验 `yield_vs_fight` 标签，或补到更完整的攻防专题样本
+- `event_impact_model` baseline 已尝试
+  - 当前结论：事件专题导出与训练链路已打通，但当前样本量和标签信号不足，baseline 不稳定
+  - 当前状态：`暂停`
+  - 当前症状：
+    - 全事件集合训练存在跨 session 分布偏移
+    - 收紧到 race-like + 高信号事件后，样本量过小，泛化失败
+  - 重启条件：
+    - 补更多 race-like 事件样本
+    - 或重做更稳定的事件后验标签
+- `front_attack_commit_model` baseline 已跑通
+  - 当前结论：第一版 baseline 可用
+  - 当前指标：`accuracy=0.9996`、`positive precision=0.7647`、`positive recall=1.0000`
+  - 当前验证：
+    - 已通过 `player + rear_rival` 双视角攻击样本导出打通跨 session 外部 test
+    - 已通过 `uid15` 第 2 圈显式切出 exported val，不再依赖 `train_holdout_split`
+    - 当前训练主样本来自 `uid15` 第 1/3 圈
+    - 当前 exported val 主样本来自 `uid15` 第 2 圈
+    - 当前外部 test 主样本来自 `uid16`
+  - 下一步收口方向：
+    - 继续收紧 `attack_commit_proxy_label`，降低剩余误报并增强 DRS/持续逼近信号
+    - 补更多 race-like 攻击样本，验证跨 session 稳定性是否可持续
+- `attack_opportunity_model` baseline 已跑通
+  - 当前结论：第一版 baseline 可用
+  - 当前指标：`accuracy=0.9994`、`positive precision=1.0000`、`positive recall=0.7931`
+  - 当前验证：
+    - 已通过 `player + rear_rival` 双视角攻击样本导出打通跨 session 外部 test
+    - 已通过 `uid15` 第 2 圈显式切出 exported val，不再依赖 `train_holdout_split`
+    - 当前训练主样本来自 `uid15` 第 1/3 圈
+    - 当前 exported val 主样本来自 `uid15` 第 2 圈
+    - 当前外部 test 主样本来自 `uid16`
+  - 当前意义：
+    - `front_attack_commit_model` 已有可训练上游，不再只依赖规则型 `attack_opportunity_label`
+  - 下一步收口方向：
+    - 继续扩展 race-like 攻击样本，验证 `attack_opportunity -> front_attack_commit` 是否在更多 session 中稳定
+    - 继续观察 exported val 与外部 test 的 recall 差异
 
 ### 阶段三：产品化与平台化
 
@@ -555,6 +594,18 @@
 9. [x] 在 `.venv` 安装训练依赖并跑通第一版 baseline
 10. [x] 收紧 `rear_threat_binary_label` 与专题样本过滤，消除首轮 baseline 的单边预测退化
 11. [x] 为 `rear_threat_model` 增加验证集阈值扫描，得到第一版可用平衡阈值
+12. [x] 建立 `event_features_v1` 导出与 `event_impact_model` baseline 训练入口
+13. [x] 试跑 `event_impact_model` baseline，确认当前样本与标签不足以支持稳定模型
+14. [ ] 暂停 `event_impact_model`，等待更完整的事件样本或更强后验标签
+15. [x] 建立 `attack_features_v1` 导出与 `front_attack_commit_model` baseline 训练入口
+16. [x] 得到 `front_attack_commit_model` 第一版可用 baseline
+17. [x] 建立 `attack_opportunity_model` baseline 训练入口并得到第一版可用 baseline
+18. [x] 为 `attack_opportunity_model / front_attack_commit_model` 补跨 session 外部 test 样本
+19. [x] 为攻击链补独立 `val` 样本，降低对 `train_holdout_split` 的依赖
+20. [x] 收紧 `attack_commit_proxy_label`，将 `front_attack_commit_model` 外部 test 误报从 `79` 压到 `4`
+21. [ ] 继续增强 `attack_commit_proxy_label` 的 DRS 和持续逼近信号，进一步提高泛化稳定性
+12. [x] 试跑 `yield_vs_defend_model` baseline，确认链路可行
+13. [ ] 暂停 `yield_vs_defend_model`，等待更稳定的后验标签与样本覆盖后再重启
 
 ### 如果目标是提高工程质量
 

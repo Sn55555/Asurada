@@ -42,6 +42,8 @@ Default outputs:
 - `training/exports/phase2_dataset_v1/features.csv`
 - `training/exports/phase2_dataset_v1/labels.csv`
 - `training/exports/phase2_dataset_v1/tactical_features_v1.csv`
+- `training/exports/phase2_dataset_v1/event_features_v1.csv`
+- `training/exports/phase2_dataset_v1/attack_features_v1.csv`
 - `training/exports/phase2_dataset_v1/manifest.json`
 
 ## Tactical Feature View
@@ -59,6 +61,32 @@ It only keeps rows and fields that are stable enough for the first stage-two tac
 - tactical context and next-segment features
 - first-pass pseudo labels for rear-threat and yield-vs-fight decisions
 
+## Event Feature View
+
+`event_features_v1.csv` is the first focused export for:
+
+- `event_impact`
+
+It only keeps actual event transition rows:
+
+- excludes cached carry-over `event_code`
+- excludes `BUTN` debug button events
+- derives first-pass event impact labels from short-horizon action / position / risk changes
+
+## Attack Feature View
+
+`attack_features_v1.csv` is the first focused export for:
+
+- `front_attack_commit`
+- `attack_opportunity`
+
+It keeps race-like rows with official front-gap coverage and derives first-pass attack-commit labels from:
+
+- short-horizon position gain
+- short-horizon gap reduction
+- current overtake-zone / next-segment setup
+- current resource and stability context
+
 ## First Baseline Training
 
 Use:
@@ -74,6 +102,45 @@ Outputs:
 - `training/reports/rear_threat_baseline/rear_threat_model_baseline.txt`
 - `training/reports/rear_threat_baseline/rear_threat_baseline_report.json`
 
+Event baseline:
+
+```bash
+cd /Users/sn5/Asurada/asurada-core
+source .venv/bin/activate
+python3 scripts/train_event_impact_baseline.py
+```
+
+Outputs:
+
+- `training/reports/event_impact_baseline/event_impact_model_baseline.txt`
+- `training/reports/event_impact_baseline/event_impact_baseline_report.json`
+
+Front-attack baseline:
+
+```bash
+cd /Users/sn5/Asurada/asurada-core
+source .venv/bin/activate
+python3 scripts/train_front_attack_commit_baseline.py
+```
+
+Outputs:
+
+- `training/reports/front_attack_commit_baseline/front_attack_commit_model_baseline.txt`
+- `training/reports/front_attack_commit_baseline/front_attack_commit_baseline_report.json`
+
+Attack-opportunity baseline:
+
+```bash
+cd /Users/sn5/Asurada/asurada-core
+source .venv/bin/activate
+python3 scripts/train_attack_opportunity_baseline.py
+```
+
+Outputs:
+
+- `training/reports/attack_opportunity_baseline/attack_opportunity_model_baseline.txt`
+- `training/reports/attack_opportunity_baseline/attack_opportunity_baseline_report.json`
+
 ## Notes
 
 - `features.csv` only contains fields that already exist in normalized snapshots or can be stably derived from the current rolling window.
@@ -84,3 +151,9 @@ Outputs:
   - `pandas`
   - `lightgbm`
   - `scikit-learn`
+- `event_impact_model` baseline 已试跑，但当前仍不稳定；详见 [STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
+- `front_attack_commit_model` baseline 已跑通，当前已通过 `player + rear_rival` 双视角样本导出打通 `uid15 -> uid16` 的跨 session 外部 test，并通过 `uid15` 第 2 圈切出 exported val；详见 [STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
+- `attack_opportunity_model` baseline 已跑通，当前已通过 `player + rear_rival` 双视角样本导出打通 `uid15 -> uid16` 的跨 session 外部 test，并通过 `uid15` 第 2 圈切出 exported val；详见 [STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
+- 当前攻击链最新结果：
+  - `attack_opportunity_model`: `accuracy=0.9994`, `positive precision=1.0000`, `positive recall=0.7931`
+  - `front_attack_commit_model`: `accuracy=0.9996`, `positive precision=0.7647`, `positive recall=1.0000`
