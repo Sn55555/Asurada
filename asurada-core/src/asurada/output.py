@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from .analysis import LapAnalysisSummary, SegmentAnalysis
+from .interaction import OutputLifecycleEvent
 from .models import StrategyDecision
 
 
@@ -13,18 +16,152 @@ class ConsoleVoiceOutput:
     候选策略 -> 最终播报”按可读格式打印出来，便于快速校验策略逻辑。
     """
 
-    def emit(self, decision: StrategyDecision) -> None:
-        """Print final strategy output and debug layers to the console."""
+    def __init__(self) -> None:
+        self.output_session_id = "voice-output:console"
+        self._active_output_event_id: str | None = None
+        self._active_code: str | None = None
+        self._event_counter = 0
 
-        if not decision.messages:
-            print("[ASURADA] 状态稳定，无高优先级播报。")
-            return
+    def emit(self, decision: StrategyDecision, *, render: bool = True) -> dict:
+        """Emit one lifecycle-aware output step and return the lifecycle event."""
+
+        interaction_input_event = decision.debug.get("interaction_input_event", {}) or {}
+        arbiter_output = (decision.debug.get("arbiter_v2", {}) or {}).get("output", {}) or {}
+        final_voice_action = arbiter_output.get("final_voice_action") or {}
+
+        lifecycle_event = self._resolve_lifecycle_event(
+            decision=decision,
+            interaction_input_event=interaction_input_event,
+            final_voice_action=final_voice_action,
+        )
+        decision.debug["output_lifecycle"] = {
+            "event": lifecycle_event.to_dict(),
+            "active_output": {
+                "output_session_id": self.output_session_id,
+                "active_output_event_id": self._active_output_event_id,
+                "active_code": self._active_code,
+            },
+        }
+
+        if lifecycle_event.event_type == "idle":
+            if render:
+                print("[ASURADA] 状态稳定，无高优先级播报。")
+            return decision.debug["output_lifecycle"]
+        if lifecycle_event.event_type == "suppress":
+            if render:
+                print(f"[ASURADA][SUPPRESS] {lifecycle_event.action_code}: {lifecycle_event.metadata.get('reason', 'suppressed')}")
+            return decision.debug["output_lifecycle"]
+        if lifecycle_event.event_type == "cancel":
+            if render:
+                print(f"[ASURADA][CANCEL] {lifecycle_event.action_code}")
+            return decision.debug["output_lifecycle"]
 
         top = decision.messages[0]
-        print(f"[ASURADA][P{top.priority}] {top.title}: {top.detail}")
-        for extra in decision.messages[1:3]:
-            print(f"  - {extra.title}: {extra.detail}")
-        self._emit_debug(decision)
+        prefix = "INTERRUPT" if lifecycle_event.event_type == "interrupt" else f"P{top.priority}"
+        if render:
+            print(f"[ASURADA][{prefix}] {top.title}: {top.detail}")
+            for extra in decision.messages[1:3]:
+                print(f"  - {extra.title}: {extra.detail}")
+            self._emit_debug(decision)
+        return decision.debug["output_lifecycle"]
+
+    def _resolve_lifecycle_event(
+        self,
+        *,
+        decision: StrategyDecision,
+        interaction_input_event: dict,
+        final_voice_action: dict,
+    ) -> OutputLifecycleEvent:
+        self._event_counter += 1
+        output_event_id = f"out:{self._event_counter}"
+        turn_id = str(interaction_input_event.get("turn_id") or "turn:unknown")
+        request_id = str(interaction_input_event.get("request_id") or "req:unknown")
+        snapshot_binding_id = str(interaction_input_event.get("snapshot_binding_id") or "snap:unknown")
+
+        if not decision.messages or not final_voice_action:
+            interrupted = self._active_output_event_id
+            code = self._active_code or "NONE"
+            self._active_output_event_id = None
+            self._active_code = None
+            return OutputLifecycleEvent(
+                output_session_id=self.output_session_id,
+                output_event_id=output_event_id,
+                event_type="cancel" if interrupted is not None else "idle",
+                channel="voice",
+                action_code=code,
+                priority=0,
+                cancelable=True,
+                turn_id=turn_id,
+                request_id=request_id,
+                snapshot_binding_id=snapshot_binding_id,
+                speak_text="",
+                interrupted_output_event_id=interrupted,
+                metadata={"reason": "no_final_voice_action"},
+            )
+
+        top = decision.messages[0]
+        code = top.code
+        priority = int(final_voice_action.get("priority") or top.priority or 0)
+        interrupt = bool(final_voice_action.get("interrupt"))
+        speak_text = str(final_voice_action.get("speak_text") or top.title)
+
+        if self._active_code == code and not interrupt:
+            return OutputLifecycleEvent(
+                output_session_id=self.output_session_id,
+                output_event_id=output_event_id,
+                event_type="suppress",
+                channel="voice",
+                action_code=code,
+                priority=priority,
+                cancelable=True,
+                turn_id=turn_id,
+                request_id=request_id,
+                snapshot_binding_id=snapshot_binding_id,
+                speak_text=speak_text,
+                interrupted_output_event_id=self._active_output_event_id,
+                metadata={"reason": "duplicate_active_code"},
+            )
+
+        interrupted_output_event_id = None
+        event_type = "start"
+        if self._active_output_event_id is not None:
+            if interrupt:
+                event_type = "interrupt"
+                interrupted_output_event_id = self._active_output_event_id
+            else:
+                return OutputLifecycleEvent(
+                    output_session_id=self.output_session_id,
+                    output_event_id=output_event_id,
+                    event_type="suppress",
+                    channel="voice",
+                    action_code=code,
+                    priority=priority,
+                    cancelable=True,
+                    turn_id=turn_id,
+                    request_id=request_id,
+                    snapshot_binding_id=snapshot_binding_id,
+                    speak_text=speak_text,
+                    interrupted_output_event_id=self._active_output_event_id,
+                    metadata={"reason": "active_output_not_interruptible"},
+                )
+
+        self._active_output_event_id = output_event_id
+        self._active_code = code
+        return OutputLifecycleEvent(
+            output_session_id=self.output_session_id,
+            output_event_id=output_event_id,
+            event_type=event_type,
+            channel="voice",
+            action_code=code,
+            priority=priority,
+            cancelable=code != "SAFETY_CAR",
+            turn_id=turn_id,
+            request_id=request_id,
+            snapshot_binding_id=snapshot_binding_id,
+            speak_text=speak_text,
+            interrupted_output_event_id=interrupted_output_event_id,
+            metadata={"source": "console_voice_output"},
+        )
 
     def _emit_debug(self, decision: StrategyDecision) -> None:
         """Render layered debug state for maintenance and tuning."""
@@ -33,8 +170,27 @@ class ConsoleVoiceOutput:
         assessment = decision.debug.get("assessment", {})
         risk_profile = decision.debug.get("risk_profile", {})
         candidates = decision.debug.get("candidates", [])
+        interaction_input_event = decision.debug.get("interaction_input_event", {})
+        output_lifecycle = decision.debug.get("output_lifecycle", {})
 
         print("  [备注] 分层策略调试")
+        if interaction_input_event:
+            snapshot_binding = interaction_input_event.get("snapshot_binding", {})
+            print(
+                "    - 交互事件: "
+                f"{interaction_input_event.get('intent_type')} "
+                f"turn={interaction_input_event.get('turn_id')} "
+                f"request={interaction_input_event.get('request_id')} "
+                f"snapshot={snapshot_binding.get('snapshot_binding_id')}"
+            )
+        if output_lifecycle:
+            event = output_lifecycle.get("event", {})
+            print(
+                "    - 输出生命周期: "
+                f"{event.get('event_type')} "
+                f"action={event.get('action_code')} "
+                f"output_event={event.get('output_event_id')}"
+            )
         if context:
             print(f"    - 上下文因子: {self._format_mapping(context)}")
         if assessment:

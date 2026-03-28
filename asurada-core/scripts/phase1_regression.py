@@ -438,6 +438,7 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
     missing_required = sorted(required_packet_kinds - seen_packet_kinds)
     has_risk_explain = bool(last_debug.get("risk_explain"))
     has_usage_bias = bool(last_debug.get("usage_bias"))
+    session_route = last_debug.get("session_route") or {}
     has_chain_ui = all(
         token in dashboard_text
         for token in (
@@ -449,6 +450,10 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
             "frame-slider",
         )
     )
+    interaction_input_event = last_debug.get("interaction_input_event") or {}
+    snapshot_binding = interaction_input_event.get("snapshot_binding") or {}
+    output_lifecycle = last_debug.get("output_lifecycle") or {}
+    output_lifecycle_event = output_lifecycle.get("event") or {}
     checks = {
         "capture_exists": capture_path.exists(),
         "required_packets_seen": not missing_required,
@@ -456,10 +461,22 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
         "latest_state_present": latest_state is not None,
         "risk_explain_present": has_risk_explain,
         "usage_bias_present": has_usage_bias,
+        "session_route_present": bool(session_route),
         "arbiter_v2_present": arbiter_sidecar_seen,
         "arbiter_v2_contract_present": arbiter_contract_seen,
         "arbiter_model_candidates_present": arbiter_model_candidate_frames > 0,
+        "interaction_input_event_present": bool(interaction_input_event),
+        "interaction_snapshot_binding_present": bool(snapshot_binding.get("snapshot_binding_id")),
+        "output_lifecycle_present": bool(output_lifecycle),
+        "output_lifecycle_contract_present": bool(output_lifecycle_event.get("output_event_id"))
+        and bool(output_lifecycle_event.get("event_type")),
         "dashboard_chain_ui_present": has_chain_ui,
+        "time_trial_route_filters_race_actions": latest_raw.get("timing_mode") != "time_trial_disabled"
+        or (
+            "LOW_FUEL" not in set(session_route.get("allowed_action_codes") or [])
+            and "DEFEND_WINDOW" not in set(session_route.get("allowed_action_codes") or [])
+            and session_route.get("allow_timing_actions") is False
+        ),
     }
     analysis = {
         "timing_mode_counts": dict(sorted(timing_mode_counts.items())),
@@ -472,6 +489,9 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
         "event_code_counts": dict(sorted(event_code_counts.items())),
         "arbiter_primary_counts": dict(sorted(arbiter_primary_counts.items())),
         "arbiter_model_candidate_frames": arbiter_model_candidate_frames,
+        "latest_session_route": session_route,
+        "latest_interaction_input_event": interaction_input_event,
+        "latest_output_lifecycle": output_lifecycle,
         "latest_raw": {
             "session_type": latest_raw.get("session_type"),
             "timing_mode": latest_raw.get("timing_mode"),

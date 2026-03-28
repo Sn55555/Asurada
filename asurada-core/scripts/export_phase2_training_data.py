@@ -71,6 +71,11 @@ FEATURE_COLUMNS = [
     "fuel_in_tank",
     "fuel_capacity",
     "fuel_laps_remaining",
+    "raw_fuel_laps_remaining",
+    "derived_fuel_laps_remaining",
+    "fuel_laps_remaining_source",
+    "remaining_race_laps",
+    "fuel_margin_laps",
     "ers_store_energy",
     "ers_pct",
     "ers_deploy_mode",
@@ -154,6 +159,7 @@ TACTICAL_FEATURE_COLUMNS = [
     "session_uid",
     "frame_identifier",
     "session_time_s",
+    "lap_number",
     "session_type",
     "timing_mode",
     "timing_support_level",
@@ -176,6 +182,7 @@ TACTICAL_FEATURE_COLUMNS = [
     "front_rival_ers_pct",
     "front_rival_speed_delta",
     "speed_kph",
+    "drs_available",
     "throttle",
     "brake",
     "steer",
@@ -756,6 +763,14 @@ def build_feature_row(
     previous_event_code = previous_state.raw.get("event_code") if previous_state is not None else None
     event_code_started = int(bool(event_code) and event_code != "NONE" and event_code != previous_event_code)
     record_id = f"{state.session_uid}:{raw.get('frame_identifier', 0)}"
+    completed_laps = max(int(state.lap_number) - 1, 0)
+    remaining_race_laps = max(int(state.total_laps) - completed_laps, 0)
+    derived_fuel_laps_remaining = optional_float(raw.get("derived_fuel_laps_remaining"))
+    fuel_margin_laps = (
+        derived_fuel_laps_remaining - remaining_race_laps
+        if derived_fuel_laps_remaining is not None
+        else None
+    )
 
     return {
         "record_id": record_id,
@@ -803,6 +818,11 @@ def build_feature_row(
         "fuel_in_tank": raw.get("fuel_in_tank"),
         "fuel_capacity": raw.get("fuel_capacity"),
         "fuel_laps_remaining": state.player.fuel_laps_remaining,
+        "raw_fuel_laps_remaining": raw.get("raw_fuel_laps_remaining"),
+        "derived_fuel_laps_remaining": raw.get("derived_fuel_laps_remaining"),
+        "fuel_laps_remaining_source": raw.get("fuel_laps_remaining_source"),
+        "remaining_race_laps": remaining_race_laps,
+        "fuel_margin_laps": fuel_margin_laps,
         "ers_store_energy": raw.get("ers_store_energy"),
         "ers_pct": state.player.ers_pct,
         "ers_deploy_mode": raw.get("ers_deploy_mode"),
@@ -921,6 +941,7 @@ def build_tactical_feature_row(
 
     rear_threat_binary_label, rear_threat_level_label = derive_rear_threat_labels(feature_row)
     row = {column: feature_row.get(column) for column in TACTICAL_FEATURE_COLUMNS if column in feature_row}
+    row["split"] = derive_tactical_split(feature_row)
     row.update(
         {
             "rear_threat_binary_label": rear_threat_binary_label,
@@ -931,11 +952,40 @@ def build_tactical_feature_row(
                 sample_rows=sample_rows,
                 row_index=row_index,
             ),
-            "counterattack_candidate_label": derive_counterattack_candidate_label(feature_row, label_row),
+            "counterattack_candidate_label": derive_counterattack_candidate_label(
+                feature_row=feature_row,
+                label_row=label_row,
+                sample_rows=sample_rows,
+                row_index=row_index,
+            ),
             "primary_action_label": label_row["primary_action_label"],
         }
     )
     return row
+
+
+def derive_tactical_split(feature_row: dict[str, Any]) -> str:
+    """Assign deterministic exported splits for tactical-chain models.
+
+    备注:
+    当前战术链样本主要来自 `uid15`，但 `uid16` 也有少量可用防守帧。
+    为避免继续依赖训练时随机 holdout，这里固定使用：
+    - `uid15` 第 2 圈 -> val
+    - `uid16` -> test
+    - 其余 race-like tactical 行 -> train
+    """
+
+    base_split = str(feature_row.get("split") or "train")
+    session_type = str(feature_row.get("session_type") or "")
+    lap_number = int(feature_row.get("lap_number") or 0)
+
+    if "FeatureRaceLike" in session_type:
+        return "test"
+    if "SprintRaceLike" in session_type and lap_number == 2:
+        return "val"
+    if base_split == "train":
+        return "train"
+    return base_split
 
 
 def build_event_feature_row(
@@ -1236,8 +1286,14 @@ def derive_yield_vs_fight_proxy_label(
     return "defend"
 
 
-def derive_counterattack_candidate_label(feature_row: dict[str, Any], label_row: dict[str, Any]) -> int:
-    """Create a cheap proxy label for counterattack-window work."""
+def derive_counterattack_candidate_label(
+    *,
+    feature_row: dict[str, Any],
+    label_row: dict[str, Any],
+    sample_rows: list[dict[str, dict[str, Any]]],
+    row_index: int,
+) -> int:
+    """Create a first-pass counterattack label from post-loss recovery signals."""
 
     if not feature_row.get("position_lost_recently"):
         return 0
@@ -1245,7 +1301,65 @@ def derive_counterattack_candidate_label(feature_row: dict[str, Any], label_row:
         return 1
     if label_row["primary_action_label"] == "ATTACK_WINDOW":
         return 1
+    outcome = inspect_future_counterattack_outcome(
+        sample_rows=sample_rows,
+        row_index=row_index,
+        lookahead_s=3.0,
+    )
+    if outcome["gained_position_soon"]:
+        return 1
+    if outcome["held_drs_recovery"] and outcome["min_gap_ahead_s"] is not None and outcome["min_gap_ahead_s"] <= 0.10:
+        return 1
     return 0
+
+
+def inspect_future_counterattack_outcome(
+    *,
+    sample_rows: list[dict[str, dict[str, Any]]],
+    row_index: int,
+    lookahead_s: float,
+) -> dict[str, Any]:
+    """Inspect short-horizon future rows after a loss event for counterattack recovery."""
+
+    current_feature = sample_rows[row_index]["feature"]
+    current_time = optional_float(current_feature.get("session_time_s"))
+    if current_time is None:
+        return {
+            "gained_position_soon": False,
+            "held_drs_recovery": False,
+            "min_gap_ahead_s": None,
+        }
+
+    future_rows: list[dict[str, dict[str, Any]]] = []
+    for later in sample_rows[row_index + 1 :]:
+        later_feature = later["feature"]
+        later_time = optional_float(later_feature.get("session_time_s"))
+        if later_time is None:
+            continue
+        if later_time - current_time > lookahead_s:
+            break
+        future_rows.append(later)
+
+    if not future_rows:
+        return {
+            "gained_position_soon": False,
+            "held_drs_recovery": False,
+            "min_gap_ahead_s": None,
+        }
+
+    gained_position_soon = any(int(row["feature"].get("position_gain_recently") or 0) == 1 for row in future_rows)
+    held_drs_recovery = any(int(row["feature"].get("drs_recovery_window") or 0) == 1 for row in future_rows)
+    future_gaps = [
+        optional_float(row["feature"].get("official_gap_ahead_s"))
+        for row in future_rows
+        if optional_float(row["feature"].get("official_gap_ahead_s")) is not None
+    ]
+    min_gap_ahead_s = min(future_gaps) if future_gaps else None
+    return {
+        "gained_position_soon": gained_position_soon,
+        "held_drs_recovery": held_drs_recovery,
+        "min_gap_ahead_s": min_gap_ahead_s,
+    }
 
 
 def derive_front_attack_commit_labels(

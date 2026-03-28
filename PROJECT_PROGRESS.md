@@ -6,7 +6,7 @@
 ## 总览
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-90%25-2ea44f?style=for-the-badge)
-![Phase 2](https://img.shields.io/badge/Phase%202-35%25-f59e0b?style=for-the-badge)
+![Phase 2](https://img.shields.io/badge/Phase%202-52%25-f59e0b?style=for-the-badge)
 ![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
 
 ```mermaid
@@ -14,7 +14,7 @@ xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [90, 35, 0]
+    bar [90, 52, 0]
 ```
 
 ## 阶段一：核心开发闭环
@@ -51,19 +51,26 @@ xychart-beta
 ## 阶段二：模型与边缘化准备
 
 ![Status](https://img.shields.io/badge/Status-In%20Progress-f59e0b?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-35%25-f59e0b?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-52%25-f59e0b?style=flat-square)
 
-进度条：`███░░░░░░░ 35%`
+进度条：`█████░░░░░ 52%`
 
 ### 已完成项
 
 - 训练目录与数据集配置
 - `features / labels / tactical_features_v1 / attack_features_v1 / strategy_action_features_v1` 导出
 - `rear_threat_model` 第一版可用 baseline
+- `fuel_risk_model / ers_risk_model / tyre_risk_model / dynamics_risk_model` 第一版可用 baseline
+- `defence_cost_model` 第一版 proxy-distillation baseline，已旁路接入 runtime debug
+- `rival_pressure_model` 第一版 baseline，已旁路接入 runtime debug
 - `attack_opportunity_model` 第一版可用 baseline
 - `front_attack_commit_model` 第一版可接受 baseline
 - `strategy_action_model` 第一版 baseline
 - `strategy_arbiter_v2` 契约、主链接入与回归断言
+- `confidence_model / uncertainty_layer` 最小规则版已接入主链
+- `session_mode_router` 最小规则版已接入主链
+- 统一交互输入事件模型最小版
+- 输出层可取消 / 可中断生命周期最小版
 - exported `val/test` 切分已用于攻击链和动作模型
 
 ### 停滞项
@@ -75,17 +82,15 @@ xychart-beta
 
 ### 待开发项
 
-- `fuel_risk_model`
-- `ers_risk_model`
-- `tyre_risk_model`
-- `dynamics_risk_model`
-- `defence_cost_model`
 - `counterattack_window_model`
-- `confidence_model / uncertainty_layer`
-- `rival_pressure_model`
+- `tactical_state_machine`
+- `fallback_policy`
 - `entry_quality_model`
 - `apex_quality_model`
 - `exit_traction_model`
+- 语音确认 / 权限分级规则
+- `ASR -> query normalization -> strategy -> TTS` 分层日志骨架
+- 结构化语音查询 schema 与指令路由接口
 - 攻防链 DRS / closing-rate 信号进一步增强
 
 ## 阶段三：产品化与平台化

@@ -237,6 +237,7 @@ class StrategyArbiterV2:
                 title="无策略变化",
                 detail="当前无高优先级动作需要输出。",
                 score=0.0,
+                output_priority=0,
                 source="arbiter_default",
             )
             ranked = [neutral]

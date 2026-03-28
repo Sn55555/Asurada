@@ -10,6 +10,7 @@ from .arbiter import (
 )
 from .confidence import StrategyUncertaintyLayer
 from .config import StrategyThresholds, load_usage_hooks
+from .interaction import build_system_strategy_input_event
 from .models import (
     ContextProfile,
     RiskProfile,
@@ -19,7 +20,14 @@ from .models import (
     StrategyDecision,
     StrategyMessage,
 )
-from .model_runtime import StrategyActionModelRuntime
+from .model_runtime import (
+    RivalPressureRuntimeSet,
+    DEFAULT_DEFENCE_COST_REPORT,
+    ResourceRiskModelRuntime,
+    ResourceRiskRuntimeSet,
+    StrategyActionModelRuntime,
+)
+from .session_router import SessionModeRouter, SessionRoute
 from .track_model import load_track_profile
 
 
@@ -31,7 +39,14 @@ class StrategyEngine:
         self.usage_hooks = load_usage_hooks(usage_hooks_path) if usage_hooks_path is not None else {}
         self.arbiter_v2 = StrategyArbiterV2()
         self.strategy_action_runtime = StrategyActionModelRuntime()
+        self.resource_risk_runtime = ResourceRiskRuntimeSet()
+        self.rival_pressure_runtime = RivalPressureRuntimeSet()
+        self.defence_cost_runtime = ResourceRiskModelRuntime(
+            name="defence_cost",
+            report_path=DEFAULT_DEFENCE_COST_REPORT,
+        )
         self.uncertainty_layer = StrategyUncertaintyLayer()
+        self.session_mode_router = SessionModeRouter()
 
     def evaluate(self, state: SessionState, history: list[SessionState] | None = None) -> StrategyDecision:
         """Evaluate one frame and return ranked strategy messages plus debug data."""
@@ -40,13 +55,22 @@ class StrategyEngine:
         # 这里保留稳定的四层流程，后续接趋势模型、对手建模、进站收益评估时，
         # 直接插入对应层即可，不需要再把整套策略引擎推倒重写。
         context = self._build_context(state, history or [state])
+        session_route = self.session_mode_router.resolve(state)
         assessment = self._assess_state(state)
         risk_profile, risk_explain = self._score_risks(state, assessment, context)
-        candidates = self._build_candidates(state, assessment, risk_profile, context)
+        candidates = self._apply_session_route(
+            self._build_candidates(state, assessment, risk_profile, context),
+            session_route=session_route,
+        )
         legacy_messages = self._arbitrate(candidates)
-        arbiter_sidecar = self._build_arbiter_sidecar(state, context, candidates, assessment)
+        arbiter_sidecar = self._build_arbiter_sidecar(state, context, candidates, assessment, session_route)
         messages = self._resolve_final_messages(legacy_messages, arbiter_sidecar)
         usage_bias = self._usage_bias(context.track_usage)
+        interaction_input_event = build_system_strategy_input_event(
+            state=state,
+            primary_message=messages[0] if messages else None,
+            session_mode=session_route.session_mode,
+        )
         return StrategyDecision(
             messages=messages,
             debug={
@@ -58,8 +82,16 @@ class StrategyEngine:
                 "risk_profile": risk_profile.__dict__,
                 "risk_explain": risk_explain,
                 "usage_bias": usage_bias,
+                "session_route": {
+                    "session_mode": session_route.session_mode,
+                    "allowed_action_codes": sorted(session_route.allowed_action_codes),
+                    "allow_timing_actions": session_route.allow_timing_actions,
+                    "allow_race_resource_actions": session_route.allow_race_resource_actions,
+                    "route_reason": session_route.route_reason,
+                },
                 "candidates": [candidate.__dict__ for candidate in candidates],
                 "arbiter_v2": arbiter_sidecar,
+                "interaction_input_event": interaction_input_event.to_dict(),
             },
         )
 
@@ -482,6 +514,7 @@ class StrategyEngine:
         context: ContextProfile,
         candidates: list[StrategyCandidate],
         assessment: StateAssessment,
+        session_route: SessionRoute,
     ) -> dict[str, object]:
         """Build a sidecar arbiter output without changing the current final messages."""
 
@@ -497,13 +530,20 @@ class StrategyEngine:
             tactical_state = "counterattack_prepare"
             state_priority_hint = "ATTACK_WINDOW"
 
-        model_candidates = self._build_strategy_action_model_candidates(state=state, context=context)
+        model_candidates = self._build_strategy_action_model_candidates(
+            state=state,
+            context=context,
+            session_route=session_route,
+        )
         confidence_resolution = self.uncertainty_layer.evaluate(
             state=state,
             context=context,
             model_candidates=model_candidates,
             tactical_state=tactical_state,
         )
+        resource_models = self.resource_risk_runtime.predict_all(state=state, context=context)
+        rival_pressure_models = self.rival_pressure_runtime.predict_all(state=state, context=context)
+        defence_cost_model = self.defence_cost_runtime.predict_score(state=state, context=context)
         payload = ArbiterInput(
             rule_candidates=[RuleCandidate.from_strategy_candidate(candidate) for candidate in candidates],
             model_candidates=model_candidates,
@@ -535,6 +575,16 @@ class StrategyEngine:
                     "fallback_reason": confidence_resolution.fallback_reason,
                     "session_mode": confidence_resolution.session_mode,
                 },
+                "resource_models": resource_models,
+                "rival_pressure_models": rival_pressure_models,
+                "defence_cost_model": defence_cost_model,
+                "session_route": {
+                    "session_mode": session_route.session_mode,
+                    "allowed_action_codes": sorted(session_route.allowed_action_codes),
+                    "allow_timing_actions": session_route.allow_timing_actions,
+                    "allow_race_resource_actions": session_route.allow_race_resource_actions,
+                    "route_reason": session_route.route_reason,
+                },
             },
             "output": {
                 "final_hud_action": result.final_hud_action.__dict__,
@@ -550,6 +600,7 @@ class StrategyEngine:
         *,
         state: SessionState,
         context: ContextProfile,
+        session_route: SessionRoute,
     ) -> list[ModelCandidate]:
         """Build top-k model candidates from the local strategy-action baseline, if available."""
 
@@ -564,9 +615,20 @@ class StrategyEngine:
             (state.lap_number > 1 and fuel_source == "derived_from_sample_consumption")
             or tank_ratio <= 0.08
         )
+        filtered = [candidate for candidate in candidates if candidate.code in session_route.allowed_action_codes]
         if fuel_mainline_allowed:
-            return candidates
-        return [candidate for candidate in candidates if candidate.code != "LOW_FUEL"]
+            return filtered
+        return [candidate for candidate in filtered if candidate.code != "LOW_FUEL"]
+
+    def _apply_session_route(
+        self,
+        candidates: list[StrategyCandidate],
+        *,
+        session_route: SessionRoute,
+    ) -> list[StrategyCandidate]:
+        """Filter rule candidates against the current session-mode route."""
+
+        return [candidate for candidate in candidates if candidate.code in session_route.allowed_action_codes]
 
     def _classify_track_zone(self, lap_distance: float) -> str:
         """Fallback coarse track-zone classifier used when no track model exists."""

@@ -46,7 +46,7 @@ class AsuradaApp:
             state = decode_snapshot(payload)
             self.state_store.update(state)
             decision = self.strategy.evaluate(state, self.state_store.recent(12))
-            self.voice_output.emit(decision)
+            self.voice_output.emit(decision, render=True)
             self.logger.append(state, decision)
 
     def run_csv_lap(self, csv_path: Path) -> None:
@@ -61,8 +61,8 @@ class AsuradaApp:
             self.state_store.update(state)
             lap_states.append(state)
             decision = self.strategy.evaluate(state, self.state_store.recent(12))
-            if decision.messages and decision.messages[0].priority >= 70:
-                self.voice_output.emit(decision)
+            render_output = bool(decision.messages and decision.messages[0].priority >= 70)
+            self.voice_output.emit(decision, render=render_output)
             self.logger.append(state, decision)
 
         summary = summarize_lap(lap_states)

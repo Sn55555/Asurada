@@ -60,7 +60,6 @@ class CaptureReplayRuntime:
         body_samples: dict[str, dict] = {}
         snapshot_count = 0
         emitted_count = 0
-        last_emitted_code = None
         previous_session_time_s: float | None = None
 
         for index, packet in enumerate(self.source, start=1):
@@ -95,19 +94,17 @@ class CaptureReplayRuntime:
             state = decode_snapshot(normalized_snapshot)
             self.state_store.update(state)
             decision = self.strategy.evaluate(state, self.state_store.recent(12))
+            render_output = bool(decision.messages and decision.messages[0].priority >= 70)
+            lifecycle = self.voice_output.emit(decision, render=render_output)
+            event = (lifecycle or {}).get("event", {})
+            if event.get("event_type") in {"start", "interrupt"}:
+                emitted_count += 1
             self.logger.append(state, decision)
             if self.dashboard_refresh is not None and snapshot_count % 500 == 0:
                 # 备注:
                 # dashboard 重建频率控制在 500 帧一次，避免回放期间
                 # 频繁写 HTML 导致 IO 开销过高。
                 self.dashboard_refresh()
-
-            if decision.messages and decision.messages[0].priority >= 70:
-                top_code = decision.messages[0].code
-                if top_code != last_emitted_code:
-                    self.voice_output.emit(decision)
-                    emitted_count += 1
-                    last_emitted_code = top_code
         if self.dashboard_refresh is not None:
             self.dashboard_refresh()
 

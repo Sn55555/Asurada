@@ -101,6 +101,7 @@ class DebugDashboardBuilder:
                         display_gap_ahead_s=raw.get("rear_rival_car_gap_ahead_s"),
                         display_gap_behind_s=raw.get("rear_rival_car_gap_behind_s"),
                     ),
+                    "stage_two_model_debug": self._extract_stage_two_model_debug(row),
                 }
             )
 
@@ -555,6 +556,9 @@ class DebugDashboardBuilder:
                     item for item in model_candidates if (item.get("source") or "").startswith("strategy_action_model")
                 ],
             },
+            "resource_models": arbiter_input.get("resource_models", {}) or {},
+            "rival_pressure_models": arbiter_input.get("rival_pressure_models", {}) or {},
+            "defence_cost_model": arbiter_input.get("defence_cost_model", {}) or {},
             "arbiter_input": {
                 "rule_candidates": arbiter_input.get("rule_candidates", []),
                 "model_candidates": model_candidates,
@@ -621,6 +625,9 @@ class DebugDashboardBuilder:
     .two {{ display: grid; grid-template-columns: 2fr 1.2fr; gap: 16px; margin-bottom: 16px; }}
     .rival-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }}
     .rival-box {{ border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fbfcfe; min-height: 0; overflow: hidden; }}
+    .resource-grid {{ display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }}
+    .resource-box {{ border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fbfcfe; min-height: 0; overflow: hidden; }}
+    .resource-value {{ font-size: 16px; font-weight: 700; margin-top: 4px; }}
     .rival-name {{ font-size: 18px; font-weight: 700; line-height: 1.2; }}
     .rival-stats {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-top: 10px; }}
     .rival-stat {{ min-width: 0; }}
@@ -690,10 +697,11 @@ class DebugDashboardBuilder:
       <div class="side-stack">
         <div class="panel primary-panel">
           <div class="label">Current Strategy Output</div>
-          <div class="label-note">当前时间点排在最前面的策略输出，以及其后的候选消息栈。</div>
+          <div class="label-note">当前时间点排在最前面的策略输出、资源模型旁路分数，以及其后的候选消息栈。</div>
           <div class="metric compact ellipsis-2" id="primary-call" style="margin-top:10px;"></div>
           <div id="primary-time" class="helper ellipsis-2" style="margin-top:6px;"></div>
           <div id="primary-detail" class="sub ellipsis-3" style="margin:8px 0 0"></div>
+          <div id="resource-model-grid" class="resource-grid"></div>
           <div id="strategy-stack" class="list" style="margin-top:12px; overflow:auto; flex:1; min-height:0;"></div>
         </div>
         <div class="panel rival-panel">
@@ -764,6 +772,7 @@ class DebugDashboardBuilder:
     const rearRivalName = document.getElementById('rear-rival-name');
     const frontRivalStats = document.getElementById('front-rival-stats');
     const rearRivalStats = document.getElementById('rear-rival-stats');
+    const resourceModelGrid = document.getElementById('resource-model-grid');
     let filteredFrames = frames.slice();
     let playbackTimer = null;
     let isPlaying = false;
@@ -794,6 +803,58 @@ class DebugDashboardBuilder:
       ];
       target.innerHTML = stats
         .map(([label, value]) => `<div class="rival-stat"><div class="helper">${{label}}</div><div class="ellipsis-2">${{value}}</div></div>`)
+        .join('');
+    }}
+
+    function renderResourceModels(resourceModels, defenceCostModel, rivalPressureModels) {{
+      const modelOrder = [
+        ['fuel_risk', 'Fuel'],
+        ['ers_risk', 'ERS'],
+        ['tyre_risk', 'Tyre'],
+        ['dynamics_risk', 'Dynamics'],
+      ];
+      const resourceCards = modelOrder
+        .map(([key, label]) => {{
+          const item = resourceModels?.[key] || {{}};
+          const enabled = item.enabled === true;
+          const score = enabled && item.score !== undefined && item.score !== null
+            ? Number(item.score).toFixed(1)
+            : '-';
+          const note = enabled ? 'runtime' : (item.disabled_reason || 'disabled');
+          return `
+            <div class="resource-box">
+              <div class="helper">${{label}}</div>
+              <div class="resource-value">${{score}}</div>
+              <div class="helper ellipsis-2">${{note}}</div>
+            </div>
+          `;
+        }});
+      const defenceEnabled = defenceCostModel?.enabled === true;
+      const defenceScore = defenceEnabled && defenceCostModel.score !== undefined && defenceCostModel.score !== null
+        ? Number(defenceCostModel.score).toFixed(1)
+        : '-';
+      const defenceNote = defenceEnabled ? 'runtime' : (defenceCostModel?.disabled_reason || 'disabled');
+      const rivalPressure = rivalPressureModels || {{}};
+      const rivalModel = rivalPressure?.rival_pressure || {{}};
+      const rivalEnabled = rivalModel.enabled === true;
+      const rivalScore = rivalEnabled && rivalModel.score !== undefined && rivalModel.score !== null
+        ? Number(rivalModel.score).toFixed(1)
+        : '-';
+      const rivalNote = rivalEnabled ? 'runtime' : (rivalModel?.disabled_reason || 'disabled');
+      resourceModelGrid.innerHTML = resourceCards
+        .concat([`
+          <div class="resource-box">
+            <div class="helper">Defence</div>
+            <div class="resource-value">${{defenceScore}}</div>
+            <div class="helper ellipsis-2">${{defenceNote}}</div>
+          </div>
+        `, `
+          <div class="resource-box">
+            <div class="helper">Pressure</div>
+            <div class="resource-value">${{rivalScore}}</div>
+            <div class="helper ellipsis-2">${{rivalNote}}</div>
+          </div>
+        `])
         .join('');
     }}
 
@@ -903,6 +964,7 @@ class DebugDashboardBuilder:
         document.getElementById('primary-call').textContent = 'No active call';
         document.getElementById('primary-time').textContent = '-';
         document.getElementById('primary-detail').textContent = 'No high-priority strategy output in the current frame.';
+        resourceModelGrid.innerHTML = '';
         document.getElementById('strategy-stack').innerHTML = '';
         frontRivalName.textContent = '-';
         rearRivalName.textContent = '-';
@@ -923,6 +985,11 @@ class DebugDashboardBuilder:
         frame.total_laps > 0 ? `${{frame.lap}} / ${{frame.total_laps}}` : frame.lap
       }} | pos=${{frame.position ?? '-'}}`;
       document.getElementById('primary-detail').textContent = frame.top_detail || 'No high-priority strategy output in the current frame.';
+      renderResourceModels(
+        frame.stage_two_model_debug?.resource_models || {{}},
+        frame.stage_two_model_debug?.defence_cost_model || {{}},
+        frame.stage_two_model_debug?.rival_pressure_models || {{}},
+      );
       document.getElementById('strategy-stack').innerHTML = frameMessages
         .slice(0, 5)
         .map((item) => `<div class="item"><span class="pill">P${{item.priority}}</span><strong>${{item.title}}</strong><div>${{item.detail}}</div></div>`)

@@ -20,7 +20,7 @@
 
 - 阶段一总体进度：`90%`
 - 阶段一排除实时闭环后的进度：`95%+`
-- 阶段二准备工作进度：`30%`
+- 阶段二准备工作进度：`52%`
 - 阶段三产品化进度：`0%`
 
 当前结论：
@@ -65,7 +65,7 @@
 
 当前完成度：
 
-- `35%`
+- `52%`
 
 当前已启动工作：
 
@@ -76,6 +76,11 @@
 - 赛周分会话样本切分与命名归类
 - 阶段二训练目录与数据集配置
 - 第一版 `features / labels / tactical_features_v1` 导出
+- 第一版资源风险 baseline：
+  - `fuel_risk_model`
+  - `ers_risk_model`
+  - `tyre_risk_model`
+  - `dynamics_risk_model`
 - `rear_threat_model` baseline 训练入口
 - `rear_threat_model` 第一版 baseline 已跑通
   - 当前结论：已得到第一版可用 baseline
@@ -120,6 +125,93 @@
   - 下一步收口方向：
     - 继续扩展 race-like 攻击样本，验证 `attack_opportunity -> front_attack_commit` 是否在更多 session 中稳定
     - 继续观察 exported val 与外部 test 的 recall 差异
+- `fuel_risk_model / ers_risk_model / tyre_risk_model / dynamics_risk_model` baseline 已跑通
+  - 当前训练口径：
+    - 使用 `features.csv + labels.csv`
+    - 仅保留 `timing_support_level = official_preferred`
+    - `train = exported train`
+    - `val = train_holdout_split`
+    - `test = exported_test_split (uid16)`
+  - `fuel_risk_model`
+    - 当前结论：第一版 baseline 可用
+    - 当前指标：`mae=1.8142`、`rmse=3.3618`、`r2=0.9919`
+    - 当前收口：已把 `derived_fuel_laps_remaining / fuel_margin_laps / fuel_laps_remaining_source` 纳入训练表
+  - `ers_risk_model`
+    - 当前结论：第一版 baseline 可用
+    - 当前指标：`mae=0.2329`、`rmse=1.3906`、`r2=0.9609`
+  - `tyre_risk_model`
+    - 当前结论：第一版 baseline 可用
+    - 当前指标：`mae=0.0305`、`rmse=0.0699`、`r2=0.9998`
+  - `dynamics_risk_model`
+    - 当前结论：第一版 baseline 可用
+    - 当前指标：`mae=0.1149`、`rmse=1.2109`、`r2=0.9541`
+  - 当前意义：
+    - 阶段二基础资源模型组已从“计划项”进入“可训练、可评估、可继续接主链”的状态
+    - `attack_opportunity / front_attack_commit / strategy_action` 这条线已有正式上游资源特征模型
+  - 下一步收口方向：
+    - 为资源模型补 exported `val` 口径，降低对 `train_holdout_split` 的依赖
+    - 开始决定哪些资源模型先旁路接入 runtime debug
+- `defence_cost_model` baseline 已跑通
+  - 当前结论：第一版 proxy-distillation baseline 可用
+  - 当前训练口径：
+    - 使用 `features.csv + labels.csv`
+    - 过滤 `official_preferred + race-like tactical rows`
+    - deterministic split：
+      - `uid15` 第 1/3 圈 -> `train`
+      - `uid15` 第 2 圈 -> `val`
+      - `uid16` -> `test`
+  - 当前指标：
+    - `mae=2.7160`
+    - `rmse=4.4729`
+    - `r2=0.3031`
+    - `tactical_cost_correlation=0.7154`
+  - 当前边界：
+    - 当前目标仍是从现有字段重算的 `defence_cost_proxy`
+    - 不是后验损失标签模型
+  - 当前意义：
+    - `yield_vs_defend_model` 现在有了正式上游代价分数，不必继续直接依赖手工 proxy
+    - 已旁路接入 runtime debug，可在真实回放里查看 `defence_cost_model` 分数
+  - 下一步收口方向：
+    - 决定是否把 `defence_cost_model` 纳入 `yield_vs_defend` 重启前的正式上游
+    - 若需要更强可信度，再重做后验损失标签
+- `rival_pressure_model` baseline 已跑通
+  - 当前结论：第一版 baseline 链路已成立，并已旁路接入 runtime debug
+  - 当前训练口径：
+    - 使用 `features.csv + labels.csv`
+    - 过滤 `official_preferred + race-like rows`
+    - deterministic split：
+      - `uid15` 第 1/3 圈 -> `train`
+      - `uid15` 第 2 圈 -> `val`
+      - `uid16` -> `test`
+  - 当前输出：
+    - `front_pressure_model`
+    - `rear_pressure_model`
+    - `rival_pressure_model`
+  - 当前指标：
+    - `front_pressure_model`
+      - `mae=11.9885`
+      - `rmse=12.4644`
+      - `r2=0.0000`
+      - `threat_ranking_accuracy=0.0000`
+      - 当前结论：race-like 外部样本不足，尚不可单独视为可用模型
+    - `rear_pressure_model`
+      - `mae=4.0431`
+      - `rmse=5.0826`
+      - `r2=0.9839`
+      - `threat_ranking_accuracy=0.9484`
+      - 当前结论：当前最稳，可作为旁路压力分数
+    - `rival_pressure_model`
+      - `mae=25.4790`
+      - `rmse=29.5207`
+      - `r2=0.4563`
+      - `threat_ranking_accuracy=0.8439`
+      - 当前结论：可用于 debug 观察综合态势，但还不适合直接接主链仲裁
+  - 当前意义：
+    - 攻防态势层开始具备连续压力分数，不再只剩单点 `rear_threat` 和 `attack_opportunity`
+    - runtime debug 已能同时看到资源模型、`defence_cost_model` 和 `rival_pressure_model`
+  - 下一步收口方向：
+    - 先补更多前车压迫样本，再决定是否继续强化 `front_pressure_model`
+    - `rival_pressure_model` 先维持 sidecar，不直接喂入最终动作主链
 - `strategy_action_model` baseline 已跑通
   - 当前结论：第一版干净 baseline 可用，但只覆盖高频动作子集
   - 当前动作范围：
@@ -165,6 +257,52 @@
       - `duplicate_codes_deduped`
   - 下一步收口方向：
     - 继续补更细的 priority / cooldown 标定
+- 统一交互输入事件模型最小版已接入
+  - 当前结论：阶段三防返工接口主线已开始落地
+  - 当前实现：
+    - 新增统一 `interaction_input_event` envelope
+    - 已包含：
+      - `interaction_session_id`
+      - `turn_id`
+      - `request_id`
+      - `input_type`
+      - `intent_type`
+      - `snapshot_binding_id`
+      - `snapshot_binding`
+    - 当前在 `StrategyEngine.evaluate()` 中为每帧生成系统策略事件
+    - 当前已写入 `decision.debug` 和 `session_log.jsonl`
+  - 当前边界：
+    - 当前只覆盖 `system_strategy -> strategy_broadcast`
+    - 尚未正式接入 ASR / TTS / query normalization
+    - 尚未实现输出层可取消 / 可中断生命周期
+    - 尚未实现语音分层日志骨架
+  - 当前意义：
+    - 阶段三接入双向语音时，不需要再回改主链的轮次标识和快照绑定协议
+    - 输出层、logger、debug dashboard 都可以复用同一事件结构
+- 输出层可取消 / 可中断生命周期最小版已接入
+  - 当前结论：输出层生命周期接口已定型到可复用状态
+  - 当前实现：
+    - `ConsoleVoiceOutput` 当前已维护 `active output`
+    - 已支持事件类型：
+      - `start`
+      - `interrupt`
+      - `suppress`
+      - `cancel`
+      - `idle`
+    - 当前事件已写入 `decision.debug["output_lifecycle"]`
+    - 当前日志里已能看到：
+      - `output_session_id`
+      - `output_event_id`
+      - `event_type`
+      - `interrupted_output_event_id`
+      - `turn_id / request_id / snapshot_binding_id`
+  - 当前边界：
+    - 当前只覆盖 console voice 输出层
+    - 尚未接入真实 TTS / 音频缓冲 / 播放器状态
+    - 尚未实现正式的可抢占音频通道
+  - 当前意义：
+    - 阶段三接 TTS 时，不需要再回改主链的输出事件语义
+    - 当前已经能用同一生命周期协议描述“开始播报 / 被打断 / 被压制 / 被取消”
 - `confidence_model / uncertainty_layer` 最小规则版已接入
   - 当前文件：
     - `/Users/sn5/Asurada/asurada-core/src/asurada/confidence.py`
@@ -176,11 +314,36 @@
       - `low_confidence_falls_back_to_rules`
   - 当前边界：
     - 仍是规则校准层，不是训练出来的轻量分类器
-    - `session_mode_router / fallback_policy` 还不是完整独立模块
+    - `fallback_policy` 还不是完整独立模块
   - 下一步收口方向：
-    - 拆出更明确的 `session_mode_router`
     - 补特征缺失率和 OOD 信号
     - 细化 `voice_allowed / hud_only` 口径
+- `session_mode_router` 最小规则版已接入
+  - 当前文件：
+    - `/Users/sn5/Asurada/asurada-core/src/asurada/session_router.py`
+  - 当前结论：
+    - 已从 `StrategyEngine` 主链生效，不再只是文档占位
+    - 当前会按 `session_type + timing_mode + timing_support_level` 生成真实 `session_route`
+    - 当前同时过滤：
+      - 规则候选 `rule_candidates`
+      - 模型候选 `model_candidates`
+    - 当前路由策略：
+      - `race_like + official_preferred`
+        - 允许 race 资源动作和 timing 动作
+      - `session_type_estimated`
+        - 禁用 timing 动作，保留非 timing 资源与动态动作
+      - `QualifyingLike / Time Trial / 非 race-like`
+        - 仅保留 `NONE / DYNAMICS_UNSTABLE / FRONT_LOAD`
+    - 当前已接入自动回归断言：
+      - `session_route_present`
+      - `time_trial_route_filters_race_actions`
+  - 当前边界：
+    - 仍是最小规则版，还没有细化到按 `Qualifying / Sprint / Feature Race` 拆出更深的动作优先级与参数模板
+    - 还没有独立的 `fallback_policy` 模块与之配套
+  - 下一步收口方向：
+    - 细化 `QualifyingLike / SprintRaceLike / FeatureRaceLike` 的动作空间和优先级
+    - 为 `strategy_action_model / arbiter_v2` 增加 session-specific priority profile
+    - 与 `uncertainty layer / fallback_policy` 进一步联动
 
 ### 阶段三：产品化与平台化
 
@@ -619,6 +782,41 @@
 - [ ] 特征版本管理
 - [ ] 回归验证体系进一步扩展
 - [ ] 多赛道泛化语义库
+- [x] 面向阶段三的统一交互输入事件模型
+- [x] 面向阶段三的 `turn_id / interaction_session_id` 会话轮次结构
+- [x] 策略查询输入与状态快照绑定协议
+- [x] 可取消 / 可中断的异步执行与输出控制（最小版）
+- [ ] 语音接入前的确认 / 权限分级规则
+- [ ] `ASR -> query normalization -> strategy -> TTS` 分层日志骨架
+- [ ] 结构化语音查询 schema 与指令路由接口
+
+### 阶段二补充计划：阶段三防返工接口预埋
+
+这部分仍然归属阶段二，不等到阶段三再补。
+
+目标：
+
+- 让语音、文本、按钮、外部事件都能复用同一条策略入口
+- 避免阶段三为了双向语音接入而重写策略主链
+- 先把接口和状态机边界做对，再决定具体语音模型和部署形式
+
+当前必须补的预埋项：
+
+- [x] 定义统一 `InteractionInput / UserTurn` 结构，输入源不再默认等于文本
+- [x] 为交互链路补 `turn_id`、`interaction_session_id`、`request_id` 三层标识
+- [x] 为策略查询定义快照协议，保证“用户问到的状态”和“模型回答所依据的状态”一致
+- [x] 为输出层补 `pending / committed / cancelled / interrupted` 生命周期
+- [ ] 为工具与长任务补取消接口，避免语音插话时旧动作继续执行
+- [ ] 为语音场景补确认门槛：
+  - 高风险动作必须二次确认
+  - 低风险结构化查询可直接回答
+- [ ] 为日志补语音接入所需分层：
+  - 原始输入
+  - 归一化 query
+  - 策略决策
+  - 工具调用
+  - 最终播报
+- [ ] 为结构化语音问答预留独立 query schema，而不是让语音文本直接进入策略层
 
 ## 阶段三当前状态
 
@@ -673,6 +871,14 @@
 27. [x] 将 `strategy_arbiter_v2` 的仲裁结果接入最终动作主链
 28. [x] 为模型驱动动作增加 priority 校准，避免低于现有播报阈值
 29. [x] 增加仲裁层 priority / cooldown 回归断言
+30. [x] 增加统一 `InteractionInput / UserTurn` 输入结构，解除策略入口对单一文本入口的耦合
+31. [x] 为交互链补 `turn_id / interaction_session_id / request_id`
+32. [x] 为策略查询补状态快照绑定协议
+33. [x] 为输出层补 `pending / committed / cancelled / interrupted` 生命周期
+34. [ ] 为长任务 / 工具调用补取消接口
+35. [ ] 建立 `ASR -> query normalization -> strategy -> TTS` 分层日志骨架
+36. [ ] 定义结构化语音查询 schema 与指令路由接口
+37. [ ] 定义语音场景下的确认 / 权限分级规则
 12. [x] 试跑 `yield_vs_defend_model` baseline，确认链路可行
 13. [ ] 暂停 `yield_vs_defend_model`，等待更稳定的后验标签与样本覆盖后再重启
 

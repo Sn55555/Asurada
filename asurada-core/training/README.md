@@ -47,6 +47,14 @@ Default outputs:
 - `training/exports/phase2_dataset_v1/strategy_action_features_v1.csv`
 - `training/exports/phase2_dataset_v1/manifest.json`
 
+`features.csv` 现已包含资源模型需要的正式燃油派生字段：
+
+- `raw_fuel_laps_remaining`
+- `derived_fuel_laps_remaining`
+- `fuel_laps_remaining_source`
+- `remaining_race_laps`
+- `fuel_margin_laps`
+
 ## Tactical Feature View
 
 `tactical_features_v1.csv` is the first focused export for:
@@ -149,6 +157,52 @@ Outputs:
 - `training/reports/front_attack_commit_baseline/front_attack_commit_model_baseline.txt`
 - `training/reports/front_attack_commit_baseline/front_attack_commit_baseline_report.json`
 
+Resource-risk baselines:
+
+```bash
+cd /Users/sn5/Asurada/asurada-core
+source .venv/bin/activate
+python3 scripts/train_resource_risk_baselines.py
+```
+
+Outputs:
+
+- `training/reports/resource_risk_baselines/resource_risk_baselines_report.json`
+- `training/reports/resource_risk_baselines/fuel_risk/fuel_risk_baseline_report.json`
+- `training/reports/resource_risk_baselines/ers_risk/ers_risk_baseline_report.json`
+- `training/reports/resource_risk_baselines/tyre_risk/tyre_risk_baseline_report.json`
+- `training/reports/resource_risk_baselines/dynamics_risk/dynamics_risk_baseline_report.json`
+
+Defence-cost baseline:
+
+```bash
+cd /Users/sn5/Asurada/asurada-core
+source .venv/bin/activate
+python3 scripts/train_defence_cost_baseline.py
+```
+
+Outputs:
+
+- `training/reports/defence_cost_baseline/defence_cost_model_baseline.txt`
+- `training/reports/defence_cost_baseline/defence_cost_baseline_report.json`
+
+Rival-pressure baselines:
+
+```bash
+cd /Users/sn5/Asurada/asurada-core
+source .venv/bin/activate
+python3 scripts/train_rival_pressure_baseline.py
+```
+
+Outputs:
+
+- `training/reports/rival_pressure_baseline/front_pressure/front_pressure_model_baseline.txt`
+- `training/reports/rival_pressure_baseline/front_pressure/front_pressure_baseline_report.json`
+- `training/reports/rival_pressure_baseline/rear_pressure/rear_pressure_model_baseline.txt`
+- `training/reports/rival_pressure_baseline/rear_pressure/rear_pressure_baseline_report.json`
+- `training/reports/rival_pressure_baseline/rival_pressure/rival_pressure_model_baseline.txt`
+- `training/reports/rival_pressure_baseline/rival_pressure/rival_pressure_baseline_report.json`
+
 Attack-opportunity baseline:
 
 ```bash
@@ -194,3 +248,13 @@ Outputs:
 - `strategy_action_model` baseline 已切换到 `strategy_action_features_v1.csv` 与 deterministic exported `val/test`，当前结果更真实：
   - `top1_accuracy=0.7052`
   - `top2_accuracy=0.9998`
+- `defence_cost_model` baseline 已跑通，当前是从 `features.csv` 重算 `defence_cost_proxy` 的 proxy-distillation 版本：
+  - `mae=2.7160`
+  - `rmse=4.4729`
+  - `r2=0.3031`
+  - `tactical_cost_correlation=0.7154`
+- `rival_pressure_model` baseline 已跑通，当前拆成 `front / rear / aggregate` 三个分数，并已旁路接入 runtime debug：
+  - `front_pressure_model`: `mae=11.9885`, `rmse=12.4644`, `r2=0.0000`
+  - `rear_pressure_model`: `mae=4.0431`, `rmse=5.0826`, `r2=0.9839`
+  - `rival_pressure_model`: `mae=25.4790`, `rmse=29.5207`, `r2=0.4563`
+  - 当前结论：`rear_pressure_model` 最稳；`front_pressure_model` 与 aggregate 仍需补更强样本和标签

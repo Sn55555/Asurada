@@ -35,11 +35,20 @@
 | 模型 / 模块 | 当前状态 | 当前结论 |
 | --- | --- | --- |
 | `rear_threat_model` | 已完成第一版 baseline | 当前可用 |
+| `fuel_risk_model` | 已完成第一版 baseline | 当前可用，已切到派生燃油口径 |
+| `ers_risk_model` | 已完成第一版 baseline | 当前可用 |
+| `tyre_risk_model` | 已完成第一版 baseline | 当前可用 |
+| `dynamics_risk_model` | 已完成第一版 baseline | 当前可用 |
+| `defence_cost_model` | 已完成第一版 baseline | 当前可用，但属于 proxy-distillation baseline，已旁路接入 runtime debug |
+| `rival_pressure_model` | 已完成第一版 baseline | 已旁路接入 runtime debug；当前 `rear_pressure` 最稳，`front/rival` 仍需补更强样本与标签 |
 | `attack_opportunity_model` | 已完成第一版 baseline | 当前可用，已具备 exported `val/test` |
 | `front_attack_commit_model` | 已完成第一版 baseline | 当前可接受，已具备 exported `val/test`，后续仍需继续收紧标签 |
 | `strategy_action_model` | 已完成第一版 baseline | 当前适合作为 `top-k` 候选提供器，不适合直接 `top-1` 直出 |
 | `strategy_arbiter_v2` | 已接入主链 | 已消费真实 `strategy_action_model top-k`，并已接入自动回归断言 |
 | `confidence_model / uncertainty_layer` | 已完成最小规则版 | 已生成真实 `confidence_context / fallback_context`，并接入 `arbiter_v2` |
+| `session_mode_router` | 已完成最小规则版 | 已生成真实 `session_route`，并同时过滤规则候选与模型候选 |
+| `interaction_input_event model` | 已完成最小版 | 已生成真实 `interaction_session_id / turn_id / request_id / snapshot_binding`，并写入 debug 与日志 |
+| `output_lifecycle model` | 已完成最小版 | 已生成真实 `start / interrupt / suppress / cancel / idle` 输出生命周期事件，并写入 debug 与日志 |
 | `yield_vs_defend_model` | 已试跑 baseline | 当前暂停，等待更稳定标签与样本 |
 | `event_impact_model` | 已试跑 baseline | 当前暂停，等待更多事件样本与更强后验标签 |
 
@@ -731,6 +740,26 @@
 主要功能：
 - 根据 session 类型、timing 模式和支持等级切换模型和参数
 
+当前状态：
+- 最小规则版已实现
+- 已从 `StrategyEngine` 主链生效
+- 已输出真实 `session_route`
+- 已同时过滤：
+  - `rule_candidates`
+  - `model_candidates`
+
+当前路由策略：
+- `race_like + official_preferred`
+  - 允许 race 资源动作和 timing 动作
+- `session_type_estimated`
+  - 禁用 timing 动作
+  - 保留非 timing 的 race 资源与动态动作
+- `QualifyingLike / Time Trial / 非 race-like`
+  - 仅保留：
+    - `NONE`
+    - `DYNAMICS_UNSTABLE`
+    - `FRONT_LOAD`
+
 输入字段：
 - `session_type`
 - `timing_mode`
@@ -739,9 +768,11 @@
 - `total_laps`
 
 输出字段：
-- `model_profile_id`
-- `routing_mode`
-- `feature_gate_flags`
+- `session_mode`
+- `allowed_action_codes`
+- `allow_timing_actions`
+- `allow_race_resource_actions`
+- `route_reason`
 
 推荐实现：
 - 规则路由层
@@ -752,6 +783,8 @@
 
 评估指标：
 - routing correctness
+- `session_route_present`
+- `time_trial_route_filters_race_actions`
 
 是否进入实时主链：
 - 是
@@ -823,6 +856,19 @@
 主要功能：
 - 燃油风险评分和节奏压力判断
 
+当前状态：
+- `已完成第一版 baseline`
+- 当前指标：
+  - `mae=1.8142`
+  - `rmse=3.3618`
+  - `r2=0.9919`
+- 当前说明：
+  - 已切换到项目内派生燃油口径
+  - 训练表已纳入：
+    - `derived_fuel_laps_remaining`
+    - `fuel_margin_laps`
+    - `fuel_laps_remaining_source`
+
 输入字段：
 - `fuel_in_tank`
 - `fuel_capacity`
@@ -856,6 +902,13 @@
 主要功能：
 - ERS 风险、保电价值、投入价值判断
 
+当前状态：
+- `已完成第一版 baseline`
+- 当前指标：
+  - `mae=0.2329`
+  - `rmse=1.3906`
+  - `r2=0.9609`
+
 输入字段：
 - `ers_store_energy`
 - `ers_pct`
@@ -888,6 +941,13 @@
 
 主要功能：
 - 轮胎风险与管理压力评分
+
+当前状态：
+- `已完成第一版 baseline`
+- 当前指标：
+  - `mae=0.0305`
+  - `rmse=0.0699`
+  - `r2=0.9998`
 
 输入字段：
 - `tyre.compound`
@@ -925,6 +985,13 @@
 
 主要功能：
 - 当前姿态和动态风险评分
+
+当前状态：
+- `已完成第一版 baseline`
+- 当前指标：
+  - `mae=0.1149`
+  - `rmse=1.2109`
+  - `r2=0.9541`
 
 输入字段：
 - `g_force_lateral`
@@ -1092,8 +1159,12 @@
 - `LightGBM Regressor`
 
 标签来源：
-- 攻防专题样本
-- 后验损失标签
+- 当前阶段一轮 baseline：
+  - `features.csv + labels.csv`
+  - 从现有字段重算 `defence_cost_proxy`
+- 后续目标：
+  - 攻防专题样本
+  - 后验损失标签
 
 评估指标：
 - MAE
@@ -1101,6 +1172,24 @@
 
 是否进入实时主链：
 - 是
+
+当前实现状态：
+- 已完成第一版 baseline
+- 当前训练口径：
+  - 过滤 `official_preferred + race-like tactical rows`
+  - deterministic split：
+    - `uid15 lap 1/3 -> train`
+    - `uid15 lap 2 -> val`
+    - `uid16 -> test`
+- 当前指标：
+  - `mae=2.7160`
+  - `rmse=4.4729`
+  - `r2=0.3031`
+  - `tactical_cost_correlation=0.7154`
+- 当前边界：
+  - 仍是 `proxy_distillation_baseline`
+  - 不是后验损失标签模型
+  - 已旁路接入 runtime debug，但尚未接入主链仲裁
 
 ## P2 第二批增强模型
 
@@ -1127,7 +1216,11 @@
 - `LightGBM`
 
 标签来源：
-- 多车回放标签
+- 当前第一版为 `proxy-distillation baseline`
+- 由 `features.csv` 中的前后车差距、相对速度、ERS、DRS、区段语义重算：
+  - `front_pressure_proxy`
+  - `rear_pressure_proxy`
+  - `rival_pressure_proxy`
 
 评估指标：
 - MAE
@@ -1135,6 +1228,39 @@
 
 是否进入实时主链：
 - 是
+
+当前实现状态：
+- 已完成第一版 baseline，并已旁路接入 runtime debug
+- 当前拆成三个分数：
+  - `front_pressure_model`
+  - `rear_pressure_model`
+  - `rival_pressure_model`
+- 当前结果：
+  - `front_pressure_model`
+    - `mae=11.9885`
+    - `rmse=12.4644`
+    - `r2=0.0000`
+    - `threat_ranking_accuracy=0.0000`
+    - 说明：当前 race-like 样本里前车压迫信号不足，还不能单独视为可用模型
+  - `rear_pressure_model`
+    - `mae=4.0431`
+    - `rmse=5.0826`
+    - `r2=0.9839`
+    - `threat_ranking_accuracy=0.9484`
+    - 说明：当前最稳定，已可作为旁路压力分数
+  - `rival_pressure_model`
+    - `mae=25.4790`
+    - `rmse=29.5207`
+    - `r2=0.4563`
+    - `threat_ranking_accuracy=0.8439`
+    - 说明：已可用于 debug 观察综合态势，但还不适合直接接主链仲裁
+
+当前边界：
+- 当前是多输出 proxy-distillation 基线，不是后验对抗收益模型
+- 当前更适合作为：
+  - runtime debug sidecar
+  - 后续 `rear_threat / attack_opportunity / strategy_action` 的态势观察层
+- 不宜直接替代现有主链判断
 
 ### `entry_quality_model`
 
@@ -1424,3 +1550,14 @@
 20. 接入 `strategy_arbiter_v2`
 21. 接入完整 `fallback_policy`
 22. 完成 dashboard 模型对比与回归
+
+### 第 5 层：阶段三防返工接口预埋
+
+23. 定义统一 `InteractionInput / UserTurn` 输入结构
+24. 增加 `turn_id / interaction_session_id / request_id`
+25. 定义策略查询与状态快照绑定协议
+26. 为输出层增加 `pending / committed / cancelled / interrupted` 生命周期
+27. 为工具与长任务增加取消接口
+28. 定义结构化语音查询 schema 与指令路由接口
+29. 建立 `ASR -> query normalization -> strategy -> TTS` 分层日志骨架
+30. 定义语音确认 / 权限分级最小规则版
