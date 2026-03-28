@@ -441,12 +441,12 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
     has_chain_ui = all(
         token in dashboard_text
         for token in (
-            "Parse To Model Chain",
-            "packet-filter",
-            "Trigger Highlights",
-            "Frame Change Diff",
-            "timing_support_level",
-            "gap_confidence_ahead",
+            "World Trajectory",
+            "Current Strategy Output",
+            "Front / Rear Rival",
+            "Frame Browser",
+            "trajectory-canvas",
+            "frame-slider",
         )
     )
     checks = {
@@ -592,6 +592,32 @@ def analyze_arbiter_contract() -> dict[str, Any]:
     dedupe_result = arbiter.arbitrate(dedupe_payload)
     deduped_codes = [item.code for item in dedupe_result.ordered_actions]
 
+    fallback_payload = ArbiterInput(
+        rule_candidates=[
+            RuleCandidate(
+                code="DEFEND_WINDOW",
+                priority=74,
+                title="防守窗口",
+                detail="规则链防守候选。",
+            )
+        ],
+        model_candidates=[
+            ModelCandidate(
+                code="DEFEND_WINDOW",
+                score=0.82,
+                rank=1,
+                source_model="strategy_action_model",
+                title="防守窗口",
+                detail="模型链防守候选。",
+            )
+        ],
+        tactical_context=TacticalContext(tactical_state="defence_active", state_priority_hint="DEFEND_WINDOW", state_lock=True),
+        confidence_context=ConfidenceContext(confidence_score=0.32, confidence_level="low", mainline_allowed=False),
+        fallback_context=FallbackContext(fallback_mode="rule_only", voice_allowed=False, hud_only=True),
+        output_control=OutputControl(cooldown_hint=0, last_emitted_action=None, suppression_window=0),
+    )
+    fallback_result = arbiter.arbitrate(fallback_payload)
+
     checks = {
         "priority_floor_calibrated": priority_result.final_strategy_stack.primary == "LOW_FUEL"
         and priority_result.ordered_actions
@@ -599,6 +625,9 @@ def analyze_arbiter_contract() -> dict[str, Any]:
         "cooldown_suppresses_last_action": cooldown_result.final_strategy_stack.primary == "NONE"
         and any(item.suppression_reason == "cooldown_window" for item in cooldown_result.suppressed_actions),
         "duplicate_codes_deduped": deduped_codes.count("DEFEND_WINDOW") == 1,
+        "low_confidence_falls_back_to_rules": fallback_result.final_strategy_stack.primary == "DEFEND_WINDOW"
+        and any(item.suppression_reason == "fallback_rule_only" for item in fallback_result.suppressed_actions)
+        and fallback_result.final_voice_action is None,
     }
     return {
         "passed": all(checks.values()),
@@ -616,6 +645,12 @@ def analyze_arbiter_contract() -> dict[str, Any]:
             "dedupe_result": {
                 "primary": dedupe_result.final_strategy_stack.primary,
                 "ordered_actions": [item.__dict__ for item in dedupe_result.ordered_actions],
+            },
+            "fallback_result": {
+                "primary": fallback_result.final_strategy_stack.primary,
+                "suppressed_actions": [item.__dict__ for item in fallback_result.suppressed_actions],
+                "ordered_actions": [item.__dict__ for item in fallback_result.ordered_actions],
+                "voice_action": fallback_result.final_voice_action.__dict__ if fallback_result.final_voice_action else None,
             },
         },
     }

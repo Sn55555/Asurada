@@ -165,6 +165,22 @@
       - `duplicate_codes_deduped`
   - 下一步收口方向：
     - 继续补更细的 priority / cooldown 标定
+- `confidence_model / uncertainty_layer` 最小规则版已接入
+  - 当前文件：
+    - `/Users/sn5/Asurada/asurada-core/src/asurada/confidence.py`
+  - 当前结论：
+    - 已不再写死 `confidence_context=high`
+    - 当前会根据 `timing_support_level`、官方 gap 可信度、模型候选可用性、当前战术态，生成真实 `confidence_context / fallback_context`
+    - 已接入 `StrategyEngine` 到 `strategy_arbiter_v2` 的主链
+    - 已接入自动回归断言：
+      - `low_confidence_falls_back_to_rules`
+  - 当前边界：
+    - 仍是规则校准层，不是训练出来的轻量分类器
+    - `session_mode_router / fallback_policy` 还不是完整独立模块
+  - 下一步收口方向：
+    - 拆出更明确的 `session_mode_router`
+    - 补特征缺失率和 OOD 信号
+    - 细化 `voice_allowed / hud_only` 口径
 
 ### 阶段三：产品化与平台化
 

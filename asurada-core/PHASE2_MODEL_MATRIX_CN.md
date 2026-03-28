@@ -39,6 +39,7 @@
 | `front_attack_commit_model` | 已完成第一版 baseline | 当前可接受，已具备 exported `val/test`，后续仍需继续收紧标签 |
 | `strategy_action_model` | 已完成第一版 baseline | 当前适合作为 `top-k` 候选提供器，不适合直接 `top-1` 直出 |
 | `strategy_arbiter_v2` | 已接入主链 | 已消费真实 `strategy_action_model top-k`，并已接入自动回归断言 |
+| `confidence_model / uncertainty_layer` | 已完成最小规则版 | 已生成真实 `confidence_context / fallback_context`，并接入 `arbiter_v2` |
 | `yield_vs_defend_model` | 已试跑 baseline | 当前暂停，等待更稳定标签与样本 |
 | `event_impact_model` | 已试跑 baseline | 当前暂停，等待更多事件样本与更强后验标签 |
 
@@ -1418,8 +1419,8 @@
 
 ### 第 4 层：主链控制与回退
 
-18. 实现 `confidence_model / uncertainty_layer`
+18. 完成 `confidence_model / uncertainty_layer` 最小规则版
 19. 实现 `tactical_state_machine`
 20. 接入 `strategy_arbiter_v2`
-21. 接入 `fallback_policy`
+21. 接入完整 `fallback_policy`
 22. 完成 dashboard 模型对比与回归

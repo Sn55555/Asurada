@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from .arbiter import (
     ArbiterInput,
-    ConfidenceContext,
-    FallbackContext,
     ModelCandidate,
     OutputControl,
     RuleCandidate,
     StrategyArbiterV2,
     TacticalContext,
 )
+from .confidence import StrategyUncertaintyLayer
 from .config import StrategyThresholds, load_usage_hooks
 from .models import (
     ContextProfile,
@@ -32,6 +31,7 @@ class StrategyEngine:
         self.usage_hooks = load_usage_hooks(usage_hooks_path) if usage_hooks_path is not None else {}
         self.arbiter_v2 = StrategyArbiterV2()
         self.strategy_action_runtime = StrategyActionModelRuntime()
+        self.uncertainty_layer = StrategyUncertaintyLayer()
 
     def evaluate(self, state: SessionState, history: list[SessionState] | None = None) -> StrategyDecision:
         """Evaluate one frame and return ranked strategy messages plus debug data."""
@@ -498,6 +498,12 @@ class StrategyEngine:
             state_priority_hint = "ATTACK_WINDOW"
 
         model_candidates = self._build_strategy_action_model_candidates(state=state, context=context)
+        confidence_resolution = self.uncertainty_layer.evaluate(
+            state=state,
+            context=context,
+            model_candidates=model_candidates,
+            tactical_state=tactical_state,
+        )
         payload = ArbiterInput(
             rule_candidates=[RuleCandidate.from_strategy_candidate(candidate) for candidate in candidates],
             model_candidates=model_candidates,
@@ -507,16 +513,8 @@ class StrategyEngine:
                 state_lock=state_lock,
                 state_transition=None,
             ),
-            confidence_context=ConfidenceContext(
-                confidence_score=1.0,
-                confidence_level="high",
-                mainline_allowed=True,
-            ),
-            fallback_context=FallbackContext(
-                fallback_mode="none",
-                voice_allowed=True,
-                hud_only=False,
-            ),
+            confidence_context=confidence_resolution.confidence_context,
+            fallback_context=confidence_resolution.fallback_context,
             output_control=OutputControl(
                 cooldown_hint=0,
                 last_emitted_action=None,
@@ -532,6 +530,11 @@ class StrategyEngine:
                 "confidence_context": payload.confidence_context.__dict__,
                 "fallback_context": payload.fallback_context.__dict__,
                 "output_control": payload.output_control.__dict__,
+                "uncertainty_layer": {
+                    "fallback_recommended": confidence_resolution.fallback_recommended,
+                    "fallback_reason": confidence_resolution.fallback_reason,
+                    "session_mode": confidence_resolution.session_mode,
+                },
             },
             "output": {
                 "final_hud_action": result.final_hud_action.__dict__,
