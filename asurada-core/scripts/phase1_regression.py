@@ -14,6 +14,16 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from asurada.capture_ingest import CaptureJsonlSource
+from asurada.arbiter import (
+    ArbiterInput,
+    ConfidenceContext,
+    FallbackContext,
+    ModelCandidate,
+    OutputControl,
+    RuleCandidate,
+    StrategyArbiterV2,
+    TacticalContext,
+)
 from asurada.config import AppConfig
 from asurada.dashboard import DebugDashboardBuilder
 from asurada.decode import decode_snapshot
@@ -120,18 +130,21 @@ def run_regression(
         analyze_sample_session(sample, sample_snapshot_limit if sample_snapshot_limit > 0 else None)
         for sample in sample_metadata.get("samples", [])
     ]
+    arbiter_contract = analyze_arbiter_contract()
 
     checks = {
         "full_capture_passed": full_capture["passed"],
         "sample_metadata_exists": sample_metadata_path.exists(),
         "session_samples_present": bool(session_samples),
         "all_session_samples_passed": all(item["passed"] for item in session_samples),
+        "arbiter_contract_passed": arbiter_contract["passed"],
     }
     return {
         "passed": all(checks.values()),
         "checks": checks,
         "full_capture": full_capture,
         "session_samples": session_samples,
+        "arbiter_contract": arbiter_contract,
     }
 
 
@@ -348,11 +361,15 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
     gap_confidence_ahead_counts: Counter[str] = Counter()
     gap_confidence_behind_counts: Counter[str] = Counter()
     event_code_counts: Counter[str] = Counter()
+    arbiter_primary_counts: Counter[str] = Counter()
     snapshot_count = 0
     last_debug: dict[str, Any] = {}
     latest_state = None
     latest_raw: dict[str, Any] = {}
     latest_final_classification: dict[str, Any] = {}
+    arbiter_sidecar_seen = False
+    arbiter_contract_seen = False
+    arbiter_model_candidate_frames = 0
 
     with tempfile.TemporaryDirectory(prefix="asurada-phase1-regression-") as tmp_dir:
         tmp_root = Path(tmp_dir)
@@ -391,6 +408,18 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
             last_debug = decision.debug
             latest_raw = dict(state.raw)
 
+            arbiter_sidecar = decision.debug.get("arbiter_v2") or {}
+            if arbiter_sidecar:
+                arbiter_sidecar_seen = True
+                if "input" in arbiter_sidecar and "output" in arbiter_sidecar:
+                    arbiter_contract_seen = True
+                model_candidates = arbiter_sidecar.get("input", {}).get("model_candidates", [])
+                if model_candidates:
+                    arbiter_model_candidate_frames += 1
+                primary = arbiter_sidecar.get("output", {}).get("final_strategy_stack", {}).get("primary")
+                if primary:
+                    arbiter_primary_counts[str(primary)] += 1
+
             timing_mode_counts[str(latest_raw.get("timing_mode"))] += 1
             timing_support_counts[str(latest_raw.get("timing_support_level"))] += 1
             session_type_counts[str(latest_raw.get("session_type"))] += 1
@@ -427,6 +456,9 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
         "latest_state_present": latest_state is not None,
         "risk_explain_present": has_risk_explain,
         "usage_bias_present": has_usage_bias,
+        "arbiter_v2_present": arbiter_sidecar_seen,
+        "arbiter_v2_contract_present": arbiter_contract_seen,
+        "arbiter_model_candidates_present": arbiter_model_candidate_frames > 0,
         "dashboard_chain_ui_present": has_chain_ui,
     }
     analysis = {
@@ -438,6 +470,8 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
         "gap_confidence_ahead_counts": dict(sorted(gap_confidence_ahead_counts.items())),
         "gap_confidence_behind_counts": dict(sorted(gap_confidence_behind_counts.items())),
         "event_code_counts": dict(sorted(event_code_counts.items())),
+        "arbiter_primary_counts": dict(sorted(arbiter_primary_counts.items())),
+        "arbiter_model_candidate_frames": arbiter_model_candidate_frames,
         "latest_raw": {
             "session_type": latest_raw.get("session_type"),
             "timing_mode": latest_raw.get("timing_mode"),
@@ -461,6 +495,129 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
         "latest_lap": latest_state.lap_number if latest_state is not None else None,
         "checks": checks,
         "analysis": analysis,
+    }
+
+
+def analyze_arbiter_contract() -> dict[str, Any]:
+    """Run synthetic regression checks against StrategyArbiterV2 behavior."""
+
+    arbiter = StrategyArbiterV2()
+
+    priority_payload = ArbiterInput(
+        rule_candidates=[],
+        model_candidates=[
+            ModelCandidate(
+                code="LOW_FUEL",
+                score=0.616,
+                rank=1,
+                source_model="strategy_action_model",
+                title="燃油紧张",
+                detail="LOW_FUEL 候选分数 0.616",
+            ),
+            ModelCandidate(
+                code="NONE",
+                score=0.347,
+                rank=2,
+                source_model="strategy_action_model",
+                title="保持当前策略",
+                detail="NONE 候选分数 0.347",
+            ),
+        ],
+        tactical_context=TacticalContext(tactical_state="neutral"),
+        confidence_context=ConfidenceContext(confidence_score=0.9, confidence_level="high", mainline_allowed=True),
+        fallback_context=FallbackContext(fallback_mode="none", voice_allowed=True, hud_only=False),
+        output_control=OutputControl(cooldown_hint=0, last_emitted_action=None, suppression_window=0),
+    )
+    priority_result = arbiter.arbitrate(priority_payload)
+
+    cooldown_payload = ArbiterInput(
+        rule_candidates=[],
+        model_candidates=[
+            ModelCandidate(
+                code="LOW_FUEL",
+                score=0.616,
+                rank=1,
+                source_model="strategy_action_model",
+                title="燃油紧张",
+                detail="LOW_FUEL 候选分数 0.616",
+            ),
+            ModelCandidate(
+                code="NONE",
+                score=0.347,
+                rank=2,
+                source_model="strategy_action_model",
+                title="保持当前策略",
+                detail="NONE 候选分数 0.347",
+            ),
+        ],
+        tactical_context=TacticalContext(tactical_state="neutral"),
+        confidence_context=ConfidenceContext(confidence_score=0.9, confidence_level="high", mainline_allowed=True),
+        fallback_context=FallbackContext(fallback_mode="none", voice_allowed=True, hud_only=False),
+        output_control=OutputControl(cooldown_hint=0, last_emitted_action="LOW_FUEL", suppression_window=1),
+    )
+    cooldown_result = arbiter.arbitrate(cooldown_payload)
+
+    dedupe_payload = ArbiterInput(
+        rule_candidates=[
+            RuleCandidate(
+                code="DEFEND_WINDOW",
+                priority=74,
+                title="防守窗口",
+                detail="规则链防守候选。",
+            )
+        ],
+        model_candidates=[
+            ModelCandidate(
+                code="DEFEND_WINDOW",
+                score=0.71,
+                rank=1,
+                source_model="strategy_action_model",
+                title="防守窗口",
+                detail="模型链防守候选。",
+            ),
+            ModelCandidate(
+                code="NONE",
+                score=0.18,
+                rank=2,
+                source_model="strategy_action_model",
+                title="保持当前策略",
+                detail="NONE 候选分数 0.180",
+            ),
+        ],
+        tactical_context=TacticalContext(tactical_state="defence_active", state_priority_hint="DEFEND_WINDOW", state_lock=True),
+        confidence_context=ConfidenceContext(confidence_score=0.95, confidence_level="high", mainline_allowed=True),
+        fallback_context=FallbackContext(fallback_mode="none", voice_allowed=True, hud_only=False),
+        output_control=OutputControl(cooldown_hint=0, last_emitted_action=None, suppression_window=0),
+    )
+    dedupe_result = arbiter.arbitrate(dedupe_payload)
+    deduped_codes = [item.code for item in dedupe_result.ordered_actions]
+
+    checks = {
+        "priority_floor_calibrated": priority_result.final_strategy_stack.primary == "LOW_FUEL"
+        and priority_result.ordered_actions
+        and priority_result.ordered_actions[0].priority >= 70,
+        "cooldown_suppresses_last_action": cooldown_result.final_strategy_stack.primary == "NONE"
+        and any(item.suppression_reason == "cooldown_window" for item in cooldown_result.suppressed_actions),
+        "duplicate_codes_deduped": deduped_codes.count("DEFEND_WINDOW") == 1,
+    }
+    return {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "analysis": {
+            "priority_result": {
+                "primary": priority_result.final_strategy_stack.primary,
+                "ordered_actions": [item.__dict__ for item in priority_result.ordered_actions],
+            },
+            "cooldown_result": {
+                "primary": cooldown_result.final_strategy_stack.primary,
+                "suppressed_actions": [item.__dict__ for item in cooldown_result.suppressed_actions],
+                "ordered_actions": [item.__dict__ for item in cooldown_result.ordered_actions],
+            },
+            "dedupe_result": {
+                "primary": dedupe_result.final_strategy_stack.primary,
+                "ordered_actions": [item.__dict__ for item in dedupe_result.ordered_actions],
+            },
+        },
     }
 
 

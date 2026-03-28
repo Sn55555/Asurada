@@ -120,6 +120,51 @@
   - 下一步收口方向：
     - 继续扩展 race-like 攻击样本，验证 `attack_opportunity -> front_attack_commit` 是否在更多 session 中稳定
     - 继续观察 exported val 与外部 test 的 recall 差异
+- `strategy_action_model` baseline 已跑通
+  - 当前结论：第一版干净 baseline 可用，但只覆盖高频动作子集
+  - 当前动作范围：
+    - `NONE`
+    - `LOW_FUEL`
+    - `DEFEND_WINDOW`
+    - `DYNAMICS_UNSTABLE`
+  - 当前指标：
+    - `top1_accuracy=0.7052`
+    - `top2_accuracy=0.9998`
+  - 当前验证：
+    - `validation_source=exported_val_split`
+    - `test_source=exported_test_split`
+    - 当前训练文件：`strategy_action_features_v1.csv`
+    - 当前 test 主样本来自 `uid16`
+  - 当前意义：
+    - 已可为 `strategy_arbiter_v2` 提供 `top-k` 候选
+    - 当前 exported `val/test` 条件下，`top-1` 明显弱于 `top-2`
+    - 当前不适合直接 top-1 直出
+  - 下一步收口方向：
+    - 继续改善 `NONE` 与 `LOW_FUEL` 的分界
+    - 按 `top-k 候选 + 仲裁` 方式接入，而不是直接 top-1 直出
+- `strategy_arbiter_v2` 代码骨架已落地
+  - 当前文件：
+    - `/Users/sn5/Asurada/asurada-core/src/asurada/arbiter.py`
+  - 当前结论：
+    - 输入/输出契约已代码化
+    - 最小仲裁逻辑已可运行
+    - 当前已以 sidecar 形式接入 `StrategyEngine.evaluate()` 的 debug 输出
+    - 当前已真实消费 `strategy_action_model` 的 `top-k` 候选
+    - 当前已接管 `StrategyEngine` 最终 `messages` 排序
+    - 当前已完成 priority 校准，避免模型分数直接映射导致播报阈值失真
+  - 当前能力：
+    - 接收 `rule_candidates`
+    - 接收 `model_candidates`
+    - 结合 `tactical_context`
+    - 结合 `confidence_context`
+    - 结合 `fallback_context`
+    - 输出 HUD / voice / stack / suppressed actions
+    - 已接入自动回归断言：
+      - `priority_floor_calibrated`
+      - `cooldown_suppresses_last_action`
+      - `duplicate_codes_deduped`
+  - 下一步收口方向：
+    - 继续补更细的 priority / cooldown 标定
 
 ### 阶段三：产品化与平台化
 
@@ -604,6 +649,14 @@
 19. [x] 为攻击链补独立 `val` 样本，降低对 `train_holdout_split` 的依赖
 20. [x] 收紧 `attack_commit_proxy_label`，将 `front_attack_commit_model` 外部 test 误报从 `79` 压到 `4`
 21. [ ] 继续增强 `attack_commit_proxy_label` 的 DRS 和持续逼近信号，进一步提高泛化稳定性
+22. [x] 建立 `strategy_action_model` 第一版干净 baseline（高频动作子集）
+23. [x] 为 `strategy_action_model` 补独立 exported `val`，降低对 `train_holdout_split` 的依赖
+24. [x] 设计并实现 `strategy_arbiter_v2` 输入/输出契约与最小代码骨架
+25. [x] 将 `strategy_arbiter_v2` 以 sidecar 方式接入现有 `StrategyEngine` debug
+26. [x] 将 `strategy_arbiter_v2` 接入真实 `strategy_action_model top-k` 候选
+27. [x] 将 `strategy_arbiter_v2` 的仲裁结果接入最终动作主链
+28. [x] 为模型驱动动作增加 priority 校准，避免低于现有播报阈值
+29. [x] 增加仲裁层 priority / cooldown 回归断言
 12. [x] 试跑 `yield_vs_defend_model` baseline，确认链路可行
 13. [ ] 暂停 `yield_vs_defend_model`，等待更稳定的后验标签与样本覆盖后再重启
 

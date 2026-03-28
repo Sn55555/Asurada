@@ -44,6 +44,7 @@ Default outputs:
 - `training/exports/phase2_dataset_v1/tactical_features_v1.csv`
 - `training/exports/phase2_dataset_v1/event_features_v1.csv`
 - `training/exports/phase2_dataset_v1/attack_features_v1.csv`
+- `training/exports/phase2_dataset_v1/strategy_action_features_v1.csv`
 - `training/exports/phase2_dataset_v1/manifest.json`
 
 ## Tactical Feature View
@@ -86,6 +87,26 @@ It keeps race-like rows with official front-gap coverage and derives first-pass 
 - short-horizon gap reduction
 - current overtake-zone / next-segment setup
 - current resource and stability context
+
+## Strategy-Action Feature View
+
+`strategy_action_features_v1.csv` is the first focused export for:
+
+- `strategy_action_model`
+
+It keeps the current high-frequency action subset:
+
+- `NONE`
+- `LOW_FUEL`
+- `DEFEND_WINDOW`
+- `DYNAMICS_UNSTABLE`
+
+It also uses deterministic exported splits instead of training-time holdout:
+
+- `uid13` lap 1 -> exported `val`
+- `uid15` lap 2 -> exported `val`
+- `uid16` -> exported `test`
+- `uid8` -> excluded from this specialized view
 
 ## First Baseline Training
 
@@ -141,6 +162,19 @@ Outputs:
 - `training/reports/attack_opportunity_baseline/attack_opportunity_model_baseline.txt`
 - `training/reports/attack_opportunity_baseline/attack_opportunity_baseline_report.json`
 
+Strategy-action baseline:
+
+```bash
+cd /Users/sn5/Asurada/asurada-core
+source .venv/bin/activate
+python3 scripts/train_strategy_action_baseline.py
+```
+
+Outputs:
+
+- `training/reports/strategy_action_baseline/strategy_action_model_baseline.txt`
+- `training/reports/strategy_action_baseline/strategy_action_baseline_report.json`
+
 ## Notes
 
 - `features.csv` only contains fields that already exist in normalized snapshots or can be stably derived from the current rolling window.
@@ -157,3 +191,6 @@ Outputs:
 - 当前攻击链最新结果：
   - `attack_opportunity_model`: `accuracy=0.9994`, `positive precision=1.0000`, `positive recall=0.7931`
   - `front_attack_commit_model`: `accuracy=0.9996`, `positive precision=0.7647`, `positive recall=1.0000`
+- `strategy_action_model` baseline 已切换到 `strategy_action_features_v1.csv` 与 deterministic exported `val/test`，当前结果更真实：
+  - `top1_accuracy=0.7052`
+  - `top2_accuracy=0.9998`

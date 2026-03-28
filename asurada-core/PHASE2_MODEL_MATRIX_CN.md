@@ -485,14 +485,79 @@
 - `cooldown_hint`
 - `fallback_mode`
 
+输入结构建议：
+- `rule_candidates`
+  - `code`
+  - `priority`
+  - `source`
+  - `expires_in_frames`
+- `model_candidates`
+  - `code`
+  - `score`
+  - `rank`
+  - `source_model`
+- `tactical_context`
+  - `tactical_state`
+  - `state_priority_hint`
+  - `state_lock`
+  - `state_transition`
+- `confidence_context`
+  - `confidence_score`
+  - `confidence_level`
+  - `mainline_allowed`
+- `fallback_context`
+  - `fallback_mode`
+  - `voice_allowed`
+  - `hud_only`
+- `output_control`
+  - `cooldown_hint`
+  - `last_emitted_action`
+  - `suppression_window`
+
 输出字段：
 - `final_hud_action`
 - `final_voice_action`
 - `final_strategy_stack`
 - `suppressed_actions`
 
+输出结构建议：
+- `final_hud_action`
+  - `code`
+  - `reason`
+  - `source`
+- `final_voice_action`
+  - `code`
+  - `speak_text`
+  - `priority`
+  - `interrupt`
+- `final_strategy_stack`
+  - `primary`
+  - `secondary`
+  - `tactical_state`
+  - `confidence_level`
+- `suppressed_actions`
+  - `code`
+  - `suppression_reason`
+
 推荐实现：
 - 规则仲裁层
+- 当前实现状态：
+  - 代码骨架已落地：`/Users/sn5/Asurada/asurada-core/src/asurada/arbiter.py`
+  - 当前已实现独立 `ArbiterInput / ArbiterOutput` 契约
+  - 当前已实现最小仲裁逻辑：
+    - `rule_only` fallback
+    - `cooldown_window` suppression
+    - `tactical_state` 优先级偏置
+    - HUD / voice / strategy stack 输出
+  - 当前已接入：
+    - 已以 sidecar 方式接入 `StrategyEngine.evaluate()` 的 debug 输出
+    - 已真实消费 `strategy_action_model` 的 `top-k` 候选
+    - 已将仲裁结果接入最终动作主链
+    - 已为模型驱动动作增加 priority 校准层
+    - 已接入自动回归断言：
+      - `priority_floor_calibrated`
+      - `cooldown_suppresses_last_action`
+      - `duplicate_codes_deduped`
 
 标签来源：
 - 工程定义
@@ -500,6 +565,9 @@
 评估指标：
 - arbitration consistency
 - suppression correctness
+- top-k selection correctness
+- cooldown stability
+- tactical-state alignment
 
 是否进入实时主链：
 - 是
@@ -832,6 +900,25 @@
 
 ### `strategy_action_model`
 
+当前状态：
+- `已做 baseline 尝试`
+- `当前可用`
+- 当前动作范围：
+  - `NONE`
+  - `LOW_FUEL`
+  - `DEFEND_WINDOW`
+  - `DYNAMICS_UNSTABLE`
+- 当前指标：
+  - `top1_accuracy=0.7052`
+  - `top2_accuracy=0.9998`
+- 当前边界：
+  - 当前已改用 `strategy_action_features_v1.csv`
+  - 当前 `val` 已来自 `exported_val_split`
+  - 当前仍只覆盖高频动作子集，未覆盖 `ATTACK_WINDOW / ERS_LOW / FRONT_LOAD`
+- 当前意义：
+  - 第一版 baseline 已可为 `strategy_arbiter_v2` 提供 `top-k` 候选
+  - 当前不适合直接 top-1 直出
+
 主要功能：
 - 综合风险、机会和战术状态，输出当前首要动作候选
 
@@ -858,7 +945,8 @@
 
 评估指标：
 - top-1
-- top-3
+- top-2
+- 候选覆盖率
 - rank correlation
 
 是否进入实时主链：

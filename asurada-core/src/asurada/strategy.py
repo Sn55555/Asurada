@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+from .arbiter import (
+    ArbiterInput,
+    ConfidenceContext,
+    FallbackContext,
+    ModelCandidate,
+    OutputControl,
+    RuleCandidate,
+    StrategyArbiterV2,
+    TacticalContext,
+)
 from .config import StrategyThresholds, load_usage_hooks
 from .models import (
     ContextProfile,
@@ -10,6 +20,7 @@ from .models import (
     StrategyDecision,
     StrategyMessage,
 )
+from .model_runtime import StrategyActionModelRuntime
 from .track_model import load_track_profile
 
 
@@ -19,6 +30,8 @@ class StrategyEngine:
     def __init__(self, thresholds: StrategyThresholds, usage_hooks_path=None) -> None:
         self.thresholds = thresholds
         self.usage_hooks = load_usage_hooks(usage_hooks_path) if usage_hooks_path is not None else {}
+        self.arbiter_v2 = StrategyArbiterV2()
+        self.strategy_action_runtime = StrategyActionModelRuntime()
 
     def evaluate(self, state: SessionState, history: list[SessionState] | None = None) -> StrategyDecision:
         """Evaluate one frame and return ranked strategy messages plus debug data."""
@@ -30,7 +43,9 @@ class StrategyEngine:
         assessment = self._assess_state(state)
         risk_profile, risk_explain = self._score_risks(state, assessment, context)
         candidates = self._build_candidates(state, assessment, risk_profile, context)
-        messages = self._arbitrate(candidates)
+        legacy_messages = self._arbitrate(candidates)
+        arbiter_sidecar = self._build_arbiter_sidecar(state, context, candidates, assessment)
+        messages = self._resolve_final_messages(legacy_messages, arbiter_sidecar)
         usage_bias = self._usage_bias(context.track_usage)
         return StrategyDecision(
             messages=messages,
@@ -44,6 +59,7 @@ class StrategyEngine:
                 "risk_explain": risk_explain,
                 "usage_bias": usage_bias,
                 "candidates": [candidate.__dict__ for candidate in candidates],
+                "arbiter_v2": arbiter_sidecar,
             },
         )
 
@@ -412,6 +428,109 @@ class StrategyEngine:
             )
             for item in ranked
         ]
+
+    def _resolve_final_messages(
+        self,
+        legacy_messages: list[StrategyMessage],
+        arbiter_sidecar: dict[str, object],
+    ) -> list[StrategyMessage]:
+        """Resolve final messages from arbiter output, with legacy fallback."""
+
+        ordered_actions = arbiter_sidecar.get("output", {}).get("ordered_actions") if isinstance(arbiter_sidecar, dict) else None
+        if not isinstance(ordered_actions, list) or not ordered_actions:
+            return legacy_messages
+
+        resolved: list[StrategyMessage] = []
+        for item in ordered_actions[:3]:
+            if not isinstance(item, dict):
+                continue
+            resolved.append(
+                StrategyMessage(
+                    code=str(item.get("code") or "NONE"),
+                    priority=int(item.get("priority") or 0),
+                    title=str(item.get("title") or item.get("code") or "NONE"),
+                    detail=str(item.get("detail") or ""),
+                )
+            )
+        return resolved or legacy_messages
+
+    def _build_arbiter_sidecar(
+        self,
+        state: SessionState,
+        context: ContextProfile,
+        candidates: list[StrategyCandidate],
+        assessment: StateAssessment,
+    ) -> dict[str, object]:
+        """Build a sidecar arbiter output without changing the current final messages."""
+
+        tactical_state = "neutral"
+        state_priority_hint = None
+        state_lock = False
+
+        if assessment.defend_state == "urgent":
+            tactical_state = "defence_active"
+            state_priority_hint = "DEFEND_WINDOW"
+            state_lock = True
+        elif assessment.attack_state == "available":
+            tactical_state = "counterattack_prepare"
+            state_priority_hint = "ATTACK_WINDOW"
+
+        model_candidates = self._build_strategy_action_model_candidates(state=state, context=context)
+        payload = ArbiterInput(
+            rule_candidates=[RuleCandidate.from_strategy_candidate(candidate) for candidate in candidates],
+            model_candidates=model_candidates,
+            tactical_context=TacticalContext(
+                tactical_state=tactical_state,
+                state_priority_hint=state_priority_hint,
+                state_lock=state_lock,
+                state_transition=None,
+            ),
+            confidence_context=ConfidenceContext(
+                confidence_score=1.0,
+                confidence_level="high",
+                mainline_allowed=True,
+            ),
+            fallback_context=FallbackContext(
+                fallback_mode="none",
+                voice_allowed=True,
+                hud_only=False,
+            ),
+            output_control=OutputControl(
+                cooldown_hint=0,
+                last_emitted_action=None,
+                suppression_window=0,
+            ),
+        )
+        result = self.arbiter_v2.arbitrate(payload)
+        return {
+            "input": {
+                "rule_candidates": [item.__dict__ for item in payload.rule_candidates],
+                "model_candidates": [item.__dict__ for item in payload.model_candidates],
+                "tactical_context": payload.tactical_context.__dict__,
+                "confidence_context": payload.confidence_context.__dict__,
+                "fallback_context": payload.fallback_context.__dict__,
+                "output_control": payload.output_control.__dict__,
+            },
+            "output": {
+                "final_hud_action": result.final_hud_action.__dict__,
+                "final_voice_action": result.final_voice_action.__dict__ if result.final_voice_action is not None else None,
+                "final_strategy_stack": result.final_strategy_stack.__dict__,
+                "ordered_actions": [item.__dict__ for item in result.ordered_actions],
+                "suppressed_actions": [item.__dict__ for item in result.suppressed_actions],
+            },
+        }
+
+    def _build_strategy_action_model_candidates(
+        self,
+        *,
+        state: SessionState,
+        context: ContextProfile,
+    ) -> list[ModelCandidate]:
+        """Build top-k model candidates from the local strategy-action baseline, if available."""
+
+        if not self.strategy_action_runtime.enabled:
+            return []
+        return self.strategy_action_runtime.predict_top_k(state=state, context=context, k=2)
 
     def _classify_track_zone(self, lap_distance: float) -> str:
         """Fallback coarse track-zone classifier used when no track model exists."""

@@ -296,6 +296,43 @@ ATTACK_FEATURE_COLUMNS = [
     "attack_opportunity_label",
 ]
 
+STRATEGY_ACTION_FEATURE_COLUMNS = [
+    "record_id",
+    "split",
+    "sample_name",
+    "session_uid",
+    "frame_identifier",
+    "session_time_s",
+    "session_type",
+    "timing_support_level",
+    "lap_number",
+    "track",
+    "weather",
+    "safety_car",
+    "player_position",
+    "official_gap_ahead_s",
+    "official_gap_behind_s",
+    "speed_kph",
+    "throttle",
+    "brake",
+    "steer",
+    "fuel_laps_remaining",
+    "ers_pct",
+    "tyre_wear_pct",
+    "tyre_age_laps",
+    "recent_unstable_ratio",
+    "recent_front_overload_ratio",
+    "g_force_lateral",
+    "g_force_longitudinal",
+    "front_rival_speed_delta",
+    "rear_rival_speed_delta",
+    "drs_available",
+    "track_segment",
+    "track_usage",
+    "driving_mode",
+    "primary_action_label",
+]
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export phase-two feature and label tables from capture samples.")
@@ -361,6 +398,7 @@ def export_dataset(
     tactical_features_path = output_dir / "tactical_features_v1.csv"
     event_features_path = output_dir / "event_features_v1.csv"
     attack_features_path = output_dir / "attack_features_v1.csv"
+    strategy_action_features_path = output_dir / "strategy_action_features_v1.csv"
     features_path.parent.mkdir(parents=True, exist_ok=True)
 
     sample_summaries: list[dict[str, Any]] = []
@@ -368,6 +406,7 @@ def export_dataset(
     tactical_split_counts: Counter[str] = Counter()
     event_split_counts: Counter[str] = Counter()
     attack_split_counts: Counter[str] = Counter()
+    strategy_action_split_counts: Counter[str] = Counter()
     action_counts: Counter[str] = Counter()
     rear_threat_level_counts: Counter[str] = Counter()
     yield_vs_fight_counts: Counter[str] = Counter()
@@ -378,22 +417,25 @@ def export_dataset(
     tactical_record_count = 0
     event_record_count = 0
     attack_record_count = 0
+    strategy_action_record_count = 0
 
     with features_path.open("w", encoding="utf-8", newline="") as features_handle, labels_path.open(
         "w",
         encoding="utf-8",
         newline="",
-    ) as labels_handle, tactical_features_path.open("w", encoding="utf-8", newline="") as tactical_handle, event_features_path.open("w", encoding="utf-8", newline="") as event_handle, attack_features_path.open("w", encoding="utf-8", newline="") as attack_handle:
+    ) as labels_handle, tactical_features_path.open("w", encoding="utf-8", newline="") as tactical_handle, event_features_path.open("w", encoding="utf-8", newline="") as event_handle, attack_features_path.open("w", encoding="utf-8", newline="") as attack_handle, strategy_action_features_path.open("w", encoding="utf-8", newline="") as strategy_action_handle:
         feature_writer = csv.DictWriter(features_handle, fieldnames=FEATURE_COLUMNS)
         label_writer = csv.DictWriter(labels_handle, fieldnames=LABEL_COLUMNS)
         tactical_writer = csv.DictWriter(tactical_handle, fieldnames=TACTICAL_FEATURE_COLUMNS)
         event_writer = csv.DictWriter(event_handle, fieldnames=EVENT_FEATURE_COLUMNS)
         attack_writer = csv.DictWriter(attack_handle, fieldnames=ATTACK_FEATURE_COLUMNS)
+        strategy_action_writer = csv.DictWriter(strategy_action_handle, fieldnames=STRATEGY_ACTION_FEATURE_COLUMNS)
         feature_writer.writeheader()
         label_writer.writeheader()
         tactical_writer.writeheader()
         event_writer.writeheader()
         attack_writer.writeheader()
+        strategy_action_writer.writeheader()
 
         for sample in samples:
             sample_name = sample["sample_name"]
@@ -406,6 +448,7 @@ def export_dataset(
                 tactical_writer=tactical_writer,
                 event_writer=event_writer,
                 attack_writer=attack_writer,
+                strategy_action_writer=strategy_action_writer,
                 next_segment_offsets=next_segment_offsets,
                 max_history_frames=max_history_frames,
                 sample_limit=sample_limit,
@@ -415,6 +458,7 @@ def export_dataset(
             tactical_split_counts[split] += summary["tactical_records"]
             event_split_counts[split] += summary["event_records"]
             attack_split_counts.update(summary["attack_split_counts"])
+            strategy_action_split_counts.update(summary["strategy_action_split_counts"])
             action_counts.update(summary["primary_action_counts"])
             rear_threat_level_counts.update(summary["rear_threat_level_counts"])
             yield_vs_fight_counts.update(summary["yield_vs_fight_counts"])
@@ -424,6 +468,7 @@ def export_dataset(
             tactical_record_count += summary["tactical_records"]
             event_record_count += summary["event_records"]
             attack_record_count += summary["attack_records"]
+            strategy_action_record_count += summary["strategy_action_records"]
 
     return {
         "dataset_name": output_dir.name,
@@ -433,14 +478,17 @@ def export_dataset(
         "tactical_features_path": str(tactical_features_path),
         "event_features_path": str(event_features_path),
         "attack_features_path": str(attack_features_path),
+        "strategy_action_features_path": str(strategy_action_features_path),
         "record_count": record_count,
         "tactical_record_count": tactical_record_count,
         "event_record_count": event_record_count,
         "attack_record_count": attack_record_count,
+        "strategy_action_record_count": strategy_action_record_count,
         "split_counts": dict(split_counts),
         "tactical_split_counts": dict(tactical_split_counts),
         "event_split_counts": dict(event_split_counts),
         "attack_split_counts": dict(attack_split_counts),
+        "strategy_action_split_counts": dict(strategy_action_split_counts),
         "primary_action_counts": dict(action_counts.most_common()),
         "rear_threat_level_counts": dict(rear_threat_level_counts.most_common()),
         "yield_vs_fight_counts": dict(yield_vs_fight_counts.most_common()),
@@ -455,6 +503,7 @@ def export_dataset(
             "event_rows": "event transition only, excluding debug-only button events",
             "attack_rows": "official front-gap rows in race-like sessions, filtered for attack-opportunity and attack-commit work",
             "attack_split_policy": "uid15 lap 2 reserved as exported val for attack-chain models; uid15 lap 1/3 remain train; uid16 remains test",
+            "strategy_action_split_policy": "uid15 lap 2 plus uid13 lap 1 reserved as exported val for strategy-action baseline; uid16 remains test; uid8 excluded",
         },
     }
 
@@ -468,6 +517,7 @@ def export_sample(
     tactical_writer: csv.DictWriter,
     event_writer: csv.DictWriter,
     attack_writer: csv.DictWriter,
+    strategy_action_writer: csv.DictWriter,
     next_segment_offsets: list[float],
     max_history_frames: int,
     sample_limit: int | None,
@@ -486,19 +536,23 @@ def export_sample(
     tactical_records = 0
     event_records = 0
     attack_records = 0
+    strategy_action_record_count = 0
     primary_action_counts: Counter[str] = Counter()
     rear_threat_level_counts: Counter[str] = Counter()
     yield_vs_fight_counts: Counter[str] = Counter()
     event_impact_counts: Counter[str] = Counter()
     attack_commit_counts: Counter[str] = Counter()
     attack_split_counts: Counter[str] = Counter()
+    strategy_action_split_counts: Counter[str] = Counter()
     tactical_filter_reasons: Counter[str] = Counter()
     event_filter_reasons: Counter[str] = Counter()
     attack_filter_reasons: Counter[str] = Counter()
+    strategy_action_filter_reasons: Counter[str] = Counter()
     sample_rows: list[dict[str, dict[str, Any]]] = []
     tactical_indices: list[int] = []
     event_indices: list[int] = []
     attack_indices: list[int] = []
+    strategy_action_indices: list[int] = []
 
     for packet in source:
         try:
@@ -554,6 +608,13 @@ def export_sample(
         attack_filter_reasons[attack_reason] += 1
         if include_attack:
             attack_indices.append(len(sample_rows) - 1)
+        include_strategy_action, strategy_action_reason = should_include_strategy_action_row(
+            feature_row=feature_row,
+            label_row=label_row,
+        )
+        strategy_action_filter_reasons[strategy_action_reason] += 1
+        if include_strategy_action:
+            strategy_action_indices.append(len(sample_rows) - 1)
 
         if sample_limit is not None and records >= sample_limit:
             break
@@ -597,6 +658,16 @@ def export_sample(
             attack_commit_counts[attack_row["attack_followthrough_label"]] += 1
             attack_split_counts[attack_row["split"]] += 1
 
+    for row_index in strategy_action_indices:
+        row_bundle = sample_rows[row_index]
+        strategy_action_row = build_strategy_action_feature_row(
+            feature_row=row_bundle["feature"],
+            label_row=row_bundle["label"],
+        )
+        strategy_action_writer.writerow(strategy_action_row)
+        strategy_action_record_count += 1
+        strategy_action_split_counts[strategy_action_row["split"]] += 1
+
     return {
         "sample_name": sample["sample_name"],
         "split": split,
@@ -604,6 +675,7 @@ def export_sample(
         "tactical_records": tactical_records,
         "event_records": event_records,
         "attack_records": attack_records,
+        "strategy_action_records": strategy_action_record_count,
         "session_label": sample["session_label"],
         "session_type_code": sample["session_type_code"],
         "primary_action_counts": dict(primary_action_counts.most_common()),
@@ -612,9 +684,11 @@ def export_sample(
         "event_impact_counts": dict(event_impact_counts.most_common()),
         "attack_commit_counts": dict(attack_commit_counts.most_common()),
         "attack_split_counts": dict(attack_split_counts.most_common()),
+        "strategy_action_split_counts": dict(strategy_action_split_counts.most_common()),
         "tactical_filter_reasons": dict(tactical_filter_reasons.most_common()),
         "event_filter_reasons": dict(event_filter_reasons.most_common()),
         "attack_filter_reasons": dict(attack_filter_reasons.most_common()),
+        "strategy_action_filter_reasons": dict(strategy_action_filter_reasons.most_common()),
     }
 
 
@@ -927,6 +1001,19 @@ def build_attack_feature_rows(
     return rows
 
 
+def build_strategy_action_feature_row(
+    *,
+    feature_row: dict[str, Any],
+    label_row: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a deterministic exported strategy-action training row."""
+
+    row = {column: feature_row.get(column) for column in STRATEGY_ACTION_FEATURE_COLUMNS if column in feature_row}
+    row["split"] = derive_strategy_action_split(feature_row=feature_row)
+    row["primary_action_label"] = label_row.get("primary_action_label")
+    return row
+
+
 def build_single_attack_feature_row(
     *,
     actor_view: str,
@@ -991,6 +1078,36 @@ def derive_attack_split(feature_row: dict[str, Any]) -> str:
     return "train"
 
 
+def derive_strategy_action_split(feature_row: dict[str, Any]) -> str:
+    """Assign deterministic exported splits for strategy-action modeling.
+
+    备注:
+    `LOW_FUEL / DYNAMICS_UNSTABLE` 主要在 `uid13` 中出现，
+    `DEFEND_WINDOW` 主要在 `uid15` 中出现。
+    为避免继续依赖随机 holdout，这里固定使用：
+    - `uid13` 第 1 圈 -> val
+    - `uid15` 第 2 圈 -> val
+    - `uid16` 保持 test
+    - `uid8` 不进入 strategy-action 专项导出
+    """
+
+    base_split = str(feature_row.get("split") or "train")
+    session_type = str(feature_row.get("session_type") or "")
+    lap_number = int(feature_row.get("lap_number") or 0)
+
+    if "FeatureRaceLike" in session_type:
+        return "test"
+    if "ShortResultLike" in session_type:
+        return "skip"
+    if "QualifyingLike" in session_type and lap_number == 1:
+        return "val"
+    if "SprintRaceLike" in session_type and lap_number == 2:
+        return "val"
+    if base_split == "train":
+        return "train"
+    return base_split
+
+
 def should_include_tactical_row(*, feature_row: dict[str, Any], label_row: dict[str, Any]) -> tuple[bool, str]:
     """Filter rows so tactical exports focus on real tactical situations."""
 
@@ -1041,6 +1158,23 @@ def should_include_attack_row(*, feature_row: dict[str, Any], label_row: dict[st
     if label_row["primary_action_label"] == "ATTACK_WINDOW":
         return True, "strategy_attack_action"
     return False, "background_frame"
+
+
+def should_include_strategy_action_row(*, feature_row: dict[str, Any], label_row: dict[str, Any]) -> tuple[bool, str]:
+    """Keep strategy-action rows only for the current high-frequency action subset."""
+
+    if feature_row["timing_support_level"] != "official_preferred":
+        return False, "non_official_timing"
+    session_type = str(feature_row.get("session_type") or "")
+    if "RaceLike" not in session_type and "QualifyingLike" not in session_type:
+        return False, "unsupported_session"
+    action = str(label_row.get("primary_action_label") or "NONE")
+    if action not in {"NONE", "LOW_FUEL", "DEFEND_WINDOW", "DYNAMICS_UNSTABLE"}:
+        return False, "unsupported_action"
+    split = derive_strategy_action_split(feature_row)
+    if split == "skip":
+        return False, "excluded_split_policy"
+    return True, "strategy_action"
 
 
 def derive_rear_threat_labels(feature_row: dict[str, Any]) -> tuple[int, str]:
