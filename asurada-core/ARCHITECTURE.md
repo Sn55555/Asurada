@@ -13,6 +13,8 @@ This document describes the engineering view of Asurada Core:
 It is intended for maintenance and extension work inside the backend workspace.
 
 See also:
+- [CORE_WORKFLOW_CN.md](CORE_WORKFLOW_CN.md)
+  - end-to-end flow from data source to model, arbitration, and user-facing output
 - [PACKET_FIELD_COVERAGE.md](PACKET_FIELD_COVERAGE.md)
   - current packet families, high-value parsed fields, and stage-two raw feature branches
 
