@@ -55,6 +55,7 @@ The other top-level directories are present locally, but are not yet part of the
 如果当前工作重点是策略脑后端，请从这里开始：
 
 - [asurada-core/README.md](/Users/sn5/Asurada/asurada-core/README.md)
+- [PROJECT_PROGRESS.md](/Users/sn5/Asurada/PROJECT_PROGRESS.md)
 
 关键后端项目文档：
 
@@ -67,6 +68,16 @@ The other top-level directories are present locally, but are not yet part of the
 If you are working on the strategy brain, start here:
 
 - [asurada-core/README.md](/Users/sn5/Asurada/asurada-core/README.md)
+- [PROJECT_PROGRESS.md](/Users/sn5/Asurada/PROJECT_PROGRESS.md)
+
+## 项目总进度
+
+![Phase 1](https://img.shields.io/badge/Phase%201-90%25-2ea44f?style=for-the-badge)
+![Phase 2](https://img.shields.io/badge/Phase%202-35%25-f59e0b?style=for-the-badge)
+![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
+
+详细看板：
+- [PROJECT_PROGRESS.md](/Users/sn5/Asurada/PROJECT_PROGRESS.md)
 
 Important backend project documents:
 

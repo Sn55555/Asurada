@@ -28,6 +28,22 @@
 - [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
 - [REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md](/Users/sn5/Asurada/asurada-core/REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md)
 
+## 当前阶段二已完成模型概览
+
+当前阶段二已经完成或推进到以下状态：
+
+| 模型 / 模块 | 当前状态 | 当前结论 |
+| --- | --- | --- |
+| `rear_threat_model` | 已完成第一版 baseline | 当前可用 |
+| `attack_opportunity_model` | 已完成第一版 baseline | 当前可用，已具备 exported `val/test` |
+| `front_attack_commit_model` | 已完成第一版 baseline | 当前可接受，已具备 exported `val/test`，后续仍需继续收紧标签 |
+| `strategy_action_model` | 已完成第一版 baseline | 当前适合作为 `top-k` 候选提供器，不适合直接 `top-1` 直出 |
+| `strategy_arbiter_v2` | 已接入主链 | 已消费真实 `strategy_action_model top-k`，并已接入自动回归断言 |
+| `yield_vs_defend_model` | 已试跑 baseline | 当前暂停，等待更稳定标签与样本 |
+| `event_impact_model` | 已试跑 baseline | 当前暂停，等待更多事件样本与更强后验标签 |
+
+完整推进状态、暂停原因和 checklist 以 [STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md) 为准。
+
 ## 总体原则
 
 - 阶段二前半以 `LightGBM / XGBoost` 为主，先建立可解释、可回归、可旁路接入的基线模型。
@@ -44,6 +60,103 @@
   - `timing_support_level`
   - `gap_source_*`
   - `gap_confidence_*`
+
+## 字段中文注释速查
+
+下文各模型继续使用统一英文字段名，避免运行时字段名和文档字段名脱节。这里集中给出反复出现字段的中文含义。
+
+### 通用状态字段
+
+| 字段 | 中文含义 |
+| --- | --- |
+| `session_time_s` | 当前会话时间，单位秒 |
+| `speed_kph` | 当前车速，单位公里每小时 |
+| `position` | 当前名次 |
+| `lap_number` | 当前圈数 |
+| `track_segment` | 当前赛道分段名称 |
+| `track_usage` | 当前赛道分段用途，例如进攻区、防守区、牵引区 |
+| `driving_mode` | 当前驾驶模式或驾驶状态标签 |
+| `status_tags` | 当前车辆状态标签集合，例如不稳、前轴过载等 |
+
+### timing / gap 字段
+
+| 字段 | 中文含义 |
+| --- | --- |
+| `timing_mode` | 当前 timing 解释模式，例如 `race_like`、`qualifying_like`、`time_trial_disabled` |
+| `timing_support_level` | 当前 timing 可用等级，决定能否进入正式主链 |
+| `official_gap_ahead_s` | 与前车的官方秒差，单位秒，仅官方来源可填 |
+| `official_gap_behind_s` | 与后车的官方秒差，单位秒，仅官方来源可填 |
+| `official_gap_confidence_ahead` | 前车官方秒差可信度 |
+| `official_gap_confidence_behind` | 后车官方秒差可信度 |
+| `gap_source_*` | gap 来源标记，例如官方 `LapData` 或调试估算来源 |
+| `gap_confidence_*` | gap 可信度等级 |
+| `gap_closing_rate` | gap 变化速度，表示前后车是在接近还是远离 |
+
+### 资源与车辆状态字段
+
+| 字段 | 中文含义 |
+| --- | --- |
+| `fuel_in_tank` | 当前油箱剩余燃油 |
+| `fuel_laps_remaining` | 当前剩余燃油还能跑的圈数估计 |
+| `ers_store_energy` | 当前 ERS 储能 |
+| `ers_pct` | 当前 ERS 百分比 |
+| `drs_available` | 当前是否可用 DRS |
+| `tyre.wear_pct` | 当前轮胎平均磨损百分比 |
+| `tyre.age_laps` | 当前轮胎已经使用的圈数 |
+| `recent_front_overload_ratio` | 最近窗口内前轴过载占比 |
+| `recent_unstable_ratio` | 最近窗口内车辆不稳定占比 |
+
+### 动态与姿态字段
+
+| 字段 | 中文含义 |
+| --- | --- |
+| `throttle` | 油门开度 |
+| `brake` | 刹车开度 |
+| `steer` | 转向输入 |
+| `g_force_longitudinal` | 纵向 G 值 |
+| `g_force_lateral` | 横向 G 值 |
+| `yaw` | 偏航角或偏航状态 |
+| `pitch` | 俯仰角或俯仰状态 |
+| `roll` | 侧倾角或侧倾状态 |
+| `wheel_slip_ratio` | 车轮滑移率 |
+| `wheel_lat_force` | 车轮横向力 |
+| `wheel_long_force` | 车轮纵向力 |
+
+### 对手相关字段
+
+| 字段 | 中文含义 |
+| --- | --- |
+| `rivals[].speed_kph` | 对手车速 |
+| `rivals[].ers_pct` | 对手 ERS 百分比 |
+| `rivals[].drs_available` | 对手是否可用 DRS |
+| `rear_rival_speed_delta` | 后车相对本车的速度差 |
+| `front_rival_speed_delta` | 本车相对前车的速度差 |
+| `rear_rival_ers_pct` | 后车 ERS 百分比派生值 |
+| `rear_rival_drs_available` | 后车 DRS 可用状态派生值 |
+| `front_rival_ers_pct` | 前车 ERS 百分比派生值 |
+
+### 赛道预视与战术上下文字段
+
+| 字段 | 中文含义 |
+| --- | --- |
+| `next_track_segment` | 下一赛道分段名称 |
+| `next_track_usage` | 下一赛道分段用途 |
+| `next_two_segments` | 后续两个分段的组合预视信息 |
+| `player_exit_quality_proxy` | 本车出弯质量代理分数 |
+| `position_lost_recently` | 最近是否刚刚失位 |
+| `current_tactical_state` | 当前战术状态机状态 |
+| `previous_tactical_state` | 前一战术状态 |
+
+### 常见输出字段
+
+| 字段 | 中文含义 |
+| --- | --- |
+| `*_score` | 某类风险、机会或动作倾向的连续分值 |
+| `*_level` | 某类状态的离散等级 |
+| `confidence_score` | 结果可信度分数 |
+| `recommended_action` | 推荐动作代码 |
+| `state_hint` | 对状态机或仲裁层的状态提示 |
+| `cooldown_hint` | 对仲裁层的冷却建议 |
 
 ## 当前可稳定派生的字段
 
