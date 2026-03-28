@@ -129,7 +129,23 @@ class StrategyEngine:
         """Convert the current frame into discrete state labels."""
 
         player = state.player
-        fuel_state = "critical" if player.fuel_laps_remaining <= self.thresholds.low_fuel_laps else "stable"
+        fuel_source = str(state.raw.get("fuel_laps_remaining_source", ""))
+        fuel_in_tank = float(state.raw.get("fuel_in_tank", 0.0))
+        fuel_capacity = float(state.raw.get("fuel_capacity", 0.0))
+        tank_ratio = (fuel_in_tank / fuel_capacity) if fuel_capacity > 0.0 else 0.0
+        completed_laps = max(state.lap_number - 1, 0)
+        remaining_race_laps = max(state.total_laps - completed_laps, 0)
+        fuel_margin_laps = player.fuel_laps_remaining - remaining_race_laps
+        fuel_state = (
+            "critical"
+            if (
+                state.lap_number > 1
+                and fuel_source == "derived_from_sample_consumption"
+                and fuel_margin_laps <= 0.3
+            )
+            or tank_ratio <= 0.08
+            else "stable"
+        )
         if player.tyre.wear_pct >= self.thresholds.tyre_wear_box:
             tyre_state = "box_now"
         elif player.tyre.wear_pct >= self.thresholds.tyre_wear_warn:
@@ -285,6 +301,9 @@ class StrategyEngine:
 
         player = state.player
         candidates: list[StrategyCandidate] = []
+        completed_laps = max(state.lap_number - 1, 0)
+        remaining_race_laps = max(state.total_laps - completed_laps, 0)
+        fuel_margin_laps = player.fuel_laps_remaining - remaining_race_laps
 
         if assessment.race_state == "controlled":
             candidates.append(
@@ -302,7 +321,10 @@ class StrategyEngine:
                     code="LOW_FUEL",
                     priority=risk_profile.fuel_risk,
                     title="燃油紧张",
-                    detail=f"剩余燃油约 {player.fuel_laps_remaining:.1f} 圈，立即切换保守节奏并复核终盘覆盖。",
+                    detail=(
+                        f"当前可跑约 {player.fuel_laps_remaining:.1f} 圈，剩余赛程约 {remaining_race_laps:.1f} 圈，"
+                        f"燃油余量差 {fuel_margin_laps:+.1f} 圈，立即切换保守节奏并复核终盘覆盖。"
+                    ),
                     layer="risk_response",
                 )
             )
@@ -530,7 +552,18 @@ class StrategyEngine:
 
         if not self.strategy_action_runtime.enabled:
             return []
-        return self.strategy_action_runtime.predict_top_k(state=state, context=context, k=2)
+        candidates = self.strategy_action_runtime.predict_top_k(state=state, context=context, k=2)
+        fuel_source = str(state.raw.get("fuel_laps_remaining_source", ""))
+        fuel_in_tank = float(state.raw.get("fuel_in_tank", 0.0))
+        fuel_capacity = float(state.raw.get("fuel_capacity", 0.0))
+        tank_ratio = (fuel_in_tank / fuel_capacity) if fuel_capacity > 0.0 else 0.0
+        fuel_mainline_allowed = (
+            (state.lap_number > 1 and fuel_source == "derived_from_sample_consumption")
+            or tank_ratio <= 0.08
+        )
+        if fuel_mainline_allowed:
+            return candidates
+        return [candidate for candidate in candidates if candidate.code != "LOW_FUEL"]
 
     def _classify_track_zone(self, lap_distance: float) -> str:
         """Fallback coarse track-zone classifier used when no track model exists."""
