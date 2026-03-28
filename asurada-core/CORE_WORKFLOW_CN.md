@@ -7,7 +7,7 @@
 ## 1. 一页总览
 
 ```mermaid
-flowchart LR
+flowchart TB
     A["数据来源<br/>Replay JSONL / CSV / Capture JSONL / Live UDP"] --> B["输入适配层<br/>ingest / csv_ingest / capture_ingest / udp_ingest"]
     B --> C["协议解码层<br/>pdu_decoder"]
     C --> D["组帧与标准化<br/>packet_snapshot / decode_snapshot"]
@@ -48,7 +48,7 @@ flowchart LR
 ### 3.1 真实抓包主线
 
 ```mermaid
-flowchart LR
+flowchart TB
     A["capture JSONL"] --> B["CaptureJsonlSource"]
     B --> C["F125PacketDecoder"]
     C --> D["CaptureSnapshotAssembler"]
@@ -156,7 +156,7 @@ flowchart LR
 ### 已接入主链或直接影响主链的模型/模块
 
 ```mermaid
-flowchart LR
+flowchart TB
     A["SessionState + Features"] --> B["rear_threat_model"]
     A --> C["attack_opportunity_model"]
     A --> D["front_attack_commit_model"]
@@ -221,7 +221,7 @@ flowchart LR
 所以当前更合理的结构是：
 
 ```mermaid
-flowchart LR
+flowchart TB
     A["strategy_action_model"] --> B["top-k candidates"]
     C["rule candidates"] --> D["strategy_arbiter_v2"]
     B --> D
