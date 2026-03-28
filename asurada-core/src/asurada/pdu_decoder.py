@@ -128,12 +128,13 @@ class F125PacketDecoder:
             payload={"header": header, "body": body},
         )
 
-    def _decode_motion(self, payload: bytes, player_car_index: int) -> dict[str, Any]:
-        offset = self.HEADER_SIZE + player_car_index * self.MOTION_CAR_SIZE
+    def _decode_motion_car(self, payload: bytes, car_index: int) -> dict[str, Any]:
+        offset = self.HEADER_SIZE + car_index * self.MOTION_CAR_SIZE
         values = struct.unpack_from(self.MOTION_CAR_FORMAT, payload, offset)
         world_forward_dir = values[6:9]
         world_right_dir = values[9:12]
         return {
+            "car_index": car_index,
             "world_position": {"x": values[0], "y": values[1], "z": values[2]},
             "world_velocity": {"x": values[3], "y": values[4], "z": values[5]},
             "world_forward_dir": {
@@ -155,6 +156,11 @@ class F125PacketDecoder:
             "g_force": {"lateral": values[12], "longitudinal": values[13], "vertical": values[14]},
             "orientation": {"yaw": values[15], "pitch": values[16], "roll": values[17]},
         }
+
+    def _decode_motion(self, payload: bytes, player_car_index: int) -> dict[str, Any]:
+        player = self._decode_motion_car(payload, player_car_index)
+        player["all_cars"] = [self._decode_motion_car(payload, car_index) for car_index in range(22)]
+        return player
 
     def _decode_session(self, payload: bytes) -> dict[str, Any]:
         """Decode the fixed-width session packet, including the tail settings block.

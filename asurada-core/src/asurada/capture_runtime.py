@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 import json
 from pathlib import Path
+import time
 from typing import Callable
 
 from .decode import decode_snapshot
@@ -32,6 +33,8 @@ class CaptureReplayRuntime:
         voice_output: ConsoleVoiceOutput,
         logger: ReplayLogger,
         dashboard_refresh: Callable[[], None] | None = None,
+        session_paced: bool = False,
+        pace_multiplier: float = 1.0,
     ) -> None:
         self.capture_path = capture_path
         self.source = CaptureJsonlSource(capture_path)
@@ -42,6 +45,8 @@ class CaptureReplayRuntime:
         self.voice_output = voice_output
         self.logger = logger
         self.dashboard_refresh = dashboard_refresh
+        self.session_paced = session_paced
+        self.pace_multiplier = max(pace_multiplier, 0.1)
 
     def run(self) -> None:
         # 备注:
@@ -56,6 +61,7 @@ class CaptureReplayRuntime:
         snapshot_count = 0
         emitted_count = 0
         last_emitted_code = None
+        previous_session_time_s: float | None = None
 
         for index, packet in enumerate(self.source, start=1):
             try:
@@ -79,6 +85,13 @@ class CaptureReplayRuntime:
                 continue
 
             snapshot_count += 1
+            if self.session_paced:
+                current_session_time_s = float(normalized_snapshot.get("session_time_s", 0.0))
+                if previous_session_time_s is not None:
+                    delta_s = max(current_session_time_s - previous_session_time_s, 0.0)
+                    if delta_s > 0:
+                        time.sleep(delta_s / self.pace_multiplier)
+                previous_session_time_s = current_session_time_s
             state = decode_snapshot(normalized_snapshot)
             self.state_store.update(state)
             decision = self.strategy.evaluate(state, self.state_store.recent(12))
@@ -99,6 +112,8 @@ class CaptureReplayRuntime:
             self.dashboard_refresh()
 
         print(f"[ASURADA][CAPTURE] source={self.capture_path}")
+        if self.session_paced:
+            print(f"[ASURADA][CAPTURE] replay pacing=session_time_s x{self.pace_multiplier:.2f}")
         if self.state_store.latest is not None:
             session_uid = self.state_store.latest.session_uid
         print(f"[ASURADA][CAPTURE] session_uid={session_uid}")

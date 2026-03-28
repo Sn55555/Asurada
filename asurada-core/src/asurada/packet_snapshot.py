@@ -83,6 +83,7 @@ class CaptureSnapshotAssembler:
         self.latest_session_history_by_uid: dict[str, dict[str, Any]] = {}
         self.latest_final_classification_by_uid: dict[str, dict[str, Any]] = {}
         self.latest_lap_positions_by_uid: dict[str, dict[str, Any]] = {}
+        self.session_start_fuel_by_uid: dict[str, float] = {}
         self.frames: dict[tuple[str, int], FrameBundle] = {}
 
     def push(self, envelope: PacketEnvelope) -> dict[str, Any] | None:
@@ -183,6 +184,17 @@ class CaptureSnapshotAssembler:
         ers_pct = min(max(ers_store_energy / 4_000_000.0 * 100.0, 0.0), 100.0)
         tyres_age_laps = int(status.get("tyres_age_laps", 0))
         tyre_wear_pct = round(sum(float(item) for item in damage.get("tyres_wear_pct", [0.0] * 4)) / 4.0, 2)
+        fuel_in_tank = float(status.get("fuel_in_tank", 0.0))
+        raw_fuel_laps_remaining = float(status.get("fuel_remaining_laps", 0.0))
+        derived_fuel_laps_remaining, fuel_laps_remaining_source = self._derive_fuel_laps_remaining(
+            session_uid=bundle.session_uid,
+            lap_number=int(lap.get("current_lap_num", 0)),
+            total_distance_m=float(lap.get("total_distance_m", 0.0)),
+            lap_distance_m=lap_distance_m,
+            track_length_m=track_length_m,
+            fuel_in_tank=fuel_in_tank,
+            raw_fuel_laps_remaining=raw_fuel_laps_remaining,
+        )
         damage_cars = damage.get("all_cars", [])
         tags = self._build_status_tags(
             speed_kph=speed_kph,
@@ -197,6 +209,7 @@ class CaptureSnapshotAssembler:
         rivals, player_gap_meta = self._build_rivals(
             player_lap=lap,
             lap_cars=lap.get("all_cars", []),
+            motion_cars=motion.get("all_cars", []),
             telemetry_cars=telemetry.get("all_cars", []),
             status_cars=status.get("all_cars", []),
             damage_cars=damage_cars,
@@ -208,6 +221,16 @@ class CaptureSnapshotAssembler:
             player_lap_distance_m=lap_distance_m,
             player_total_distance_m=float(lap.get("total_distance_m", 0.0)),
             session_type_code=session_type_code,
+        )
+        front_rival = next((item for item in rivals if int(item.get("position", 0)) == position - 1), None)
+        rear_rival = next((item for item in rivals if int(item.get("position", 0)) == position + 1), None)
+        front_rival_car_gap_ahead_s, front_rival_car_gap_behind_s = self._car_relative_gap_pair(
+            lap_cars=lap.get("all_cars", []),
+            target_position=position - 1,
+        )
+        rear_rival_car_gap_ahead_s, rear_rival_car_gap_behind_s = self._car_relative_gap_pair(
+            lap_cars=lap.get("all_cars", []),
+            target_position=position + 1,
         )
         gap_ahead_s = player_gap_meta.get("official_gap_ahead_s")
         gap_behind_s = player_gap_meta.get("official_gap_behind_s")
@@ -230,7 +253,7 @@ class CaptureSnapshotAssembler:
                 "lap": int(lap.get("current_lap_num", 0)),
                 "gap_ahead_s": gap_ahead_s,
                 "gap_behind_s": gap_behind_s,
-                "fuel_laps_remaining": float(status.get("fuel_remaining_laps", 0.0)),
+                "fuel_laps_remaining": derived_fuel_laps_remaining,
                 "ers_pct": ers_pct,
                 "drs_available": bool(status.get("drs_allowed", False)),
                 "speed_kph": speed_kph,
@@ -313,8 +336,11 @@ class CaptureSnapshotAssembler:
                 "steer": steer,
                 "gear": int(telemetry.get("gear", 0)),
                 "rpm": int(telemetry.get("engine_rpm", 0)),
-                "fuel_in_tank": float(status.get("fuel_in_tank", 0.0)),
+                "fuel_in_tank": fuel_in_tank,
                 "fuel_capacity": float(status.get("fuel_capacity", 0.0)),
+                "raw_fuel_laps_remaining": raw_fuel_laps_remaining,
+                "derived_fuel_laps_remaining": derived_fuel_laps_remaining,
+                "fuel_laps_remaining_source": fuel_laps_remaining_source,
                 "ers_store_energy": ers_store_energy,
                 "ers_deploy_mode": int(status.get("ers_deploy_mode", 0)),
                 "tyres_wear_pct": list(damage.get("tyres_wear_pct", [])),
@@ -343,6 +369,18 @@ class CaptureSnapshotAssembler:
                 "world_position_x": float(motion.get("world_position", {}).get("x", 0.0)),
                 "world_position_y": float(motion.get("world_position", {}).get("y", 0.0)),
                 "world_position_z": float(motion.get("world_position", {}).get("z", 0.0)),
+                "front_rival_world_position_x": front_rival.get("world_position_x") if front_rival else None,
+                "front_rival_world_position_z": front_rival.get("world_position_z") if front_rival else None,
+                "front_rival_name": front_rival.get("name") if front_rival else None,
+                "front_rival_position": front_rival.get("position") if front_rival else None,
+                "front_rival_car_gap_ahead_s": front_rival_car_gap_ahead_s,
+                "front_rival_car_gap_behind_s": front_rival_car_gap_behind_s,
+                "rear_rival_world_position_x": rear_rival.get("world_position_x") if rear_rival else None,
+                "rear_rival_world_position_z": rear_rival.get("world_position_z") if rear_rival else None,
+                "rear_rival_name": rear_rival.get("name") if rear_rival else None,
+                "rear_rival_position": rear_rival.get("position") if rear_rival else None,
+                "rear_rival_car_gap_ahead_s": rear_rival_car_gap_ahead_s,
+                "rear_rival_car_gap_behind_s": rear_rival_car_gap_behind_s,
                 "world_forward_dir": dict(motion.get("world_forward_dir", {})),
                 "world_right_dir": dict(motion.get("world_right_dir", {})),
                 "wheel_slip_ratio": list(motion_ex.get("wheel_slip_ratio", [])),
@@ -389,6 +427,38 @@ class CaptureSnapshotAssembler:
                 "auxiliary_packet_15": lap_positions,
             },
         }
+
+    def _derive_fuel_laps_remaining(
+        self,
+        session_uid: str,
+        lap_number: int,
+        total_distance_m: float,
+        lap_distance_m: float,
+        track_length_m: float,
+        fuel_in_tank: float,
+        raw_fuel_laps_remaining: float,
+    ) -> tuple[float, str]:
+        start_fuel = self.session_start_fuel_by_uid.get(session_uid)
+        if start_fuel is None or fuel_in_tank > start_fuel:
+            start_fuel = fuel_in_tank
+            self.session_start_fuel_by_uid[session_uid] = start_fuel
+
+        if track_length_m > 0.0 and total_distance_m > 0.0:
+            equivalent_laps = max(total_distance_m / track_length_m, 0.0)
+        elif track_length_m > 0.0:
+            equivalent_laps = max(float(max(lap_number - 1, 0)) + max(lap_distance_m, 0.0) / track_length_m, 0.0)
+        else:
+            equivalent_laps = 0.0
+
+        fuel_used = max(start_fuel - fuel_in_tank, 0.0)
+        if equivalent_laps < 0.05 or fuel_used < 0.05:
+            return raw_fuel_laps_remaining, "raw_protocol_fallback"
+
+        per_lap_consumption = fuel_used / equivalent_laps
+        if per_lap_consumption <= 0.0:
+            return raw_fuel_laps_remaining, "raw_protocol_fallback"
+
+        return fuel_in_tank / per_lap_consumption, "derived_from_sample_consumption"
 
     def _normalize_lap_distance(self, lap_distance_m: float, track_length_m: float) -> float:
         if track_length_m <= 0:
@@ -452,6 +522,7 @@ class CaptureSnapshotAssembler:
         self,
         player_lap: dict[str, Any],
         lap_cars: list[dict[str, Any]],
+        motion_cars: list[dict[str, Any]],
         telemetry_cars: list[dict[str, Any]],
         status_cars: list[dict[str, Any]],
         damage_cars: list[dict[str, Any]],
@@ -491,6 +562,7 @@ class CaptureSnapshotAssembler:
                 "delta_to_race_leader_s": None,
             }
 
+        motion_by_index = {item["car_index"]: item for item in motion_cars}
         telemetry_by_index = {item["car_index"]: item for item in telemetry_cars}
         status_by_index = {item["car_index"]: item for item in status_cars}
         damage_by_index = {item["car_index"]: item for item in damage_cars}
@@ -544,6 +616,7 @@ class CaptureSnapshotAssembler:
             compound_code = int(status_by_index.get(car_index, {}).get("visual_tyre_compound", 0))
             age_laps = int(status_by_index.get(car_index, {}).get("tyres_age_laps", 0))
             rival_damage = damage_by_index.get(car_index, {})
+            rival_motion = motion_by_index.get(car_index, {})
             rival_wear_values = [float(value) for value in rival_damage.get("tyres_wear_pct", [])]
             rival_tyre_wear = round(sum(rival_wear_values) / len(rival_wear_values), 2) if rival_wear_values else 0.0
             estimated_gap_seconds, estimated_gap_source = self._estimate_gap_seconds(
@@ -626,6 +699,9 @@ class CaptureSnapshotAssembler:
                         "wear_pct": rival_tyre_wear,
                         "age_laps": age_laps,
                     },
+                    "world_position_x": float(rival_motion.get("world_position", {}).get("x", 0.0)),
+                    "world_position_y": float(rival_motion.get("world_position", {}).get("y", 0.0)),
+                    "world_position_z": float(rival_motion.get("world_position", {}).get("z", 0.0)),
                     "status_tags": [],
                 }
             )
@@ -662,6 +738,20 @@ class CaptureSnapshotAssembler:
         if value <= 0:
             return None
         return round(value / 1000.0, 3)
+
+    def _car_relative_gap_pair(self, lap_cars: list[dict[str, Any]], target_position: int) -> tuple[float | None, float | None]:
+        if target_position <= 0:
+            return None, None
+        position_to_car = {
+            int(item.get("car_position", 0)): item
+            for item in lap_cars
+            if 1 <= int(item.get("car_position", 0)) <= 22 and int(item.get("result_status", 0)) != 0
+        }
+        target = position_to_car.get(target_position)
+        behind = position_to_car.get(target_position + 1)
+        gap_ahead_s = self._lap_delta_seconds(target.get("delta_to_car_in_front_ms")) if target is not None else None
+        gap_behind_s = self._lap_delta_seconds(behind.get("delta_to_car_in_front_ms")) if behind is not None else None
+        return gap_ahead_s, gap_behind_s
 
     def _timing_mode_name(self, session_type_code: int) -> str:
         if session_type_code == 1:

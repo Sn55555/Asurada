@@ -44,6 +44,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Build a local HTML debug dashboard from runtime_logs/session_log.jsonl.",
     )
     parser.add_argument(
+        "--session-paced",
+        action="store_true",
+        help="Replay capture snapshots paced by in-game session_time_s.",
+    )
+    parser.add_argument(
+        "--pace-multiplier",
+        type=float,
+        default=1.0,
+        help="Speed multiplier for session-paced capture replay.",
+    )
+    parser.add_argument(
         "--udp-host",
         default="0.0.0.0",
         help="Host to bind the UDP listener.",
@@ -68,7 +79,11 @@ def main() -> None:
         app.run_csv_lap(args.csv)
         return
     if args.capture_jsonl is not None:
-        app.run_capture_replay(args.capture_jsonl)
+        app.run_capture_replay(
+            args.capture_jsonl,
+            session_paced=args.session_paced,
+            pace_multiplier=args.pace_multiplier,
+        )
         return
     if args.live_udp:
         app.run_live_udp(UdpConfig(host=args.udp_host, port=args.udp_port))

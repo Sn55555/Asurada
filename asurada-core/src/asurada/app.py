@@ -77,7 +77,7 @@ class AsuradaApp:
         runtime = LiveRuntime(UdpPacketSource(udp_config))
         runtime.run()
 
-    def run_capture_replay(self, capture_path: Path) -> None:
+    def run_capture_replay(self, capture_path: Path, *, session_paced: bool = False, pace_multiplier: float = 1.0) -> None:
         # 备注:
         # capture replay 是“最接近真实输入”的离线验证模式：
         # raw UDP packet -> decoder -> assembler -> SessionState -> strategy。
@@ -89,6 +89,8 @@ class AsuradaApp:
             voice_output=self.voice_output,
             logger=self.logger,
             dashboard_refresh=self.build_debug_dashboard,
+            session_paced=session_paced,
+            pace_multiplier=pace_multiplier,
         )
         runtime.run()
 

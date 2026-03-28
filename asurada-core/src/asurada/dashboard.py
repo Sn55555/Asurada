@@ -41,31 +41,10 @@ class DebugDashboardBuilder:
             capture_summary = json.loads(capture_summary_path.read_text(encoding="utf-8"))
 
         latest = rows[-1] if rows else {}
-        last_rows = rows[-360:]
+        last_rows = rows
         timing_summary = self._build_timing_summary(rows)
         track_name = latest.get("track") if latest else None
         track_profile = load_track_profile(str(track_name)) if track_name else None
-        priorities: list[float] = []
-        fuel_series: list[float] = []
-        ers_series: list[float] = []
-        tyre_series: list[float] = []
-        speed_series: list[float] = []
-        recent_messages = []
-        code_counter: Counter[str] = Counter()
-        track_segments: Counter[str] = Counter()
-        rival_counter: Counter[str] = Counter()
-        heatmap_rows: dict[str, dict] = defaultdict(
-            lambda: {
-                "segment": "",
-                "zone": "",
-                "frames": 0,
-                "risk_score": 0,
-                "max_priority": 0,
-                "unstable": 0,
-                "front_load": 0,
-                "heavy_braking": 0,
-            }
-        )
         frames = []
         laps = []
         seen_laps = set()
@@ -75,140 +54,63 @@ class DebugDashboardBuilder:
             raw = row.get("raw", {})
             debug = row.get("debug", {})
             context = debug.get("context", {})
+            rivals = row.get("rivals", [])
             messages = row.get("messages", [])
-            tags = set(player.get("status_tags", []))
-            top_priority = messages[0]["priority"] if messages else 0
-            segment = context.get("track_segment") or "Unknown"
-            zone = context.get("track_zone") or "unknown"
-            usage = context.get("track_usage") or ""
             lap_number = int(row.get("lap_number", 0))
             frame_identifier = int(raw.get("frame_identifier", 0))
-            rival_names = [item.get("name", "Unknown") for item in row.get("rivals", [])[:4]]
-
-            priorities.append(top_priority)
-            fuel_series.append(float(player.get("fuel_laps_remaining", 0.0)))
-            ers_series.append(float(player.get("ers_pct", 0.0)))
-            tyre_series.append(float(player.get("tyre", {}).get("wear_pct", 0.0)))
-            speed_series.append(float(player.get("speed_kph", 0.0)))
-            track_segments[segment] += 1
-            for rival_name in rival_names:
-                rival_counter[rival_name] += 1
+            player_position = int(player.get("position", 0))
+            front_rival = next((item for item in rivals if int(item.get("position", 0)) == player_position - 1), None)
+            rear_rival = next((item for item in rivals if int(item.get("position", 0)) == player_position + 1), None)
 
             if lap_number not in seen_laps:
                 laps.append(lap_number)
                 seen_laps.add(lap_number)
 
-            heat = heatmap_rows[segment]
-            heat["segment"] = segment
-            heat["zone"] = zone
-            heat["usage"] = usage
-            heat["order"] = self._segment_order(track_profile, segment)
-            heat["frames"] += 1
-            heat["max_priority"] = max(heat["max_priority"], top_priority)
-            heat["unstable"] += int("unstable" in tags)
-            heat["front_load"] += int("front_tyre_overload" in tags)
-            heat["heavy_braking"] += int("heavy_braking" in tags)
-            heat["risk_score"] += top_priority + int("unstable" in tags) * 12 + int("front_tyre_overload" in tags) * 8
-
-            for msg in messages[:1]:
-                code_counter[msg["code"]] += 1
-                recent_messages.append(
-                    {
-                        "title": msg["title"],
-                        "priority": msg["priority"],
-                        "detail": msg["detail"],
-                        "lap": lap_number,
-                        "frame": frame_identifier,
-                    }
-                )
-
             frames.append(
                 {
                     "frame": frame_identifier,
                     "lap": lap_number,
-                    "segment": segment,
-                    "zone": zone,
-                    "usage": usage,
+                    "session_time_s": float(raw.get("session_time_s", 0.0)),
+                    "total_laps": int((raw.get("session_packet", {}) or {}).get("total_laps", 0) or 0),
+                    "track": row.get("track"),
                     "speed": float(player.get("speed_kph", 0.0)),
-                    "fuel": float(player.get("fuel_laps_remaining", 0.0)),
-                    "ers": float(player.get("ers_pct", 0.0)),
-                    "tyre_wear": float(player.get("tyre", {}).get("wear_pct", 0.0)),
-                    "tyre_compound": player.get("tyre", {}).get("compound", "-"),
-                    "top_priority": top_priority,
+                    "top_priority": messages[0]["priority"] if messages else 0,
                     "top_message": messages[0]["title"] if messages else "",
                     "top_detail": messages[0]["detail"] if messages else "",
-                    "tags": list(player.get("status_tags", [])),
-                    "position": int(player.get("position", 0)),
-                    "rivals": len(row.get("rivals", [])),
-                    "rival_names": rival_names,
-                    "wing_front_left": int(raw.get("wing_damage_pct", {}).get("front_left", 0)),
-                    "wing_front_right": int(raw.get("wing_damage_pct", {}).get("front_right", 0)),
-                    "event_code": raw.get("event_code"),
-                    "chain": {
-                        "parsed_packet_fields": self._extract_parsed_packet_fields(row),
-                        "field_sources": self._extract_field_sources(),
-                        "field_trace": self._extract_field_trace(),
-                        "semantic_layer": self._extract_semantic_layer(row),
-                        "strategy_output": self._extract_strategy_output(row),
-                    },
+                    "messages": messages,
+                    "position": player_position,
+                    "track_segment": context.get("track_segment"),
+                    "track_usage": context.get("track_usage"),
+                    "player_world_x": raw.get("world_position_x"),
+                    "player_world_z": raw.get("world_position_z"),
+                    "front_world_x": raw.get("front_rival_world_position_x"),
+                    "front_world_z": raw.get("front_rival_world_position_z"),
+                    "front_world_name": raw.get("front_rival_name"),
+                    "rear_world_x": raw.get("rear_rival_world_position_x"),
+                    "rear_world_z": raw.get("rear_rival_world_position_z"),
+                    "rear_world_name": raw.get("rear_rival_name"),
+                    "front_rival": self._build_rival_summary(
+                        front_rival,
+                        relation="front",
+                        display_gap_ahead_s=raw.get("front_rival_car_gap_ahead_s"),
+                        display_gap_behind_s=raw.get("front_rival_car_gap_behind_s"),
+                    ),
+                    "rear_rival": self._build_rival_summary(
+                        rear_rival,
+                        relation="rear",
+                        display_gap_ahead_s=raw.get("rear_rival_car_gap_ahead_s"),
+                        display_gap_behind_s=raw.get("rear_rival_car_gap_behind_s"),
+                    ),
                 }
             )
-            if row_index >= 1:
-                frames[-1]["chain"]["frame_diff"] = self._extract_frame_diff(row, last_rows[row_index - 1])
-            else:
-                frames[-1]["chain"]["frame_diff"] = {"parsed_packet_fields": {}, "semantic_layer": {}, "strategy_output": {}}
-            frames[-1]["chain"]["trigger_highlights"] = self._extract_trigger_highlights(row)
-
-        heatmap = sorted(
-            heatmap_rows.values(),
-            key=lambda item: (
-                item.get("order") is None,
-                item.get("order") if item.get("order") is not None else 999,
-                -item["risk_score"],
-                -item["frames"],
-            ),
-        )
-        ordered_segments = sorted(
-            track_segments.items(),
-            key=lambda item: (
-                self._segment_order(track_profile, item[0]) is None,
-                self._segment_order(track_profile, item[0]) if self._segment_order(track_profile, item[0]) is not None else 999,
-                -item[1],
-            ),
-        )[:12]
 
         payload = {
-            "latest": latest,
-            "latest_chain": {
-                "parsed_packet_fields": self._extract_parsed_packet_fields(latest),
-                "field_sources": self._extract_field_sources(),
-                "field_trace": self._extract_field_trace(),
-                "semantic_layer": self._extract_semantic_layer(latest),
-                "strategy_output": self._extract_strategy_output(latest),
-                "frame_diff": self._extract_frame_diff(latest, last_rows[-2] if len(last_rows) >= 2 else {}),
-                "trigger_highlights": self._extract_trigger_highlights(latest),
+            "latest": {
+                "track": latest.get("track"),
             },
-            "capture_summary": capture_summary,
             "timing_summary": timing_summary,
-            "packet_filters": sorted(self._extract_field_sources().keys()),
-            "totals": {
-                "frames": len(rows),
-                "recent_frames": len(last_rows),
-                "message_counts": code_counter.most_common(8),
-                "segments": ordered_segments,
-                "rivals": rival_counter.most_common(8),
-            },
-            "series": {
-                "priority": priorities,
-                "fuel": fuel_series,
-                "ers": ers_series,
-                "tyre_wear": tyre_series,
-                "speed": speed_series,
-            },
-            "recent_messages": recent_messages[-40:],
             "frames": frames,
             "laps": sorted(laps),
-            "heatmap": heatmap,
         }
 
         html = self._render_html(payload)
@@ -243,6 +145,42 @@ class DebugDashboardBuilder:
         if hours > 0:
             return f"{hours}h {remaining_minutes}m {remaining_seconds}s"
         return f"{minutes}m {remaining_seconds}s"
+
+    def _build_rival_summary(
+        self,
+        rival: dict | None,
+        *,
+        relation: str,
+        display_gap_ahead_s: float | None = None,
+        display_gap_behind_s: float | None = None,
+    ) -> dict:
+        if not isinstance(rival, dict):
+            return {
+                "name": "-",
+                "position": None,
+                "display_gap_ahead_s": None,
+                "display_gap_behind_s": None,
+                "speed_kph": None,
+                "ers_pct": None,
+                "drs_available": None,
+                "relation": relation,
+            }
+
+        if display_gap_ahead_s is None:
+            display_gap_ahead_s = rival.get("gap_ahead_s")
+        if display_gap_behind_s is None:
+            display_gap_behind_s = rival.get("gap_behind_s")
+
+        return {
+            "name": rival.get("name") or "-",
+            "position": int(rival.get("position", 0)) if rival.get("position") is not None else None,
+            "display_gap_ahead_s": display_gap_ahead_s,
+            "display_gap_behind_s": display_gap_behind_s,
+            "speed_kph": rival.get("speed_kph"),
+            "ers_pct": rival.get("ers_pct"),
+            "drs_available": rival.get("drs_available"),
+            "relation": relation,
+        }
 
     def _extract_parsed_packet_fields(self, row: dict) -> dict:
         raw = row.get("raw", {})
@@ -605,6 +543,35 @@ class DebugDashboardBuilder:
             "messages": row.get("messages", []),
         }
 
+    def _extract_stage_two_model_debug(self, row: dict) -> dict:
+        debug = row.get("debug", {})
+        arbiter = debug.get("arbiter_v2", {}) or {}
+        arbiter_input = arbiter.get("input", {}) or {}
+        arbiter_output = arbiter.get("output", {}) or {}
+        model_candidates = arbiter_input.get("model_candidates", []) or []
+        return {
+            "strategy_action_model": {
+                "model_candidates": [
+                    item for item in model_candidates if (item.get("source") or "").startswith("strategy_action_model")
+                ],
+            },
+            "arbiter_input": {
+                "rule_candidates": arbiter_input.get("rule_candidates", []),
+                "model_candidates": model_candidates,
+                "tactical_context": arbiter_input.get("tactical_context", {}),
+                "confidence_context": arbiter_input.get("confidence_context", {}),
+                "fallback_context": arbiter_input.get("fallback_context", {}),
+                "output_control": arbiter_input.get("output_control", {}),
+            },
+            "arbiter_output": {
+                "final_hud_action": arbiter_output.get("final_hud_action", {}),
+                "final_voice_action": arbiter_output.get("final_voice_action", {}),
+                "final_strategy_stack": arbiter_output.get("final_strategy_stack", []),
+                "ordered_actions": arbiter_output.get("ordered_actions", []),
+                "suppressed_actions": arbiter_output.get("suppressed_actions", []),
+            },
+        }
+
     def _segment_order(self, track_profile, segment_name: str) -> int | None:
         if track_profile is None:
             return None
@@ -617,7 +584,6 @@ class DebugDashboardBuilder:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="4">
   <title>Asurada Debug Dashboard</title>
   <style>
     :root {{
@@ -633,28 +599,58 @@ class DebugDashboardBuilder:
       --heat-soft: #ffe3e3;
     }}
     body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }}
-    .wrap {{ max-width: 1360px; margin: 0 auto; padding: 28px 24px 48px; }}
-    h1 {{ margin: 0 0 6px; font-size: 28px; }}
-    .sub {{ color: var(--muted); margin-bottom: 20px; }}
+    .wrap {{ max-width: 1400px; margin: 0 auto; padding: 18px 20px 24px; }}
+    h1 {{ margin: 0 0 4px; font-size: 26px; }}
+    .sub {{ color: var(--muted); margin-bottom: 12px; font-size: 13px; }}
     .grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }}
     .grid3 {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }}
     .grid2 {{ display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; margin-bottom: 16px; }}
     .panel {{ background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: 0 8px 20px rgba(0,0,0,0.04); }}
+    .metric-panel {{ height: 150px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }}
+    .primary-panel {{ height: 190px; display: flex; flex-direction: column; overflow: hidden; }}
+    .rival-panel {{ height: 170px; overflow: hidden; }}
+    .trajectory-panel {{ height: 392px; overflow: hidden; }}
+    .trajectory-canvas {{ width: 100%; height: 300px; display: block; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg, #fcfdff, #f6f8fb); }}
+    .trajectory-legend {{ display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }}
+    .legend-item {{ display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }}
+    .legend-dot {{ width: 10px; height: 10px; border-radius: 999px; display: inline-block; }}
     .metric {{ font-size: 30px; font-weight: 700; margin-top: 6px; }}
+    .metric.compact {{ font-size: 24px; line-height: 1.2; }}
     .label {{ color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }}
     .label-note {{ color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 6px; }}
     .two {{ display: grid; grid-template-columns: 2fr 1.2fr; gap: 16px; margin-bottom: 16px; }}
+    .rival-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }}
+    .rival-box {{ border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fbfcfe; min-height: 0; overflow: hidden; }}
+    .rival-name {{ font-size: 18px; font-weight: 700; line-height: 1.2; }}
+    .rival-stats {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-top: 10px; }}
+    .rival-stat {{ min-width: 0; }}
+    .rival-stat .helper {{ margin-bottom: 2px; }}
     .chart {{ height: 180px; width: 100%; background: linear-gradient(180deg, #fff, #fafbfc); border-radius: 12px; }}
-    .list {{ display: grid; gap: 10px; }}
+    .list {{ display: grid; gap: 10px; min-height: 0; }}
     .item {{ border-top: 1px solid var(--line); padding-top: 10px; }}
     .item:first-child {{ border-top: 0; padding-top: 0; }}
     .pill {{ display: inline-block; padding: 3px 8px; border-radius: 999px; background: #eef4ff; color: var(--accent); font-size: 12px; margin-right: 8px; }}
     .prio-high {{ color: var(--warn); }}
     .prio-mid {{ color: #9c6b00; }}
-    .controls {{ display: grid; grid-template-columns: 200px 1fr 120px; gap: 16px; align-items: center; margin-top: 12px; }}
+    .ellipsis-2 {{
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+    }}
+    .ellipsis-3 {{
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+      overflow: hidden;
+    }}
+    .controls {{ display: grid; grid-template-columns: 140px 1fr 96px; gap: 10px; align-items: end; margin-top: 8px; }}
+    .controls4 {{ display: grid; grid-template-columns: 96px 1fr 132px; gap: 10px; align-items: end; margin-top: 8px; }}
     .mono {{ font-variant-numeric: tabular-nums; }}
     input[type=range] {{ width: 100%; }}
     select {{ width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }}
+    button {{ width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; }}
+    button:hover {{ background: #f6f8fb; }}
     table {{ width: 100%; border-collapse: collapse; }}
     th, td {{ text-align: left; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; vertical-align: top; }}
     th {{ color: var(--muted); font-weight: 600; border-top: 0; }}
@@ -667,346 +663,355 @@ class DebugDashboardBuilder:
     .chain-note {{ padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; background: #fcfdff; font-size: 13px; line-height: 1.5; color: var(--muted); }}
     .chain-actions {{ display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: end; margin-top: 14px; }}
     .jsonbox {{ margin: 10px 0 0; padding: 12px; border-radius: 12px; background: #fbfcfe; border: 1px solid var(--line); min-height: 280px; max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
+    .hero-grid {{ display: grid; grid-template-columns: 1.7fr 1fr; gap: 16px; margin-bottom: 16px; align-items: stretch; }}
+    .side-stack {{ display: grid; grid-template-rows: auto auto; gap: 12px; min-height: 0; align-content: start; }}
+    .browser-panel {{ min-height: 0; padding: 14px 16px; }}
     @media (max-width: 980px) {{
-      .grid, .grid2, .grid3, .two, .controls, .chain-grid, .chain-intro {{ grid-template-columns: 1fr; }}
+      .grid, .grid2, .grid3, .two, .controls, .chain-grid, .chain-intro, .hero-grid, .side-stack {{ grid-template-columns: 1fr; grid-template-rows: none; }}
+      .trajectory-panel, .primary-panel, .rival-panel {{ height: auto; }}
     }}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Asurada Debug Dashboard</h1>
-    <div class="sub">本地自动刷新调试面板。页面每 4 秒刷新一次，回放运行期间可持续观察变化。</div>
-    <div class="grid">
-      <div class="panel"><div class="label">Track</div><div class="label-note">当前会话识别到的赛道。</div><div class="metric" id="track"></div></div>
-      <div class="panel"><div class="label">Latest Lap</div><div class="label-note">最新一帧所属圈数。</div><div class="metric" id="lap"></div></div>
-      <div class="panel"><div class="label">Fuel Laps</div><div class="label-note">按当前口径估算的剩余燃油可支撑圈数。</div><div class="metric" id="fuel"></div></div>
-      <div class="panel"><div class="label">ERS</div><div class="label-note">玩家当前 ERS 百分比。</div><div class="metric" id="ers"></div></div>
-    </div>
-    <div class="grid">
-      <div class="panel"><div class="label">Capture Wall Time</div><div class="label-note">抓包文件从第一条到最后一条数据的真实录制时间跨度。</div><div class="metric" id="capture-wall-time" style="font-size:24px"></div></div>
-      <div class="panel"><div class="label">Game Session Time</div><div class="label-note">游戏包头中的 session_time 实际推进跨度。</div><div class="metric" id="session-span-time" style="font-size:24px"></div></div>
-      <div class="panel"><div class="label">Capture Wall Seconds</div><div class="label-note">抓包录制时间跨度，单位秒。</div><div class="metric" id="capture-wall-seconds" style="font-size:24px"></div></div>
-      <div class="panel"><div class="label">Session Span Seconds</div><div class="label-note">游戏 session_time 跨度，单位秒。</div><div class="metric" id="session-span-seconds" style="font-size:24px"></div></div>
-    </div>
-    <div class="grid3">
-      <div class="panel"><div class="label">Top Priority</div><div class="label-note">当前帧最高优先级策略消息的优先级数值。</div><div class="metric" id="top-priority"></div></div>
-      <div class="panel"><div class="label">Track Usage</div><div class="label-note">当前赛道区段在策略模型里的用途标签。</div><div class="metric" id="top-usage" style="font-size:22px"></div></div>
-      <div class="panel"><div class="label">Rival Count</div><div class="label-note">当前帧被追踪并进入模型的对手数量。</div><div class="metric" id="rival-count"></div></div>
-    </div>
-    <div class="grid2">
-      <div class="panel">
-        <div class="label">Primary Call</div>
-        <div class="label-note">当前帧排在最前面的主要策略播报，以及其后的候选消息栈。</div>
-        <div class="metric" id="primary-call" style="font-size:24px"></div>
-        <div id="primary-detail" class="sub" style="margin:10px 0 0"></div>
-        <div id="strategy-stack" class="list" style="margin-top:16px"></div>
+    <div class="sub">回放观察页。默认桌面视口下一屏查看轨迹、策略、前后车摘要和回放控制。</div>
+    <div class="hero-grid">
+      <div class="panel trajectory-panel">
+        <div class="label">World Trajectory</div>
+        <div class="label-note">按当前播放进度，绘制玩家、前车、后车三辆车在世界坐标下的线路。</div>
+        <canvas id="trajectory-canvas" class="trajectory-canvas" width="960" height="270"></canvas>
+        <div class="trajectory-legend">
+          <span class="legend-item"><span class="legend-dot" style="background:#005bbb;"></span><span id="legend-player">玩家</span></span>
+          <span class="legend-item"><span class="legend-dot" style="background:#d9480f;"></span><span id="legend-front">前车</span></span>
+          <span class="legend-item"><span class="legend-dot" style="background:#2b8a3e;"></span><span id="legend-rear">后车</span></span>
+        </div>
       </div>
-      <div class="panel">
-        <div class="label">Protocol Coverage</div>
-        <div class="label-note">当前抓包里出现了哪些 packet，以及解码覆盖到什么程度。</div>
-        <div class="list" id="protocol-coverage"></div>
-      </div>
-    </div>
-    <div class="two">
-      <div class="panel">
-        <div class="label">Recent Trends</div>
-        <div class="label-note">最近窗口内的优先级、燃油、ERS、胎耗和速度变化趋势。</div>
-        <svg id="trend" class="chart" viewBox="0 0 900 180" preserveAspectRatio="none"></svg>
-      </div>
-      <div class="panel">
-        <div class="label">Latest State</div>
-        <div class="label-note">最新一帧的玩家状态、赛道上下文和对手概况。</div>
-        <div class="list" id="latest-state"></div>
+      <div class="side-stack">
+        <div class="panel primary-panel">
+          <div class="label">Current Strategy Output</div>
+          <div class="label-note">当前时间点排在最前面的策略输出，以及其后的候选消息栈。</div>
+          <div class="metric compact ellipsis-2" id="primary-call" style="margin-top:10px;"></div>
+          <div id="primary-time" class="helper ellipsis-2" style="margin-top:6px;"></div>
+          <div id="primary-detail" class="sub ellipsis-3" style="margin:8px 0 0"></div>
+          <div id="strategy-stack" class="list" style="margin-top:12px; overflow:auto; flex:1; min-height:0;"></div>
+        </div>
+        <div class="panel rival-panel">
+          <div class="label">Front / Rear Rival</div>
+          <div class="label-note">当前前车与后车各自的状态摘要。差距字段按该车自身视角展示，不与玩家做换算。</div>
+          <div class="rival-grid">
+            <div class="rival-box">
+              <div class="helper">前车</div>
+              <div id="front-rival-name" class="rival-name ellipsis-2">-</div>
+              <div id="front-rival-stats" class="rival-stats"></div>
+            </div>
+            <div class="rival-box">
+              <div class="helper">后车</div>
+              <div id="rear-rival-name" class="rival-name ellipsis-2">-</div>
+              <div id="rear-rival-stats" class="rival-stats"></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="two">
-      <div class="panel">
+      <div class="panel browser-panel">
         <div class="label">Frame Browser</div>
-        <div class="label-note">按圈筛选并逐帧查看该帧的状态、消息和链路结果。</div>
+        <div class="label-note">全量 session 时间轴。支持播放、暂停和拖动。</div>
         <div class="controls">
           <div>
-            <div class="helper">按圈筛选</div>
-            <select id="lap-filter"></select>
+            <div class="helper">浏览范围</div>
+            <select id="lap-filter"><option value="all">全量 session</option></select>
           </div>
           <div>
-            <div class="helper">最近帧浏览</div>
+            <div class="helper">回放进度</div>
             <input id="frame-slider" type="range" min="0" max="0" value="0">
           </div>
-          <div>
-            <div class="helper">选中帧</div>
-            <div id="frame-label" class="metric mono" style="font-size:20px"></div>
+            <div>
+              <div class="helper">选中帧</div>
+            <div id="frame-label" class="metric mono" style="font-size:16px; margin-top:4px;"></div>
           </div>
         </div>
-        <div class="list" id="frame-detail" style="margin-top:16px"></div>
-      </div>
-      <div class="panel">
-        <div class="label">Segment Heatmap</div>
-        <div class="label-note">按赛道顺序查看哪些区段累计了更高风险和更多高优先级事件。</div>
-        <div id="heatmap"></div>
-      </div>
-    </div>
-    <div class="panel" style="margin-bottom:16px;">
-      <div class="label">Parse To Model Chain</div>
-      <div class="sub" style="margin:8px 0 0;">选中帧的真实包解析字段 -> 语义层 -> 策略输出。用于检查数据如何进入模型语义与策略仲裁。</div>
-      <div class="chain-intro">
-        <div class="chain-note"><strong>Parsed Packet Fields</strong><br>真实包里直接解析出来的字段，还没有做策略语义解释。</div>
-        <div class="chain-note"><strong>Field Sources</strong><br>上面这些字段分别来自哪个 packet，用于核对来源和解码路径。</div>
-        <div class="chain-note"><strong>Semantic Layer</strong><br>把原始字段转换成赛道上下文、驾驶状态和模型语义后的结果。</div>
-        <div class="chain-note"><strong>Strategy Output</strong><br>策略引擎基于语义层算出的风险、候选动作和最终消息。</div>
-      </div>
-      <div class="chain-actions">
-        <div>
-          <div class="helper">按 packet 过滤解析字段</div>
-          <select id="packet-filter"></select>
+        <div class="controls4">
+          <div>
+            <div class="helper">播放控制</div>
+            <button id="play-toggle" type="button">播放</button>
+          </div>
+          <div>
+            <div class="helper">选中时间</div>
+            <div id="frame-time-label" class="metric mono" style="font-size:16px; margin-top:4px;"></div>
+          </div>
+          <div>
+            <div class="helper">当前圈段</div>
+            <div id="frame-lap-label" class="metric mono" style="font-size:16px; margin-top:4px;"></div>
+          </div>
         </div>
-        <div class="helper">`Field Sources` 现在同时显示 packet -> fields 和 field -> packet / decoder 方法 / snapshot raw key 映射。</div>
-      </div>
-      <div class="chain-grid">
-        <div>
-          <div class="label">Parsed Packet Fields</div>
-          <pre id="chain-parsed" class="jsonbox"></pre>
-        </div>
-        <div>
-          <div class="label">Field Sources</div>
-          <pre id="chain-sources" class="jsonbox"></pre>
-        </div>
-        <div>
-          <div class="label">Semantic Layer</div>
-          <pre id="chain-semantics" class="jsonbox"></pre>
-        </div>
-        <div>
-          <div class="label">Strategy Output</div>
-          <pre id="chain-output" class="jsonbox"></pre>
-        </div>
-      </div>
-      <div class="chain-grid" style="margin-top:16px;">
-        <div style="grid-column: span 2;">
-          <div class="label">Trigger Highlights</div>
-          <div class="label-note">当前帧哪些字段直接触发了语义变化或策略变化。</div>
-          <pre id="chain-triggers" class="jsonbox" style="min-height:220px;"></pre>
-        </div>
-        <div style="grid-column: span 2;">
-          <div class="label">Frame Change Diff</div>
-          <div class="label-note">与上一帧相比，哪些解析字段、语义字段和策略输出发生了变化。</div>
-          <pre id="chain-diff" class="jsonbox" style="min-height:220px;"></pre>
-        </div>
-      </div>
-    </div>
-    <div class="two">
-      <div class="panel">
-        <div class="label">Recent Strategy Events</div>
-        <div class="label-note">最近触发的策略消息，按最近帧倒序展示。</div>
-        <div class="list" id="events"></div>
-      </div>
-      <div class="panel">
-        <div class="label">Rival Overview</div>
-        <div class="label-note">最近窗口里最常出现的对手、消息代码和赛道区段统计。</div>
-        <table><thead><tr><th>Rival</th><th>Frames</th></tr></thead><tbody id="rivals"></tbody></table>
-        <div class="label">Top Message Codes</div>
-        <div class="label-note">最近窗口里最常出现的策略消息代码。</div>
-        <table><thead><tr><th>Code</th><th>Count</th></tr></thead><tbody id="codes"></tbody></table>
-        <div class="label" style="margin-top: 18px;">Top Track Segments</div>
-        <div class="label-note">最近窗口里出现频率最高的赛道区段。</div>
-        <table><thead><tr><th>Segment</th><th>Frames</th></tr></thead><tbody id="segments"></tbody></table>
+        <div class="list" id="frame-detail" style="margin-top:10px; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 10px;"></div>
       </div>
     </div>
   </div>
   <script>
     const payload = {embedded};
-    const latest = payload.latest || {{}};
-    const player = latest.player || {{}};
-    const rivals = latest.rivals || [];
-    const debug = latest.debug || {{}};
-    const context = debug.context || {{}};
-    const raw = latest.raw || {{}};
-    const captureSummary = payload.capture_summary || {{}};
     const frames = payload.frames || [];
-    const laps = payload.laps || [];
-    const latestMessages = latest.messages || [];
-    const latestChain = payload.latest_chain || {{}};
-    const packetFilters = payload.packet_filters || [];
-    const timingSummary = payload.timing_summary || {{}};
-
-    document.getElementById('track').textContent = latest.track || '-';
-    document.getElementById('lap').textContent = latest.lap_number ?? '-';
-    document.getElementById('fuel').textContent = Number(player.fuel_laps_remaining || 0).toFixed(1);
-    document.getElementById('ers').textContent = `${{Number(player.ers_pct || 0).toFixed(0)}}%`;
-    document.getElementById('capture-wall-time').textContent = timingSummary.capture_wall_label || '-';
-    document.getElementById('session-span-time').textContent = timingSummary.session_span_label || '-';
-    document.getElementById('capture-wall-seconds').textContent = String(timingSummary.capture_wall_seconds ?? '-');
-    document.getElementById('session-span-seconds').textContent = String(timingSummary.session_span_seconds ?? '-');
-    document.getElementById('top-priority').textContent = String((latest.messages || [])[0]?.priority ?? 0);
-    document.getElementById('top-usage').textContent = context.track_usage || '-';
-    document.getElementById('rival-count').textContent = String(rivals.length || 0);
-    document.getElementById('primary-call').textContent = latestMessages[0]?.title || 'No active call';
-    document.getElementById('primary-detail').textContent = latestMessages[0]?.detail || 'No high-priority strategy output in the latest frame.';
-    document.getElementById('strategy-stack').innerHTML = latestMessages.slice(0, 5).map((item) => `<div class="item"><span class="pill">P${{item.priority}}</span><strong>${{item.title}}</strong><div>${{item.detail}}</div></div>`).join('');
-    const coverage = captureSummary.coverage || {{}};
-    document.getElementById('protocol-coverage').innerHTML = [
-      ['Packets Present', coverage.present_packet_kinds ?? '-'],
-      ['Packets Decoded', coverage.decoded_packet_kinds ?? '-'],
-      ['Unknown Packet Kinds', coverage.unknown_packet_kinds ?? '-'],
-      ['Snapshots', captureSummary.normalized_snapshots ?? '-'],
-      ['Strategy Events', captureSummary.emitted_strategy_events ?? '-'],
-      ['Decoded Kinds', (captureSummary.decoded_kinds || []).join(', ') || '-'],
-      ['Unknown Kinds', (captureSummary.unknown_kinds || []).join(', ') || '-'],
-    ].map(([k, v]) => `<div class="item"><span class="pill">${{k}}</span>${{v}}</div>`).join('');
-
-    const latestState = [
-      ['Driver', player.name || 'Player'],
-      ['Position', player.position],
-      ['Speed', `${{Number(player.speed_kph || 0).toFixed(0)}} km/h`],
-      ['Tyre', `${{player.tyre?.compound || '-'}} / ${{Number(player.tyre?.wear_pct || 0).toFixed(1)}}%`],
-      ['Segment', context.track_segment || '-'],
-      ['Zone', context.track_zone || '-'],
-      ['Usage', context.track_usage || '-'],
-      ['Tags', (player.status_tags || []).join(', ') || 'stable'],
-      ['Front Wing', `${{raw.wing_damage_pct?.front_left ?? 0}} / ${{raw.wing_damage_pct?.front_right ?? 0}}`],
-      ['Rivals', rivals.length ? rivals.map((item) => item.name).join(', ') : '0 tracked'],
-    ];
-    document.getElementById('latest-state').innerHTML = latestState.map(([k,v]) => `<div class="item"><span class="pill">${{k}}</span>${{v}}</div>`).join('');
-
-    const events = payload.recent_messages || [];
-    document.getElementById('events').innerHTML = events.slice().reverse().map((item) => {{
-      const cls = item.priority >= 90 ? 'prio-high' : item.priority >= 70 ? 'prio-mid' : '';
-      return `<div class="item"><div><span class="pill">Lap ${{item.lap ?? '-'}}</span><span class="pill">F${{item.frame ?? '-'}}</span><strong class="${{cls}}">P${{item.priority}} ${{item.title}}</strong></div><div>${{item.detail}}</div></div>`;
-    }}).join('');
-
-    document.getElementById('codes').innerHTML = (payload.totals?.message_counts || []).map(([code, count]) => `<tr><td>${{code}}</td><td>${{count}}</td></tr>`).join('');
-    document.getElementById('segments').innerHTML = (payload.totals?.segments || []).map(([name, count]) => `<tr><td>${{name}}</td><td>${{count}}</td></tr>`).join('');
-    document.getElementById('rivals').innerHTML = (payload.totals?.rivals || []).map(([name, count]) => `<tr><td>${{name}}</td><td>${{count}}</td></tr>`).join('');
-
-    const heatmap = payload.heatmap || [];
-    const heatMax = Math.max(...heatmap.map(item => item.risk_score || 0), 1);
-    document.getElementById('heatmap').innerHTML = heatmap.map((item) => {{
-      const width = ((item.risk_score || 0) / heatMax) * 100;
-      return `<div class="heat-row"><div><strong>${{item.segment}}</strong><div class="helper">${{item.zone}} | ${{item.usage || '-'}} | frames=${{item.frames}} | maxP=${{item.max_priority}}</div></div><div class="heat-bar"><span style="width:${{width}}%"></span></div><div class="mono">${{item.risk_score}}</div></div>`;
-    }}).join('');
-
-    const svg = document.getElementById('trend');
-    const series = payload.series || {{}};
-    const colors = [
-      ['priority', '#d9480f', 120],
-      ['fuel', '#005bbb', 12],
-      ['ers', '#2b8a3e', 100],
-      ['tyre_wear', '#9c6b00', 100],
-      ['speed', '#6c2bd9', 350],
-    ];
-    const w = 900, h = 180, pad = 10;
-    function linePath(values, maxValue) {{
-      if (!values.length) return '';
-      return values.map((v, i) => {{
-        const x = pad + (i * (w - pad * 2) / Math.max(values.length - 1, 1));
-        const y = h - pad - ((Math.min(v, maxValue) / maxValue) * (h - pad * 2));
-        return `${{i === 0 ? 'M' : 'L'}}${{x.toFixed(2)}},${{y.toFixed(2)}}`;
-      }}).join(' ');
-    }}
-    svg.innerHTML = colors.map(([key, color, maxValue]) => `<path d="${{linePath(series[key] || [], maxValue)}}" fill="none" stroke="${{color}}" stroke-width="2.2"/>`).join('');
-
     const lapFilter = document.getElementById('lap-filter');
-    lapFilter.innerHTML = ['<option value="all">全部最近帧</option>'].concat(laps.map((lap) => `<option value="${{lap}}">Lap ${{lap}}</option>`)).join('');
     const slider = document.getElementById('frame-slider');
     const frameLabel = document.getElementById('frame-label');
     const frameDetail = document.getElementById('frame-detail');
-    const packetFilter = document.getElementById('packet-filter');
-    const chainParsed = document.getElementById('chain-parsed');
-    const chainSources = document.getElementById('chain-sources');
-    const chainSemantics = document.getElementById('chain-semantics');
-    const chainOutput = document.getElementById('chain-output');
-    const chainTriggers = document.getElementById('chain-triggers');
-    const chainDiff = document.getElementById('chain-diff');
+    const playToggle = document.getElementById('play-toggle');
+    const frameTimeLabel = document.getElementById('frame-time-label');
+    const frameLapLabel = document.getElementById('frame-lap-label');
+    const frontRivalName = document.getElementById('front-rival-name');
+    const rearRivalName = document.getElementById('rear-rival-name');
+    const frontRivalStats = document.getElementById('front-rival-stats');
+    const rearRivalStats = document.getElementById('rear-rival-stats');
     let filteredFrames = frames.slice();
-    packetFilter.innerHTML = ['<option value="all">全部 packet</option>'].concat(packetFilters.map((name) => `<option value="${{name}}">${{name}}</option>`)).join('');
+    let playbackTimer = null;
+    let isPlaying = false;
+    let playbackIndex = 0;
 
-    function pretty(value) {{
-      return JSON.stringify(value ?? {{}}, null, 2);
+    function formatSessionTime(seconds) {{
+      const total = Number(seconds || 0);
+      const minutes = Math.floor(total / 60);
+      const remain = total - minutes * 60;
+      const whole = Math.floor(remain);
+      const tenths = Math.floor((remain - whole) * 10);
+      return `${{minutes}}:${{String(whole).padStart(2, '0')}}.${{tenths}}`;
     }}
 
-    function filterParsedFields(chain, selectedPacket) {{
-      const parsed = Object.assign({{}}, chain.parsed_packet_fields || {{}});
-      const trace = chain.field_trace || {{}};
-      if (selectedPacket === 'all') return parsed;
-      const filtered = {{}};
-      Object.entries(parsed).forEach(([key, value]) => {{
-        if ((trace[key] || {{}}).packet === selectedPacket) filtered[key] = value;
-      }});
-      return filtered;
+    function formatMetric(value, formatter) {{
+      if (value === null || value === undefined || value === '') return '-';
+      return formatter ? formatter(value) : String(value);
     }}
 
-    function filterFieldSources(chain, selectedPacket) {{
-      const packetFields = chain.field_sources || {{}};
-      const fieldTrace = chain.field_trace || {{}};
-      if (selectedPacket === 'all') {{
-        return {{
-          packet_fields: packetFields,
-          field_trace: fieldTrace,
-        }};
-      }}
-      const filteredTrace = {{}};
-      Object.entries(fieldTrace).forEach(([field, meta]) => {{
-        if ((meta || {{}}).packet === selectedPacket) filteredTrace[field] = meta;
-      }});
-      return {{
-        packet_fields: {{
-          [selectedPacket]: packetFields[selectedPacket] || [],
+    function renderRivalStats(target, rival) {{
+      const stats = [
+        ['名次', formatMetric(rival.position)],
+        ['前车差距', formatMetric(rival.display_gap_ahead_s, (value) => `${{Number(value).toFixed(1)}} s`)],
+        ['后车差距', formatMetric(rival.display_gap_behind_s, (value) => `${{Number(value).toFixed(1)}} s`)],
+        ['时速', formatMetric(rival.speed_kph, (value) => `${{Number(value).toFixed(0)}} km/h`)],
+        ['ERS', formatMetric(rival.ers_pct, (value) => `${{Number(value).toFixed(0)}}%`)],
+        ['DRS', rival.drs_available === null || rival.drs_available === undefined ? '-' : (rival.drs_available ? '可用' : '不可用')],
+      ];
+      target.innerHTML = stats
+        .map(([label, value]) => `<div class="rival-stat"><div class="helper">${{label}}</div><div class="ellipsis-2">${{value}}</div></div>`)
+        .join('');
+    }}
+
+    function drawTrajectory(index) {{
+      const canvas = document.getElementById('trajectory-canvas');
+      const ctx = canvas.getContext('2d');
+      const subset = filteredFrames.slice(0, index + 1);
+      const series = [
+        {{
+          keyX: 'player_world_x',
+          keyZ: 'player_world_z',
+          color: '#005bbb',
+          labelTarget: document.getElementById('legend-player'),
+          label: '玩家',
         }},
-        field_trace: filteredTrace,
-      }};
-    }}
+        {{
+          keyX: 'front_world_x',
+          keyZ: 'front_world_z',
+          color: '#d9480f',
+          labelTarget: document.getElementById('legend-front'),
+          label: subset[index]?.front_world_name ? `前车：${{subset[index].front_world_name}}` : '前车',
+        }},
+        {{
+          keyX: 'rear_world_x',
+          keyZ: 'rear_world_z',
+          color: '#2b8a3e',
+          labelTarget: document.getElementById('legend-rear'),
+          label: subset[index]?.rear_world_name ? `后车：${{subset[index].rear_world_name}}` : '后车',
+        }},
+      ];
 
-    function renderChain(chain) {{
-      const fallback = latestChain || {{}};
-      const active = chain || fallback;
-      const selectedPacket = packetFilter.value || 'all';
-      chainParsed.textContent = pretty(filterParsedFields(active, selectedPacket));
-      chainSources.textContent = pretty(filterFieldSources(active, selectedPacket));
-      chainSemantics.textContent = pretty(active.semantic_layer || {{}});
-      chainOutput.textContent = pretty(active.strategy_output || {{}});
-      chainTriggers.textContent = pretty(active.trigger_highlights || {{}});
-      chainDiff.textContent = pretty(active.frame_diff || {{}});
+      for (const item of series) {{
+        item.labelTarget.textContent = item.label;
+      }}
+
+      const points = [];
+      for (const frame of subset) {{
+        for (const item of series) {{
+          const x = frame[item.keyX];
+          const z = frame[item.keyZ];
+          if (x !== null && x !== undefined && z !== null && z !== undefined) {{
+            points.push([Number(x), Number(z)]);
+          }}
+        }}
+      }}
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!points.length) {{
+        ctx.fillStyle = '#60646c';
+        ctx.font = '14px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+        ctx.fillText('当前回放没有可用的三车世界坐标。', 24, 36);
+        return;
+      }}
+
+      const xs = points.map((item) => item[0]);
+      const zs = points.map((item) => item[1]);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minZ = Math.min(...zs);
+      const maxZ = Math.max(...zs);
+      const padding = 18;
+      const usableWidth = canvas.width - padding * 2;
+      const usableHeight = canvas.height - padding * 2;
+      const spanX = Math.max(maxX - minX, 1);
+      const spanZ = Math.max(maxZ - minZ, 1);
+      const scale = Math.min(usableWidth / spanX, usableHeight / spanZ);
+
+      function mapPoint(x, z) {{
+        return [
+          padding + (x - minX) * scale,
+          canvas.height - padding - (z - minZ) * scale,
+        ];
+      }}
+
+      ctx.strokeStyle = '#d9dde3';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0.5, 0.5, canvas.width - 1, canvas.height - 1);
+
+      for (const item of series) {{
+        const line = subset
+          .map((frame) => {{
+            const x = frame[item.keyX];
+            const z = frame[item.keyZ];
+            return x !== null && x !== undefined && z !== null && z !== undefined ? mapPoint(Number(x), Number(z)) : null;
+          }})
+          .filter(Boolean);
+        if (line.length < 2) continue;
+        ctx.beginPath();
+        ctx.strokeStyle = item.color;
+        ctx.lineWidth = 2.5;
+        ctx.moveTo(line[0][0], line[0][1]);
+        for (const point of line.slice(1)) {{
+          ctx.lineTo(point[0], point[1]);
+        }}
+        ctx.stroke();
+
+        const last = line[line.length - 1];
+        ctx.fillStyle = item.color;
+        ctx.beginPath();
+        ctx.arc(last[0], last[1], 4, 0, Math.PI * 2);
+        ctx.fill();
+      }}
     }}
 
     function renderFrame(index) {{
       if (!filteredFrames.length) {{
+        document.getElementById('primary-call').textContent = 'No active call';
+        document.getElementById('primary-time').textContent = '-';
+        document.getElementById('primary-detail').textContent = 'No high-priority strategy output in the current frame.';
+        document.getElementById('strategy-stack').innerHTML = '';
+        frontRivalName.textContent = '-';
+        rearRivalName.textContent = '-';
+        frontRivalStats.innerHTML = '';
+        rearRivalStats.innerHTML = '';
         frameLabel.textContent = '-';
+        frameTimeLabel.textContent = '-';
+        frameLapLabel.textContent = '-';
         frameDetail.innerHTML = '<div class="item">没有可显示的帧数据</div>';
-        renderChain(latestChain);
         return;
       }}
       const frame = filteredFrames[index];
+      const previousFrame = index >= 1 ? filteredFrames[index - 1] : frame;
+      const speedDelta = Number(frame.speed || 0) - Number(previousFrame.speed || 0);
+      const frameMessages = Array.isArray(frame.messages) ? frame.messages : [];
+      document.getElementById('primary-call').textContent = frame.top_message || 'No active call';
+      document.getElementById('primary-time').textContent = `session_time=${{formatSessionTime(frame.session_time_s)}} | lap=${{
+        frame.total_laps > 0 ? `${{frame.lap}} / ${{frame.total_laps}}` : frame.lap
+      }} | pos=${{frame.position ?? '-'}}`;
+      document.getElementById('primary-detail').textContent = frame.top_detail || 'No high-priority strategy output in the current frame.';
+      document.getElementById('strategy-stack').innerHTML = frameMessages
+        .slice(0, 5)
+        .map((item) => `<div class="item"><span class="pill">P${{item.priority}}</span><strong>${{item.title}}</strong><div>${{item.detail}}</div></div>`)
+        .join('');
+      frontRivalName.textContent = frame.front_rival?.name || '-';
+      rearRivalName.textContent = frame.rear_rival?.name || '-';
+      renderRivalStats(frontRivalStats, frame.front_rival || {{}});
+      renderRivalStats(rearRivalStats, frame.rear_rival || {{}});
+      drawTrajectory(index);
       frameLabel.textContent = `F${{frame.frame}}`;
+      frameTimeLabel.textContent = formatSessionTime(frame.session_time_s);
+      frameLapLabel.textContent = frame.total_laps > 0 ? `${{frame.lap}} / ${{frame.total_laps}}` : String(frame.lap);
       const detail = [
-        ['Lap', frame.lap],
-        ['Segment', `${{frame.segment}} (${{frame.zone}})`],
-        ['Usage', frame.usage || '-'],
+        ['Session Time', `${{formatSessionTime(frame.session_time_s)}} (${{Number(frame.session_time_s || 0).toFixed(1)}} s)`],
+        ['Track', payload.latest?.track || '-'],
+        ['Lap', frame.total_laps > 0 ? `${{frame.lap}} / ${{frame.total_laps}}` : String(frame.lap)],
+        ['Position', frame.position ?? '-'],
         ['Speed', `${{Number(frame.speed || 0).toFixed(0)}} km/h`],
-        ['Fuel', Number(frame.fuel || 0).toFixed(2)],
-        ['ERS', `${{Number(frame.ers || 0).toFixed(0)}}%`],
-        ['Tyre', `${{frame.tyre_compound}} / ${{Number(frame.tyre_wear || 0).toFixed(1)}}%`],
-        ['Priority', frame.top_priority || 0],
-        ['Message', frame.top_message || '-'],
-        ['Tags', (frame.tags || []).join(', ') || 'stable'],
-        ['Rivals', frame.rival_names?.join(', ') || `${{frame.rivals}} tracked`],
-        ['Wing', `${{frame.wing_front_left}} / ${{frame.wing_front_right}}`],
-        ['Event', frame.event_code || '-'],
       ];
       frameDetail.innerHTML = detail.map(([k, v]) => `<div class="item"><span class="pill">${{k}}</span>${{v}}</div>`).join('');
-      renderChain(frame.chain);
+    }}
+
+    function clearPlaybackTimer() {{
+      if (playbackTimer !== null) {{
+        clearInterval(playbackTimer);
+        playbackTimer = null;
+      }}
+    }}
+
+    function updatePlayToggle() {{
+      playToggle.textContent = isPlaying ? '暂停' : '播放';
+    }}
+
+    function schedulePlaybackStep() {{
+      clearPlaybackTimer();
+      if (!isPlaying || !filteredFrames.length) return;
+      playbackTimer = setInterval(() => {{
+        if (!isPlaying || !filteredFrames.length) {{
+          clearPlaybackTimer();
+          return;
+        }}
+        if (playbackIndex >= filteredFrames.length - 1) {{
+          isPlaying = false;
+          updatePlayToggle();
+          clearPlaybackTimer();
+          return;
+        }}
+        playbackIndex += 1;
+        slider.value = String(playbackIndex);
+        renderFrame(playbackIndex);
+      }}, 120);
     }}
 
     function applyLapFilter() {{
+      clearPlaybackTimer();
+      isPlaying = false;
+      updatePlayToggle();
       const selectedLap = lapFilter.value;
       filteredFrames = selectedLap === 'all' ? frames.slice() : frames.filter((item) => String(item.lap) === selectedLap);
       slider.min = 0;
       slider.max = Math.max(filteredFrames.length - 1, 0);
-      slider.value = Math.max(filteredFrames.length - 1, 0);
-      renderFrame(Number(slider.value));
+      playbackIndex = Math.max(filteredFrames.length - 1, 0);
+      slider.value = playbackIndex;
+      renderFrame(playbackIndex);
     }}
 
     lapFilter.addEventListener('change', applyLapFilter);
-    slider.addEventListener('input', () => renderFrame(Number(slider.value)));
-    packetFilter.addEventListener('change', () => renderFrame(Number(slider.value || 0)));
-    renderChain(latestChain);
+    slider.addEventListener('input', () => {{
+      clearPlaybackTimer();
+      isPlaying = false;
+      updatePlayToggle();
+      playbackIndex = Number(slider.value || 0);
+      renderFrame(playbackIndex);
+    }});
+    playToggle.addEventListener('click', () => {{
+      isPlaying = !isPlaying;
+      updatePlayToggle();
+      if (isPlaying) {{
+        if (filteredFrames.length && playbackIndex >= filteredFrames.length - 1) {{
+          playbackIndex = 0;
+          slider.value = '0';
+          renderFrame(playbackIndex);
+        }}
+        schedulePlaybackStep();
+      }} else {{
+        clearPlaybackTimer();
+      }}
+    }});
+    updatePlayToggle();
     applyLapFilter();
   </script>
 </body>
