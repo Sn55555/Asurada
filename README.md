@@ -7,7 +7,7 @@
 ## 项目进度
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-90%25-2ea44f?style=for-the-badge)
-![Phase 2](https://img.shields.io/badge/Phase%202-35%25-f59e0b?style=for-the-badge)
+![Phase 2](https://img.shields.io/badge/Phase%202-52%25-f59e0b?style=for-the-badge)
 ![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
 
 ```mermaid
@@ -15,7 +15,7 @@ xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [90, 35, 0]
+    bar [90, 52, 0]
 ```
 
 ## 当前状态
