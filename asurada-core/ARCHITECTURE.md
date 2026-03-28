@@ -13,6 +13,8 @@ This document describes the engineering view of Asurada Core:
 It is intended for maintenance and extension work inside the backend workspace.
 
 See also:
+- [doc/README.md](doc/README.md)
+  - layered reading path for overview, data, strategy, models, runtime, and training
 - [CORE_WORKFLOW_CN.md](CORE_WORKFLOW_CN.md)
   - end-to-end flow from data source to model, arbitration, and user-facing output
 - [PACKET_FIELD_COVERAGE.md](PACKET_FIELD_COVERAGE.md)

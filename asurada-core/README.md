@@ -11,6 +11,7 @@ This workspace owns the backend-side real-time data path:
 - lap analysis and structured report output
 
 See also:
+- [doc/README.md](doc/README.md)
 - [STATUS.md](STATUS.md)
 - [PHASE1_ACCEPTANCE.md](PHASE1_ACCEPTANCE.md)
 - [PHASE1_CLOSEOUT.md](PHASE1_CLOSEOUT.md)
