@@ -89,7 +89,7 @@
 
 对应实现见：
 
-- [packet_snapshot.py](/Users/sn5/Asurada/asurada-core/src/asurada/packet_snapshot.py)
+- [packet_snapshot.py](src/asurada/packet_snapshot.py)
 
 当前项目内时序归类规则：
 
@@ -108,11 +108,11 @@
 
 已按这些归类从大抓包切出独立样本，见：
 
-- [data/capture_samples/shanghai_race_weekend](/Users/sn5/Asurada/asurada-core/data/capture_samples/shanghai_race_weekend)
+- [data/capture_samples/shanghai_race_weekend](data/capture_samples/shanghai_race_weekend)
 
 样本 metadata 见：
 
-- [metadata.json](/Users/sn5/Asurada/asurada-core/data/capture_samples/shanghai_race_weekend/metadata.json)
+- [metadata.json](data/capture_samples/shanghai_race_weekend/metadata.json)
 
 ## 仍待收口
 

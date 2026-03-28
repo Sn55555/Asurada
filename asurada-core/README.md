@@ -11,19 +11,19 @@ This workspace owns the backend-side real-time data path:
 - lap analysis and structured report output
 
 See also:
-- [STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
-- [PHASE1_ACCEPTANCE.md](/Users/sn5/Asurada/asurada-core/PHASE1_ACCEPTANCE.md)
-- [PHASE1_CLOSEOUT.md](/Users/sn5/Asurada/asurada-core/PHASE1_CLOSEOUT.md)
-- [ARCHITECTURE.md](/Users/sn5/Asurada/asurada-core/ARCHITECTURE.md)
-- [PACKET_FIELD_COVERAGE.md](/Users/sn5/Asurada/asurada-core/PACKET_FIELD_COVERAGE.md)
-- [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
-- [STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
-- [PHASE2_MODEL_MATRIX_CN.md](/Users/sn5/Asurada/asurada-core/PHASE2_MODEL_MATRIX_CN.md)
-- [training/README.md](/Users/sn5/Asurada/asurada-core/training/README.md)
-- [SESSION_TYPE_CLASSIFICATION.md](/Users/sn5/Asurada/asurada-core/SESSION_TYPE_CLASSIFICATION.md)
-- [PARSED_FIELDS_AND_MODEL_USAGE_CN.md](/Users/sn5/Asurada/asurada-core/PARSED_FIELDS_AND_MODEL_USAGE_CN.md)
-- [REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md](/Users/sn5/Asurada/asurada-core/REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md)
-- [PROJECT_TIMELINE_AND_RISKS_CN.md](/Users/sn5/Asurada/asurada-core/PROJECT_TIMELINE_AND_RISKS_CN.md)
+- [STATUS.md](STATUS.md)
+- [PHASE1_ACCEPTANCE.md](PHASE1_ACCEPTANCE.md)
+- [PHASE1_CLOSEOUT.md](PHASE1_CLOSEOUT.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [PACKET_FIELD_COVERAGE.md](PACKET_FIELD_COVERAGE.md)
+- [UNRESOLVED_PACKET_FIELDS.md](UNRESOLVED_PACKET_FIELDS.md)
+- [STAGE2_MODEL_INPUT_SCHEMA.md](STAGE2_MODEL_INPUT_SCHEMA.md)
+- [PHASE2_MODEL_MATRIX_CN.md](PHASE2_MODEL_MATRIX_CN.md)
+- [training/README.md](training/README.md)
+- [SESSION_TYPE_CLASSIFICATION.md](SESSION_TYPE_CLASSIFICATION.md)
+- [PARSED_FIELDS_AND_MODEL_USAGE_CN.md](PARSED_FIELDS_AND_MODEL_USAGE_CN.md)
+- [REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md](REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md)
+- [PROJECT_TIMELINE_AND_RISKS_CN.md](PROJECT_TIMELINE_AND_RISKS_CN.md)
 
 ## Current Inputs
 
@@ -123,7 +123,7 @@ Example usages:
 - `throttle_stabilize`
 
 Usage weights are configurable in:
-- [data/strategy/usage_hooks.json](/Users/sn5/Asurada/asurada-core/data/strategy/usage_hooks.json)
+- [data/strategy/usage_hooks.json](data/strategy/usage_hooks.json)
 
 The strategy engine reads these values at startup, so tuning no longer requires editing code.
 
@@ -187,11 +187,11 @@ Artifacts:
   - classification, confidence, packet counts, event counts, and final result summary
 
 For stage-two feature work, use:
-- [PACKET_FIELD_COVERAGE.md](/Users/sn5/Asurada/asurada-core/PACKET_FIELD_COVERAGE.md)
+- [PACKET_FIELD_COVERAGE.md](PACKET_FIELD_COVERAGE.md)
   - packet families, normalized fields, raw branches, and current parsing boundaries
-- [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
+- [UNRESOLVED_PACKET_FIELDS.md](UNRESOLVED_PACKET_FIELDS.md)
   - fields and packet families that still need protocol refinement or naming
-- [STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
+- [STAGE2_MODEL_INPUT_SCHEMA.md](STAGE2_MODEL_INPUT_SCHEMA.md)
   - recommended model input schema, feature groups, units, ranges, and training views
 
 ## Next Step

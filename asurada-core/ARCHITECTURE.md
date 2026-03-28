@@ -13,7 +13,7 @@ This document describes the engineering view of Asurada Core:
 It is intended for maintenance and extension work inside the backend workspace.
 
 See also:
-- [PACKET_FIELD_COVERAGE.md](/Users/sn5/Asurada/asurada-core/PACKET_FIELD_COVERAGE.md)
+- [PACKET_FIELD_COVERAGE.md](PACKET_FIELD_COVERAGE.md)
   - current packet families, high-value parsed fields, and stage-two raw feature branches
 
 ## System Flow

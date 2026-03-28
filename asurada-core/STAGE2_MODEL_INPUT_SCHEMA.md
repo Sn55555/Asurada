@@ -11,8 +11,8 @@ It contains:
 - readiness notes
 
 Use this file together with:
-- [PACKET_FIELD_COVERAGE.md](/Users/sn5/Asurada/asurada-core/PACKET_FIELD_COVERAGE.md)
-- [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
+- [PACKET_FIELD_COVERAGE.md](PACKET_FIELD_COVERAGE.md)
+- [UNRESOLVED_PACKET_FIELDS.md](UNRESOLVED_PACKET_FIELDS.md)
 
 ## Recommended Input Object
 

@@ -177,4 +177,4 @@ Current status:
 Phase 1 is accepted when all commands above run successfully and all required artifacts are generated from the current workspace.
 
 See also:
-- [PHASE1_CLOSEOUT.md](/Users/sn5/Asurada/asurada-core/PHASE1_CLOSEOUT.md)
+- [PHASE1_CLOSEOUT.md](PHASE1_CLOSEOUT.md)

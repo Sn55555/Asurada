@@ -295,5 +295,5 @@ Current status:
 ## Practical Use For Stage Two
 
 For stage-two work:
-- use [PACKET_FIELD_COVERAGE.md](/Users/sn5/Asurada/asurada-core/PACKET_FIELD_COVERAGE.md) for fields that are already model-ready
+- use [PACKET_FIELD_COVERAGE.md](PACKET_FIELD_COVERAGE.md) for fields that are already model-ready
 - use this file to identify which parser areas still need protocol completion

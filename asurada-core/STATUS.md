@@ -11,10 +11,10 @@
 
 本文件优先面向项目推进，不是协议细节文档。协议覆盖、未完成字段、模型输入等细节分别见：
 
-- [ARCHITECTURE.md](/Users/sn5/Asurada/asurada-core/ARCHITECTURE.md)
-- [PACKET_FIELD_COVERAGE.md](/Users/sn5/Asurada/asurada-core/PACKET_FIELD_COVERAGE.md)
-- [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
-- [STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [PACKET_FIELD_COVERAGE.md](PACKET_FIELD_COVERAGE.md)
+- [UNRESOLVED_PACKET_FIELDS.md](UNRESOLVED_PACKET_FIELDS.md)
+- [STAGE2_MODEL_INPUT_SCHEMA.md](STAGE2_MODEL_INPUT_SCHEMA.md)
 
 ## 当前总进度
 
@@ -198,8 +198,8 @@
 
 相关文件：
 
-- [pyproject.toml](/Users/sn5/Asurada/asurada-core/pyproject.toml)
-- [README.md](/Users/sn5/Asurada/asurada-core/README.md)
+- [pyproject.toml](pyproject.toml)
+- [README.md](README.md)
 
 未完成：
 
@@ -226,10 +226,10 @@
 
 相关文件：
 
-- [ingest.py](/Users/sn5/Asurada/asurada-core/src/asurada/ingest.py)
-- [csv_ingest.py](/Users/sn5/Asurada/asurada-core/src/asurada/csv_ingest.py)
-- [capture_ingest.py](/Users/sn5/Asurada/asurada-core/src/asurada/capture_ingest.py)
-- [udp_ingest.py](/Users/sn5/Asurada/asurada-core/src/asurada/udp_ingest.py)
+- [ingest.py](src/asurada/ingest.py)
+- [csv_ingest.py](src/asurada/csv_ingest.py)
+- [capture_ingest.py](src/asurada/capture_ingest.py)
+- [udp_ingest.py](src/asurada/udp_ingest.py)
 
 未完成：
 
@@ -268,9 +268,9 @@
 
 相关文件：
 
-- [pdu_decoder.py](/Users/sn5/Asurada/asurada-core/src/asurada/pdu_decoder.py)
-- [PACKET_FIELD_COVERAGE.md](/Users/sn5/Asurada/asurada-core/PACKET_FIELD_COVERAGE.md)
-- [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
+- [pdu_decoder.py](src/asurada/pdu_decoder.py)
+- [PACKET_FIELD_COVERAGE.md](PACKET_FIELD_COVERAGE.md)
+- [UNRESOLVED_PACKET_FIELDS.md](UNRESOLVED_PACKET_FIELDS.md)
 
 未完成：
 
@@ -316,9 +316,9 @@
 
 相关文件：
 
-- [packet_snapshot.py](/Users/sn5/Asurada/asurada-core/src/asurada/packet_snapshot.py)
-- [decode.py](/Users/sn5/Asurada/asurada-core/src/asurada/decode.py)
-- [models.py](/Users/sn5/Asurada/asurada-core/src/asurada/models.py)
+- [packet_snapshot.py](src/asurada/packet_snapshot.py)
+- [decode.py](src/asurada/decode.py)
+- [models.py](src/asurada/models.py)
 
 未完成：
 
@@ -345,7 +345,7 @@
 
 相关文件：
 
-- [state.py](/Users/sn5/Asurada/asurada-core/src/asurada/state.py)
+- [state.py](src/asurada/state.py)
 
 未完成：
 
@@ -373,9 +373,9 @@
 
 相关文件：
 
-- [track_model.py](/Users/sn5/Asurada/asurada-core/src/asurada/track_model.py)
-- [shanghai_segments.json](/Users/sn5/Asurada/asurada-core/data/tracks/shanghai_segments.json)
-- [usage_hooks.json](/Users/sn5/Asurada/asurada-core/data/strategy/usage_hooks.json)
+- [track_model.py](src/asurada/track_model.py)
+- [shanghai_segments.json](data/tracks/shanghai_segments.json)
+- [usage_hooks.json](data/strategy/usage_hooks.json)
 
 未完成：
 
@@ -406,8 +406,8 @@
 
 相关文件：
 
-- [strategy.py](/Users/sn5/Asurada/asurada-core/src/asurada/strategy.py)
-- [config.py](/Users/sn5/Asurada/asurada-core/src/asurada/config.py)
+- [strategy.py](src/asurada/strategy.py)
+- [config.py](src/asurada/config.py)
 
 未完成：
 
@@ -439,8 +439,8 @@
 
 相关文件：
 
-- [analysis.py](/Users/sn5/Asurada/asurada-core/src/asurada/analysis.py)
-- [output.py](/Users/sn5/Asurada/asurada-core/src/asurada/output.py)
+- [analysis.py](src/asurada/analysis.py)
+- [output.py](src/asurada/output.py)
 
 未完成：
 
@@ -472,10 +472,10 @@
 
 相关文件：
 
-- [replay.py](/Users/sn5/Asurada/asurada-core/src/asurada/replay.py)
-- [reports.py](/Users/sn5/Asurada/asurada-core/src/asurada/reports.py)
-- [runtime_logs/session_log.jsonl](/Users/sn5/Asurada/asurada-core/runtime_logs/session_log.jsonl)
-- [runtime_logs/capture_summary.json](/Users/sn5/Asurada/asurada-core/runtime_logs/capture_summary.json)
+- [replay.py](src/asurada/replay.py)
+- [reports.py](src/asurada/reports.py)
+- [runtime_logs/session_log.jsonl](runtime_logs/session_log.jsonl)
+- [runtime_logs/capture_summary.json](runtime_logs/capture_summary.json)
 
 优化空间：
 
@@ -509,8 +509,8 @@
 
 相关文件：
 
-- [dashboard.py](/Users/sn5/Asurada/asurada-core/src/asurada/dashboard.py)
-- [debug_dashboard.html](/Users/sn5/Asurada/asurada-core/runtime_logs/dashboard/debug_dashboard.html)
+- [dashboard.py](src/asurada/dashboard.py)
+- [debug_dashboard.html](runtime_logs/dashboard/debug_dashboard.html)
 
 未完成：
 
@@ -545,14 +545,14 @@
 
 相关文件：
 
-- [README.md](/Users/sn5/Asurada/asurada-core/README.md)
-- [ARCHITECTURE.md](/Users/sn5/Asurada/asurada-core/ARCHITECTURE.md)
-- [PHASE1_ACCEPTANCE.md](/Users/sn5/Asurada/asurada-core/PHASE1_ACCEPTANCE.md)
-- [PHASE1_CLOSEOUT.md](/Users/sn5/Asurada/asurada-core/PHASE1_CLOSEOUT.md)
-- [PACKET_FIELD_COVERAGE.md](/Users/sn5/Asurada/asurada-core/PACKET_FIELD_COVERAGE.md)
-- [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
-- [STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
-- [STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
+- [README.md](README.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [PHASE1_ACCEPTANCE.md](PHASE1_ACCEPTANCE.md)
+- [PHASE1_CLOSEOUT.md](PHASE1_CLOSEOUT.md)
+- [PACKET_FIELD_COVERAGE.md](PACKET_FIELD_COVERAGE.md)
+- [UNRESOLVED_PACKET_FIELDS.md](UNRESOLVED_PACKET_FIELDS.md)
+- [STAGE2_MODEL_INPUT_SCHEMA.md](STAGE2_MODEL_INPUT_SCHEMA.md)
+- [STATUS.md](STATUS.md)
 
 未完成：
 

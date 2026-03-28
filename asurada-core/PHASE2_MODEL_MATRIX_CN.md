@@ -22,11 +22,11 @@
 
 配套文档：
 
-- [PARSED_FIELDS_AND_MODEL_USAGE_CN.md](/Users/sn5/Asurada/asurada-core/PARSED_FIELDS_AND_MODEL_USAGE_CN.md)
-- [STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
-- [SESSION_TYPE_CLASSIFICATION.md](/Users/sn5/Asurada/asurada-core/SESSION_TYPE_CLASSIFICATION.md)
-- [UNRESOLVED_PACKET_FIELDS.md](/Users/sn5/Asurada/asurada-core/UNRESOLVED_PACKET_FIELDS.md)
-- [REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md](/Users/sn5/Asurada/asurada-core/REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md)
+- [PARSED_FIELDS_AND_MODEL_USAGE_CN.md](PARSED_FIELDS_AND_MODEL_USAGE_CN.md)
+- [STAGE2_MODEL_INPUT_SCHEMA.md](STAGE2_MODEL_INPUT_SCHEMA.md)
+- [SESSION_TYPE_CLASSIFICATION.md](SESSION_TYPE_CLASSIFICATION.md)
+- [UNRESOLVED_PACKET_FIELDS.md](UNRESOLVED_PACKET_FIELDS.md)
+- [REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md](REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md)
 
 ## 当前阶段二已完成模型概览
 
@@ -42,7 +42,7 @@
 | `yield_vs_defend_model` | 已试跑 baseline | 当前暂停，等待更稳定标签与样本 |
 | `event_impact_model` | 已试跑 baseline | 当前暂停，等待更多事件样本与更强后验标签 |
 
-完整推进状态、暂停原因和 checklist 以 [STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md) 为准。
+完整推进状态、暂停原因和 checklist 以 [STATUS.md](STATUS.md) 为准。
 
 ## 总体原则
 

@@ -33,9 +33,9 @@ python3 scripts/export_phase2_training_data.py
 Default inputs:
 
 - sample metadata:
-  - [metadata.json](/Users/sn5/Asurada/asurada-core/data/capture_samples/shanghai_race_weekend/metadata.json)
+  - [metadata.json](../data/capture_samples/shanghai_race_weekend/metadata.json)
 - dataset config:
-  - [phase2_dataset_v1.json](/Users/sn5/Asurada/asurada-core/training/configs/phase2_dataset_v1.json)
+  - [phase2_dataset_v1.json](../training/configs/phase2_dataset_v1.json)
 
 Default outputs:
 
@@ -185,9 +185,9 @@ Outputs:
   - `pandas`
   - `lightgbm`
   - `scikit-learn`
-- `event_impact_model` baseline 已试跑，但当前仍不稳定；详见 [STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
-- `front_attack_commit_model` baseline 已跑通，当前已通过 `player + rear_rival` 双视角样本导出打通 `uid15 -> uid16` 的跨 session 外部 test，并通过 `uid15` 第 2 圈切出 exported val；详见 [STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
-- `attack_opportunity_model` baseline 已跑通，当前已通过 `player + rear_rival` 双视角样本导出打通 `uid15 -> uid16` 的跨 session 外部 test，并通过 `uid15` 第 2 圈切出 exported val；详见 [STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
+- `event_impact_model` baseline 已试跑，但当前仍不稳定；详见 [STATUS.md](../STATUS.md)
+- `front_attack_commit_model` baseline 已跑通，当前已通过 `player + rear_rival` 双视角样本导出打通 `uid15 -> uid16` 的跨 session 外部 test，并通过 `uid15` 第 2 圈切出 exported val；详见 [STATUS.md](../STATUS.md)
+- `attack_opportunity_model` baseline 已跑通，当前已通过 `player + rear_rival` 双视角样本导出打通 `uid15 -> uid16` 的跨 session 外部 test，并通过 `uid15` 第 2 圈切出 exported val；详见 [STATUS.md](../STATUS.md)
 - 当前攻击链最新结果：
   - `attack_opportunity_model`: `accuracy=0.9994`, `positive precision=1.0000`, `positive recall=0.7931`
   - `front_attack_commit_model`: `accuracy=0.9996`, `positive precision=0.7647`, `positive recall=1.0000`
