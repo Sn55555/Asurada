@@ -8,39 +8,39 @@ Asurada is a multi-part workspace for the racing strategy-brain project.
 
 仓库根目录当前作为以下模块的顶层容器：
 
-- [asurada-core](/Users/sn5/Asurada/asurada-core)
+- [asurada-core](asurada-core)
   - 后端策略大脑
   - packet 解码
   - 标准化状态模型
   - 分层策略引擎
   - 回放日志与调试 dashboard
-- [ios-racetrack-analytics](/Users/sn5/Asurada/ios-racetrack-analytics)
+- [ios-racetrack-analytics](ios-racetrack-analytics)
   - App 侧工程目录
-- [tools](/Users/sn5/Asurada/tools)
+- [tools](tools)
   - 抓包文件、工具脚本和外部数据资产
-- [doc](/Users/sn5/Asurada/doc)
+- [doc](doc)
   - 导出的项目文档
 
 This repository root currently acts as the top-level container for:
 
-- [asurada-core](/Users/sn5/Asurada/asurada-core)
+- [asurada-core](asurada-core)
   - backend strategy brain
   - packet decoding
   - normalized state model
   - layered strategy engine
   - replay logging and debug dashboard
-- [ios-racetrack-analytics](/Users/sn5/Asurada/ios-racetrack-analytics)
+- [ios-racetrack-analytics](ios-racetrack-analytics)
   - app-side project workspace
-- [tools](/Users/sn5/Asurada/tools)
+- [tools](tools)
   - capture files, utilities, and external data assets
-- [doc](/Users/sn5/Asurada/doc)
+- [doc](doc)
   - exported project documents
 
 ## 当前版本管理范围
 
 当前仓库已提交并推送的主体是：
 
-- [asurada-core](/Users/sn5/Asurada/asurada-core)
+- [asurada-core](asurada-core)
 
 其余顶层目录当前保留在本地工作区中，默认不作为已提交历史的一部分。
 
@@ -54,21 +54,21 @@ The other top-level directories are present locally, but are not yet part of the
 
 如果当前工作重点是策略脑后端，请从这里开始：
 
-- [asurada-core/README.md](/Users/sn5/Asurada/asurada-core/README.md)
-- [PROJECT_PROGRESS.md](/Users/sn5/Asurada/PROJECT_PROGRESS.md)
+- [asurada-core/README.md](asurada-core/README.md)
+- [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md)
 
 关键后端项目文档：
 
-- [asurada-core/STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
-- [asurada-core/ARCHITECTURE.md](/Users/sn5/Asurada/asurada-core/ARCHITECTURE.md)
-- [asurada-core/PHASE1_ACCEPTANCE.md](/Users/sn5/Asurada/asurada-core/PHASE1_ACCEPTANCE.md)
-- [asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
-- [asurada-core/SESSION_TYPE_CLASSIFICATION.md](/Users/sn5/Asurada/asurada-core/SESSION_TYPE_CLASSIFICATION.md)
+- [asurada-core/STATUS.md](asurada-core/STATUS.md)
+- [asurada-core/ARCHITECTURE.md](asurada-core/ARCHITECTURE.md)
+- [asurada-core/PHASE1_ACCEPTANCE.md](asurada-core/PHASE1_ACCEPTANCE.md)
+- [asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md](asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
+- [asurada-core/SESSION_TYPE_CLASSIFICATION.md](asurada-core/SESSION_TYPE_CLASSIFICATION.md)
 
 If you are working on the strategy brain, start here:
 
-- [asurada-core/README.md](/Users/sn5/Asurada/asurada-core/README.md)
-- [PROJECT_PROGRESS.md](/Users/sn5/Asurada/PROJECT_PROGRESS.md)
+- [asurada-core/README.md](asurada-core/README.md)
+- [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md)
 
 ## 项目总进度
 
@@ -77,15 +77,15 @@ If you are working on the strategy brain, start here:
 ![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
 
 详细看板：
-- [PROJECT_PROGRESS.md](/Users/sn5/Asurada/PROJECT_PROGRESS.md)
+- [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md)
 
 Important backend project documents:
 
-- [asurada-core/STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
-- [asurada-core/ARCHITECTURE.md](/Users/sn5/Asurada/asurada-core/ARCHITECTURE.md)
-- [asurada-core/PHASE1_ACCEPTANCE.md](/Users/sn5/Asurada/asurada-core/PHASE1_ACCEPTANCE.md)
-- [asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md](/Users/sn5/Asurada/asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
-- [asurada-core/SESSION_TYPE_CLASSIFICATION.md](/Users/sn5/Asurada/asurada-core/SESSION_TYPE_CLASSIFICATION.md)
+- [asurada-core/STATUS.md](asurada-core/STATUS.md)
+- [asurada-core/ARCHITECTURE.md](asurada-core/ARCHITECTURE.md)
+- [asurada-core/PHASE1_ACCEPTANCE.md](asurada-core/PHASE1_ACCEPTANCE.md)
+- [asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md](asurada-core/STAGE2_MODEL_INPUT_SCHEMA.md)
+- [asurada-core/SESSION_TYPE_CLASSIFICATION.md](asurada-core/SESSION_TYPE_CLASSIFICATION.md)
 
 ## 目录结构
 

@@ -1,7 +1,7 @@
 # Asurada 项目总进度看板
 
 > 本页用于快速查看三个阶段的总进度、已完成项、停滞项和待开发项。  
-> 详细实现状态以 [asurada-core/STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md) 为准。
+> 详细实现状态以 [asurada-core/STATUS.md](asurada-core/STATUS.md) 为准。
 
 ## 总览
 
@@ -124,7 +124,7 @@ flowchart LR
 
 ## 参考文档
 
-- [asurada-core/STATUS.md](/Users/sn5/Asurada/asurada-core/STATUS.md)
-- [asurada-core/PHASE1_CLOSEOUT.md](/Users/sn5/Asurada/asurada-core/PHASE1_CLOSEOUT.md)
-- [asurada-core/PHASE2_MODEL_MATRIX_CN.md](/Users/sn5/Asurada/asurada-core/PHASE2_MODEL_MATRIX_CN.md)
-- [asurada-core/README.md](/Users/sn5/Asurada/asurada-core/README.md)
+- [asurada-core/STATUS.md](asurada-core/STATUS.md)
+- [asurada-core/PHASE1_CLOSEOUT.md](asurada-core/PHASE1_CLOSEOUT.md)
+- [asurada-core/PHASE2_MODEL_MATRIX_CN.md](asurada-core/PHASE2_MODEL_MATRIX_CN.md)
+- [asurada-core/README.md](asurada-core/README.md)
