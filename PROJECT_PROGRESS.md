@@ -6,7 +6,7 @@
 ## 总览
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-90%25-2ea44f?style=for-the-badge)
-![Phase 2](https://img.shields.io/badge/Phase%202-58%25-f59e0b?style=for-the-badge)
+![Phase 2](https://img.shields.io/badge/Phase%202-63%25-f59e0b?style=for-the-badge)
 ![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
 
 ```mermaid
@@ -14,7 +14,7 @@ xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [90, 52, 0]
+    bar [90, 63, 0]
 ```
 
 ## 阶段一：核心开发闭环
@@ -51,9 +51,9 @@ xychart-beta
 ## 阶段二：模型与边缘化准备
 
 ![Status](https://img.shields.io/badge/Status-In%20Progress-f59e0b?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-58%25-f59e0b?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-63%25-f59e0b?style=flat-square)
 
-进度条：`██████░░░░ 58%`
+进度条：`██████░░░░ 63%`
 
 ### 已完成项
 
@@ -72,8 +72,14 @@ xychart-beta
 - `strategy_arbiter_v2` 契约、主链接入与回归断言
 - `confidence_model / uncertainty_layer` 最小规则版已接入主链
 - `session_mode_router` 最小规则版已接入主链
+- `fallback_policy` 最小独立模块已接入主链
+- `tactical_state_machine` 最小规则版已接入主链，并带输出历史降抖
 - 统一交互输入事件模型最小版
 - 输出层可取消 / 可中断生命周期最小版
+- `ASR -> query normalization -> strategy -> TTS` 分层日志骨架
+- 结构化语音查询 schema 与指令路由接口
+- 语音确认 / 权限分级规则
+- 工具与长任务取消接口最小版
 - exported `val/test` 切分已用于攻击链和动作模型
 
 ### 停滞项
@@ -86,12 +92,17 @@ xychart-beta
   - 原因：当前专题样本正类几乎为空，`train=1 / val=1 / test=0`，继续训练只会得到假模型
 - `short_horizon_risk_forecast_model`
   - 原因：未来风险标签定义过粗，当前快照特征不足以支撑短时风险演化预测，baseline 不成立
+- `driver_style_model`
+  - 原因：长窗口样本过少，风格标签塌缩，baseline 不成立
+- `pit_rejoin_traffic_model`
+  - 原因：当前导出训练表缺少 `pit_status`，无法构造 rejoin traffic 标签
 
 ### 待开发项
 
-- 语音确认 / 权限分级规则
-- `ASR -> query normalization -> strategy -> TTS` 分层日志骨架
-- 结构化语音查询 schema 与指令路由接口
+- `yield_vs_defend_model` 重启前的数据/标签收口
+- `event_impact_model` 事件样本补强
+- `pit_status` 与进站状态转移字段导出
+- 资源/压力/趋势 sidecar 分数有限度接入仲裁
 - 攻防链 DRS / closing-rate 信号进一步增强
 
 ### 当前新增控制层进展
@@ -102,6 +113,7 @@ xychart-beta
 - `tactical_state_machine`
   - 已完成最小规则版，并接入 `StrategyEngine`
   - 当前负责生成 `previous/current tactical_state`、`state_transition`、`state_priority_hint`、`state_lock`
+  - 当前已按 `session_uid` 记住上一帧战术态和上一条主动作，用于降抖
 
 ### 当前边界
 
