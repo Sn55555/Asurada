@@ -10,7 +10,16 @@ from .arbiter import (
 )
 from .confidence import StrategyUncertaintyLayer
 from .config import StrategyThresholds, load_usage_hooks
-from .interaction import build_system_strategy_input_event
+from .interaction import (
+    build_asr_stage_event,
+    build_confirmation_policy,
+    build_query_normalization_event,
+    build_structured_query_schema,
+    build_task_handle,
+    build_strategy_stage_event,
+    build_system_strategy_input_event,
+    route_structured_query,
+)
 from .models import (
     ContextProfile,
     RiskProfile,
@@ -21,6 +30,7 @@ from .models import (
     StrategyMessage,
 )
 from .model_runtime import (
+    DrivingQualityRuntimeSet,
     RivalPressureRuntimeSet,
     DEFAULT_DEFENCE_COST_REPORT,
     ResourceRiskModelRuntime,
@@ -41,6 +51,7 @@ class StrategyEngine:
         self.strategy_action_runtime = StrategyActionModelRuntime()
         self.resource_risk_runtime = ResourceRiskRuntimeSet()
         self.rival_pressure_runtime = RivalPressureRuntimeSet()
+        self.driving_quality_runtime = DrivingQualityRuntimeSet()
         self.defence_cost_runtime = ResourceRiskModelRuntime(
             name="defence_cost",
             report_path=DEFAULT_DEFENCE_COST_REPORT,
@@ -71,6 +82,40 @@ class StrategyEngine:
             primary_message=messages[0] if messages else None,
             session_mode=session_route.session_mode,
         )
+        structured_query = build_structured_query_schema(interaction_input_event)
+        query_route = route_structured_query(structured_query)
+        confirmation_policy = build_confirmation_policy(
+            input_event=interaction_input_event,
+            schema=structured_query,
+            route=query_route,
+        )
+        task_handle = build_task_handle(
+            input_event=interaction_input_event,
+            route=query_route,
+            confirmation_policy=confirmation_policy,
+        )
+        pipeline_log = {
+            "asr": build_asr_stage_event(interaction_input_event).to_dict(),
+            "query_normalization": build_query_normalization_event(interaction_input_event).to_dict(),
+            "query_route": query_route.to_dict(),
+            "confirmation_policy": confirmation_policy.to_dict(),
+            "strategy": build_strategy_stage_event(
+                input_event=interaction_input_event,
+                session_mode=session_route.session_mode,
+                primary_action_code=messages[0].code if messages else "NONE",
+                final_message_count=len(messages),
+                rule_candidate_count=len((arbiter_sidecar.get("input", {}) or {}).get("rule_candidates", [])),
+                model_candidate_count=len((arbiter_sidecar.get("input", {}) or {}).get("model_candidates", [])),
+                confidence_level=str(
+                    ((arbiter_sidecar.get("input", {}) or {}).get("confidence_context", {}) or {}).get("confidence_level")
+                    or "unknown"
+                ),
+                fallback_mode=str(
+                    ((arbiter_sidecar.get("input", {}) or {}).get("fallback_context", {}) or {}).get("fallback_mode")
+                    or "none"
+                ),
+            ).to_dict(),
+        }
         return StrategyDecision(
             messages=messages,
             debug={
@@ -92,6 +137,11 @@ class StrategyEngine:
                 "candidates": [candidate.__dict__ for candidate in candidates],
                 "arbiter_v2": arbiter_sidecar,
                 "interaction_input_event": interaction_input_event.to_dict(),
+                "structured_query": structured_query.to_dict(),
+                "query_route": query_route.to_dict(),
+                "confirmation_policy": confirmation_policy.to_dict(),
+                "task_handle": task_handle.to_dict(),
+                "voice_pipeline_log": pipeline_log,
             },
         )
 
@@ -168,14 +218,11 @@ class StrategyEngine:
         completed_laps = max(state.lap_number - 1, 0)
         remaining_race_laps = max(state.total_laps - completed_laps, 0)
         fuel_margin_laps = player.fuel_laps_remaining - remaining_race_laps
+        derived_fuel_available = state.lap_number > 1 and fuel_source == "derived_from_sample_consumption"
         fuel_state = (
             "critical"
-            if (
-                state.lap_number > 1
-                and fuel_source == "derived_from_sample_consumption"
-                and fuel_margin_laps <= 0.3
-            )
-            or tank_ratio <= 0.08
+            if (derived_fuel_available and fuel_margin_laps <= 0.3)
+            or (not derived_fuel_available and tank_ratio <= 0.08)
             else "stable"
         )
         if player.tyre.wear_pct >= self.thresholds.tyre_wear_box:
@@ -543,6 +590,7 @@ class StrategyEngine:
         )
         resource_models = self.resource_risk_runtime.predict_all(state=state, context=context)
         rival_pressure_models = self.rival_pressure_runtime.predict_all(state=state, context=context)
+        driving_quality_models = self.driving_quality_runtime.predict_all(state=state, context=context)
         defence_cost_model = self.defence_cost_runtime.predict_score(state=state, context=context)
         payload = ArbiterInput(
             rule_candidates=[RuleCandidate.from_strategy_candidate(candidate) for candidate in candidates],
@@ -577,6 +625,7 @@ class StrategyEngine:
                 },
                 "resource_models": resource_models,
                 "rival_pressure_models": rival_pressure_models,
+                "driving_quality_models": driving_quality_models,
                 "defence_cost_model": defence_cost_model,
                 "session_route": {
                     "session_mode": session_route.session_mode,
@@ -611,8 +660,9 @@ class StrategyEngine:
         fuel_in_tank = float(state.raw.get("fuel_in_tank", 0.0))
         fuel_capacity = float(state.raw.get("fuel_capacity", 0.0))
         tank_ratio = (fuel_in_tank / fuel_capacity) if fuel_capacity > 0.0 else 0.0
+        derived_fuel_available = state.lap_number > 1 and fuel_source == "derived_from_sample_consumption"
         fuel_mainline_allowed = (
-            (state.lap_number > 1 and fuel_source == "derived_from_sample_consumption")
+            derived_fuel_available
             or tank_ratio <= 0.08
         )
         filtered = [candidate for candidate in candidates if candidate.code in session_route.allowed_action_codes]

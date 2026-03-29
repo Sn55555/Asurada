@@ -7,7 +7,7 @@
 ## 项目进度
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-90%25-2ea44f?style=for-the-badge)
-![Phase 2](https://img.shields.io/badge/Phase%202-52%25-f59e0b?style=for-the-badge)
+![Phase 2](https://img.shields.io/badge/Phase%202-56%25-f59e0b?style=for-the-badge)
 ![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
 
 ```mermaid
@@ -15,7 +15,7 @@ xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [90, 52, 0]
+    bar [90, 56, 0]
 ```
 
 ## 当前状态
@@ -29,7 +29,7 @@ flowchart TB
 ```
 
 - 阶段一：基本完成，当前只剩实时链和少量外部样本验证
-- 阶段二：进行中，已完成第一批可用 baseline 与 `strategy_arbiter_v2` 主链接入
+- 阶段二：进行中，已完成第一批可用 baseline、控制层主链接口和运行时 sidecar 调试链
 - 阶段三：未启动
 
 详细看板：

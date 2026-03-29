@@ -558,6 +558,7 @@ class DebugDashboardBuilder:
             },
             "resource_models": arbiter_input.get("resource_models", {}) or {},
             "rival_pressure_models": arbiter_input.get("rival_pressure_models", {}) or {},
+            "driving_quality_models": arbiter_input.get("driving_quality_models", {}) or {},
             "defence_cost_model": arbiter_input.get("defence_cost_model", {}) or {},
             "arbiter_input": {
                 "rule_candidates": arbiter_input.get("rule_candidates", []),
@@ -609,12 +610,19 @@ class DebugDashboardBuilder:
     .grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }}
     .grid3 {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }}
     .grid2 {{ display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; margin-bottom: 16px; }}
+    .dashboard-grid {{ position: relative; min-height: 980px; margin-bottom: 16px; }}
     .panel {{ background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: 0 8px 20px rgba(0,0,0,0.04); }}
+    .dashboard-card {{ position: absolute; min-height: 0; overflow: hidden; box-sizing: border-box; }}
+    .dashboard-card.dragging {{ opacity: 0.78; }}
+    .card-head {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: move; user-select: none; }}
+    .card-handle {{ color: var(--muted); font-size: 12px; }}
+    .resize-handle {{ position: absolute; right: 10px; bottom: 10px; width: 16px; height: 16px; border-right: 2px solid var(--line); border-bottom: 2px solid var(--line); cursor: nwse-resize; opacity: 0.9; }}
     .metric-panel {{ height: 150px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }}
-    .primary-panel {{ height: 190px; display: flex; flex-direction: column; overflow: hidden; }}
+    .primary-panel {{ height: 260px; display: flex; flex-direction: column; overflow: hidden; }}
     .rival-panel {{ height: 170px; overflow: hidden; }}
-    .trajectory-panel {{ height: 392px; overflow: hidden; }}
-    .trajectory-canvas {{ width: 100%; height: 300px; display: block; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg, #fcfdff, #f6f8fb); }}
+    .trajectory-panel {{ height: 442px; overflow: hidden; }}
+    .trajectory-canvas {{ width: 100%; height: 350px; display: block; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg, #fcfdff, #f6f8fb); }}
+    .scores-panel {{ overflow: hidden; }}
     .trajectory-legend {{ display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }}
     .legend-item {{ display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }}
     .legend-dot {{ width: 10px; height: 10px; border-radius: 999px; display: inline-block; }}
@@ -625,9 +633,9 @@ class DebugDashboardBuilder:
     .two {{ display: grid; grid-template-columns: 2fr 1.2fr; gap: 16px; margin-bottom: 16px; }}
     .rival-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }}
     .rival-box {{ border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fbfcfe; min-height: 0; overflow: hidden; }}
-    .resource-grid {{ display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }}
-    .resource-box {{ border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fbfcfe; min-height: 0; overflow: hidden; }}
-    .resource-value {{ font-size: 16px; font-weight: 700; margin-top: 4px; }}
+    .resource-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }}
+    .resource-box {{ border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; background: #fbfcfe; min-height: 0; overflow: hidden; }}
+    .resource-value {{ font-size: 15px; font-weight: 700; margin-top: 3px; }}
     .rival-name {{ font-size: 18px; font-weight: 700; line-height: 1.2; }}
     .rival-stats {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-top: 10px; }}
     .rival-stat {{ min-width: 0; }}
@@ -670,12 +678,13 @@ class DebugDashboardBuilder:
     .chain-note {{ padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; background: #fcfdff; font-size: 13px; line-height: 1.5; color: var(--muted); }}
     .chain-actions {{ display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: end; margin-top: 14px; }}
     .jsonbox {{ margin: 10px 0 0; padding: 12px; border-radius: 12px; background: #fbfcfe; border: 1px solid var(--line); min-height: 280px; max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
-    .hero-grid {{ display: grid; grid-template-columns: 1.7fr 1fr; gap: 16px; margin-bottom: 16px; align-items: stretch; }}
-    .side-stack {{ display: grid; grid-template-rows: auto auto; gap: 12px; min-height: 0; align-content: start; }}
     .browser-panel {{ min-height: 0; padding: 14px 16px; }}
     @media (max-width: 980px) {{
-      .grid, .grid2, .grid3, .two, .controls, .chain-grid, .chain-intro, .hero-grid, .side-stack {{ grid-template-columns: 1fr; grid-template-rows: none; }}
+      .grid, .grid2, .grid3, .two, .controls, .chain-grid, .chain-intro {{ grid-template-columns: 1fr; grid-template-rows: none; }}
+      .dashboard-grid {{ min-height: 0; }}
+      .dashboard-card {{ position: relative; left: auto !important; top: auto !important; width: auto !important; height: auto !important; margin-bottom: 16px; }}
       .trajectory-panel, .primary-panel, .rival-panel {{ height: auto; }}
+      .resize-handle, .card-handle {{ display: none; }}
     }}
   </style>
 </head>
@@ -683,9 +692,12 @@ class DebugDashboardBuilder:
   <div class="wrap">
     <h1>Asurada Debug Dashboard</h1>
     <div class="sub">回放观察页。默认桌面视口下一屏查看轨迹、策略、前后车摘要和回放控制。</div>
-    <div class="hero-grid">
-      <div class="panel trajectory-panel">
-        <div class="label">World Trajectory</div>
+    <div class="dashboard-grid" id="dashboard-grid">
+      <div class="panel dashboard-card trajectory-panel" data-card-id="trajectory">
+        <div class="card-head">
+          <div class="label">World Trajectory</div>
+          <div class="card-handle">拖动</div>
+        </div>
         <div class="label-note">按当前播放进度，绘制玩家、前车、后车三辆车在世界坐标下的线路。</div>
         <canvas id="trajectory-canvas" class="trajectory-canvas" width="960" height="270"></canvas>
         <div class="trajectory-legend">
@@ -693,38 +705,54 @@ class DebugDashboardBuilder:
           <span class="legend-item"><span class="legend-dot" style="background:#d9480f;"></span><span id="legend-front">前车</span></span>
           <span class="legend-item"><span class="legend-dot" style="background:#2b8a3e;"></span><span id="legend-rear">后车</span></span>
         </div>
+        <div class="resize-handle" title="调整大小"></div>
       </div>
-      <div class="side-stack">
-        <div class="panel primary-panel">
+      <div class="panel dashboard-card primary-panel" data-card-id="strategy">
+        <div class="card-head">
           <div class="label">Current Strategy Output</div>
-          <div class="label-note">当前时间点排在最前面的策略输出、资源模型旁路分数，以及其后的候选消息栈。</div>
-          <div class="metric compact ellipsis-2" id="primary-call" style="margin-top:10px;"></div>
-          <div id="primary-time" class="helper ellipsis-2" style="margin-top:6px;"></div>
-          <div id="primary-detail" class="sub ellipsis-3" style="margin:8px 0 0"></div>
-          <div id="resource-model-grid" class="resource-grid"></div>
-          <div id="strategy-stack" class="list" style="margin-top:12px; overflow:auto; flex:1; min-height:0;"></div>
+          <div class="card-handle">拖动</div>
         </div>
-        <div class="panel rival-panel">
+        <div class="label-note">当前时间点排在最前面的策略输出，以及其后的候选消息栈。</div>
+        <div class="metric compact ellipsis-2" id="primary-call" style="margin-top:10px;"></div>
+        <div id="primary-time" class="helper ellipsis-2" style="margin-top:6px;"></div>
+        <div id="primary-detail" class="sub ellipsis-3" style="margin:8px 0 0"></div>
+        <div id="strategy-stack" class="list" style="margin-top:12px; overflow:auto; flex:1; min-height:0;"></div>
+        <div class="resize-handle" title="调整大小"></div>
+      </div>
+      <div class="panel dashboard-card rival-panel" data-card-id="rivals">
+        <div class="card-head">
           <div class="label">Front / Rear Rival</div>
-          <div class="label-note">当前前车与后车各自的状态摘要。差距字段按该车自身视角展示，不与玩家做换算。</div>
-          <div class="rival-grid">
-            <div class="rival-box">
-              <div class="helper">前车</div>
-              <div id="front-rival-name" class="rival-name ellipsis-2">-</div>
-              <div id="front-rival-stats" class="rival-stats"></div>
-            </div>
-            <div class="rival-box">
-              <div class="helper">后车</div>
-              <div id="rear-rival-name" class="rival-name ellipsis-2">-</div>
-              <div id="rear-rival-stats" class="rival-stats"></div>
-            </div>
+          <div class="card-handle">拖动</div>
+        </div>
+        <div class="label-note">当前前车与后车各自的状态摘要。差距字段按该车自身视角展示，不与玩家做换算。</div>
+        <div class="rival-grid">
+          <div class="rival-box">
+            <div class="helper">前车</div>
+            <div id="front-rival-name" class="rival-name ellipsis-2">-</div>
+            <div id="front-rival-stats" class="rival-stats"></div>
+          </div>
+          <div class="rival-box">
+            <div class="helper">后车</div>
+            <div id="rear-rival-name" class="rival-name ellipsis-2">-</div>
+            <div id="rear-rival-stats" class="rival-stats"></div>
           </div>
         </div>
+        <div class="resize-handle" title="调整大小"></div>
       </div>
-    </div>
-    <div class="two">
-      <div class="panel browser-panel">
-        <div class="label">Frame Browser</div>
+      <div class="panel dashboard-card scores-panel" data-card-id="scores">
+        <div class="card-head">
+          <div class="label">Model Scores</div>
+          <div class="card-handle">拖动</div>
+        </div>
+        <div class="label-note">阶段二旁路模型分数。仅用于调试观察，不直接代表最终动作。</div>
+        <div id="resource-model-grid" class="resource-grid"></div>
+        <div class="resize-handle" title="调整大小"></div>
+      </div>
+      <div class="panel dashboard-card browser-panel" data-card-id="browser">
+        <div class="card-head">
+          <div class="label">Frame Browser</div>
+          <div class="card-handle">拖动</div>
+        </div>
         <div class="label-note">全量 session 时间轴。支持播放、暂停和拖动。</div>
         <div class="controls">
           <div>
@@ -755,12 +783,14 @@ class DebugDashboardBuilder:
           </div>
         </div>
         <div class="list" id="frame-detail" style="margin-top:10px; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 10px;"></div>
+        <div class="resize-handle" title="调整大小"></div>
       </div>
     </div>
   </div>
   <script>
     const payload = {embedded};
     const frames = payload.frames || [];
+    const board = document.getElementById('dashboard-grid');
     const lapFilter = document.getElementById('lap-filter');
     const slider = document.getElementById('frame-slider');
     const frameLabel = document.getElementById('frame-label');
@@ -777,6 +807,24 @@ class DebugDashboardBuilder:
     let playbackTimer = null;
     let isPlaying = false;
     let playbackIndex = 0;
+    let draggingCard = null;
+    let draggedCardId = null;
+    let resizingCard = null;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+    let resizeStartX = 0;
+    let resizeStartY = 0;
+    let resizeStartW = 0;
+    let resizeStartH = 0;
+
+    const defaultCardLayout = {{
+      trajectory: {{ x: 0, y: 0, w: 760, h: 442 }},
+      strategy: {{ x: 776, y: 0, w: 548, h: 260 }},
+      rivals: {{ x: 776, y: 276, w: 548, h: 170 }},
+      scores: {{ x: 0, y: 458, w: 1324, h: 170 }},
+      browser: {{ x: 0, y: 644, w: 1324, h: 240 }},
+    }};
+    const layoutStorageKey = 'asurada:debug-dashboard-layout:absolute:v1';
 
     function formatSessionTime(seconds) {{
       const total = Number(seconds || 0);
@@ -806,7 +854,7 @@ class DebugDashboardBuilder:
         .join('');
     }}
 
-    function renderResourceModels(resourceModels, defenceCostModel, rivalPressureModels) {{
+    function renderResourceModels(resourceModels, defenceCostModel, rivalPressureModels, drivingQualityModels) {{
       const modelOrder = [
         ['fuel_risk', 'Fuel'],
         ['ers_risk', 'ERS'],
@@ -841,6 +889,27 @@ class DebugDashboardBuilder:
         ? Number(rivalModel.score).toFixed(1)
         : '-';
       const rivalNote = rivalEnabled ? 'runtime' : (rivalModel?.disabled_reason || 'disabled');
+      const drivingOrder = [
+        ['entry_quality', 'Entry'],
+        ['apex_quality', 'Apex'],
+        ['exit_traction', 'Exit'],
+      ];
+      const drivingCards = drivingOrder
+        .map(([key, label]) => {{
+          const item = drivingQualityModels?.[key] || {{}};
+          const enabled = item.enabled === true;
+          const score = enabled && item.score !== undefined && item.score !== null
+            ? Number(item.score).toFixed(1)
+            : '-';
+          const note = enabled ? 'runtime' : (item.disabled_reason || 'disabled');
+          return `
+            <div class="resource-box">
+              <div class="helper">${{label}}</div>
+              <div class="resource-value">${{score}}</div>
+              <div class="helper ellipsis-2">${{note}}</div>
+            </div>
+          `;
+        }});
       resourceModelGrid.innerHTML = resourceCards
         .concat([`
           <div class="resource-box">
@@ -855,6 +924,7 @@ class DebugDashboardBuilder:
             <div class="helper ellipsis-2">${{rivalNote}}</div>
           </div>
         `])
+        .concat(drivingCards)
         .join('');
     }}
 
@@ -989,6 +1059,7 @@ class DebugDashboardBuilder:
         frame.stage_two_model_debug?.resource_models || {{}},
         frame.stage_two_model_debug?.defence_cost_model || {{}},
         frame.stage_two_model_debug?.rival_pressure_models || {{}},
+        frame.stage_two_model_debug?.driving_quality_models || {{}},
       );
       document.getElementById('strategy-stack').innerHTML = frameMessages
         .slice(0, 5)
@@ -1010,6 +1081,139 @@ class DebugDashboardBuilder:
         ['Speed', `${{Number(frame.speed || 0).toFixed(0)}} km/h`],
       ];
       frameDetail.innerHTML = detail.map(([k, v]) => `<div class="item"><span class="pill">${{k}}</span>${{v}}</div>`).join('');
+    }}
+
+    function loadCardLayout() {{
+      try {{
+        return JSON.parse(localStorage.getItem(layoutStorageKey) || '{{}}');
+      }} catch (_) {{
+        return {{}};
+      }}
+    }}
+
+    function saveCardLayout(layout) {{
+      localStorage.setItem(layoutStorageKey, JSON.stringify(layout));
+    }}
+
+    function updateBoardHeight() {{
+      const cards = Array.from(board.querySelectorAll('.dashboard-card'));
+      const bottoms = cards.map((card) => {{
+        const top = Number(card.style.top.replace('px', '') || 0);
+        const height = Number(card.style.height.replace('px', '') || card.offsetHeight || 0);
+        return top + height;
+      }});
+      const maxBottom = bottoms.length ? Math.max(...bottoms) : 0;
+      board.style.height = `${{maxBottom + 24}}px`;
+    }}
+
+    function applyCardLayout() {{
+      const stored = loadCardLayout();
+      Array.from(board.querySelectorAll('.dashboard-card')).forEach((card) => {{
+        const cardId = card.dataset.cardId;
+        const cfg = stored[cardId] || defaultCardLayout[cardId] || {{ x: 0, y: 0, w: 400, h: 240 }};
+        card.style.left = `${{cfg.x}}px`;
+        card.style.top = `${{cfg.y}}px`;
+        card.style.width = `${{cfg.w}}px`;
+        card.style.height = `${{cfg.h}}px`;
+      }});
+      updateBoardHeight();
+    }}
+
+    function bindCardInteractions() {{
+      Array.from(board.querySelectorAll('.dashboard-card')).forEach((card) => {{
+        const head = card.querySelector('.card-head');
+        if (head) {{
+          head.addEventListener('mousedown', (event) => {{
+            if (window.innerWidth <= 980) return;
+            if (event.target && event.target.classList && event.target.classList.contains('resize-handle')) return;
+            event.preventDefault();
+            const rect = card.getBoundingClientRect();
+            draggingCard = card;
+            draggedCardId = card.dataset.cardId;
+            dragOffsetX = event.clientX - rect.left;
+            dragOffsetY = event.clientY - rect.top;
+            card.classList.add('dragging');
+            document.body.style.cursor = 'grabbing';
+            document.body.style.userSelect = 'none';
+          }});
+        }}
+
+        const handle = card.querySelector('.resize-handle');
+        if (!handle) return;
+        handle.addEventListener('mousedown', (event) => {{
+          event.preventDefault();
+          event.stopPropagation();
+          const stored = loadCardLayout();
+          const cardId = card.dataset.cardId;
+          const current = stored[cardId] || defaultCardLayout[cardId] || {{ x: 0, y: 0, w: 400, h: 240 }};
+          resizingCard = card;
+          resizeStartX = event.clientX;
+          resizeStartY = event.clientY;
+          resizeStartW = current.w;
+          resizeStartH = current.h;
+          document.body.style.cursor = 'nwse-resize';
+          document.body.style.userSelect = 'none';
+        }});
+      }});
+    }}
+
+    function onResizeMove(event) {{
+      if (draggingCard) {{
+        const card = draggingCard;
+        const cardId = card.dataset.cardId;
+        const layout = loadCardLayout();
+        const width = Number(card.style.width.replace('px', '') || card.offsetWidth || 400);
+        const height = Number(card.style.height.replace('px', '') || card.offsetHeight || 240);
+        const boardRect = board.getBoundingClientRect();
+        const maxX = Math.max(0, board.clientWidth - width);
+        const nextX = Math.max(0, Math.min(maxX, event.clientX - boardRect.left - dragOffsetX));
+        const nextY = Math.max(0, event.clientY - boardRect.top - dragOffsetY);
+        card.style.left = `${{nextX}}px`;
+        card.style.top = `${{nextY}}px`;
+        layout[cardId] = {{
+          ...(layout[cardId] || defaultCardLayout[cardId] || {{ w: width, h: height }}),
+          x: nextX,
+          y: nextY,
+          w: width,
+          h: height,
+        }};
+        saveCardLayout(layout);
+        updateBoardHeight();
+        return;
+      }}
+      if (!resizingCard) return;
+      const dx = event.clientX - resizeStartX;
+      const dy = event.clientY - resizeStartY;
+      const cardId = resizingCard.dataset.cardId;
+      const layout = loadCardLayout();
+      const nextW = Math.max(260, resizeStartW + dx);
+      const nextH = Math.max(160, resizeStartH + dy);
+      resizingCard.style.width = `${{nextW}}px`;
+      resizingCard.style.height = `${{nextH}}px`;
+      layout[cardId] = {{
+        ...(layout[cardId] || defaultCardLayout[cardId] || {{ x: 0, y: 0 }}),
+        x: Number(resizingCard.style.left.replace('px', '') || 0),
+        y: Number(resizingCard.style.top.replace('px', '') || 0),
+        w: nextW,
+        h: nextH,
+      }};
+      saveCardLayout(layout);
+      updateBoardHeight();
+    }}
+
+    function onResizeEnd(event) {{
+      if (draggingCard) {{
+        draggingCard.classList.remove('dragging');
+        draggingCard = null;
+        draggedCardId = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        return;
+      }}
+      if (!resizingCard) return;
+      resizingCard = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     }}
 
     function clearPlaybackTimer() {{
@@ -1078,6 +1282,10 @@ class DebugDashboardBuilder:
         clearPlaybackTimer();
       }}
     }});
+    document.addEventListener('mousemove', onResizeMove);
+    document.addEventListener('mouseup', onResizeEnd);
+    applyCardLayout();
+    bindCardInteractions();
     updatePlayToggle();
     applyLapFilter();
   </script>

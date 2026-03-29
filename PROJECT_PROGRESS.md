@@ -6,7 +6,7 @@
 ## 总览
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-90%25-2ea44f?style=for-the-badge)
-![Phase 2](https://img.shields.io/badge/Phase%202-52%25-f59e0b?style=for-the-badge)
+![Phase 2](https://img.shields.io/badge/Phase%202-56%25-f59e0b?style=for-the-badge)
 ![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
 
 ```mermaid
@@ -51,9 +51,9 @@ xychart-beta
 ## 阶段二：模型与边缘化准备
 
 ![Status](https://img.shields.io/badge/Status-In%20Progress-f59e0b?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-52%25-f59e0b?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-56%25-f59e0b?style=flat-square)
 
-进度条：`█████░░░░░ 52%`
+进度条：`██████░░░░ 56%`
 
 ### 已完成项
 
@@ -61,8 +61,10 @@ xychart-beta
 - `features / labels / tactical_features_v1 / attack_features_v1 / strategy_action_features_v1` 导出
 - `rear_threat_model` 第一版可用 baseline
 - `fuel_risk_model / ers_risk_model / tyre_risk_model / dynamics_risk_model` 第一版可用 baseline
+- `fuel_risk_model` 已按 `fuel_margin_laps` 主导口径重训，已去掉短赛程下的绝对油量误报
 - `defence_cost_model` 第一版 proxy-distillation baseline，已旁路接入 runtime debug
 - `rival_pressure_model` 第一版 baseline，已旁路接入 runtime debug
+- `entry_quality_model / apex_quality_model / exit_traction_model` 第一版 baseline，已旁路接入 runtime debug
 - `attack_opportunity_model` 第一版可用 baseline
 - `front_attack_commit_model` 第一版可接受 baseline
 - `strategy_action_model` 第一版 baseline

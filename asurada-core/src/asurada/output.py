@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from .analysis import LapAnalysisSummary, SegmentAnalysis
-from .interaction import OutputLifecycleEvent
+from .interaction import OutputLifecycleEvent, build_task_lifecycle_event, build_tts_stage_event
 from .models import StrategyDecision
 
 
@@ -20,6 +20,8 @@ class ConsoleVoiceOutput:
         self.output_session_id = "voice-output:console"
         self._active_output_event_id: str | None = None
         self._active_code: str | None = None
+        self._active_task_id: str | None = None
+        self._active_task_request_id: str | None = None
         self._event_counter = 0
 
     def emit(self, decision: StrategyDecision, *, render: bool = True) -> dict:
@@ -42,6 +44,18 @@ class ConsoleVoiceOutput:
                 "active_code": self._active_code,
             },
         }
+        task_handle = decision.debug.get("task_handle", {}) or {}
+        task_lifecycle = self._resolve_task_lifecycle(
+            task_handle=task_handle,
+            output_lifecycle_event=lifecycle_event.to_dict(),
+        )
+        decision.debug["task_lifecycle"] = task_lifecycle
+        pipeline_log = decision.debug.setdefault("voice_pipeline_log", {})
+        pipeline_log["tts"] = build_tts_stage_event(
+            interaction_input_event=interaction_input_event,
+            output_lifecycle_event=lifecycle_event.to_dict(),
+        ).to_dict()
+        pipeline_log["task_lifecycle"] = task_lifecycle
 
         if lifecycle_event.event_type == "idle":
             if render:
@@ -163,6 +177,81 @@ class ConsoleVoiceOutput:
             metadata={"source": "console_voice_output"},
         )
 
+    def _resolve_task_lifecycle(
+        self,
+        *,
+        task_handle: dict,
+        output_lifecycle_event: dict,
+    ) -> dict:
+        """Resolve minimal logical task lifecycle for future cancellable tools/queries."""
+
+        task_id = str(task_handle.get("task_id") or "task:unknown")
+        request_id = str(task_handle.get("request_id") or "req:unknown")
+        event_type = str(output_lifecycle_event.get("event_type") or "idle")
+        cancelled_previous = None
+
+        if (
+            self._active_task_id is not None
+            and self._active_task_id != task_id
+            and event_type in {"start", "interrupt"}
+        ):
+            cancelled_previous = build_task_lifecycle_event(
+                task_handle={
+                    "task_id": self._active_task_id,
+                    "request_id": self._active_task_request_id or "req:unknown",
+                    "turn_id": task_handle.get("turn_id"),
+                    "handler": task_handle.get("handler"),
+                    "task_type": task_handle.get("task_type"),
+                },
+                event_type="cancel",
+                status="cancelled",
+                cancel_reason="superseded_by_new_request",
+                cancelled_by_request_id=request_id,
+            ).to_dict()
+
+        if event_type in {"start", "interrupt"}:
+            self._active_task_id = task_id
+            self._active_task_request_id = request_id
+            current_event = build_task_lifecycle_event(
+                task_handle=task_handle,
+                event_type=event_type,
+                status="running",
+            ).to_dict()
+        elif event_type == "suppress":
+            if self._active_task_id is None:
+                self._active_task_id = task_id
+                self._active_task_request_id = request_id
+            current_event = build_task_lifecycle_event(
+                task_handle=task_handle,
+                event_type="suppress",
+                status="running",
+                cancel_reason="duplicate_active_task",
+            ).to_dict()
+        elif event_type == "cancel":
+            current_event = build_task_lifecycle_event(
+                task_handle=task_handle,
+                event_type="cancel",
+                status="cancelled",
+                cancel_reason=str(output_lifecycle_event.get("metadata", {}).get("reason") or "no_final_voice_action"),
+            ).to_dict()
+            self._active_task_id = None
+            self._active_task_request_id = None
+        else:
+            current_event = build_task_lifecycle_event(
+                task_handle=task_handle,
+                event_type="idle",
+                status="pending",
+            ).to_dict()
+
+        return {
+            "event": current_event,
+            "cancelled_task": cancelled_previous,
+            "active_task": {
+                "task_id": self._active_task_id,
+                "request_id": self._active_task_request_id,
+            },
+        }
+
     def _emit_debug(self, decision: StrategyDecision) -> None:
         """Render layered debug state for maintenance and tuning."""
 
@@ -172,6 +261,7 @@ class ConsoleVoiceOutput:
         candidates = decision.debug.get("candidates", [])
         interaction_input_event = decision.debug.get("interaction_input_event", {})
         output_lifecycle = decision.debug.get("output_lifecycle", {})
+        task_lifecycle = decision.debug.get("task_lifecycle", {})
 
         print("  [备注] 分层策略调试")
         if interaction_input_event:
@@ -190,6 +280,14 @@ class ConsoleVoiceOutput:
                 f"{event.get('event_type')} "
                 f"action={event.get('action_code')} "
                 f"output_event={event.get('output_event_id')}"
+            )
+        if task_lifecycle:
+            event = task_lifecycle.get("event", {})
+            print(
+                "    - 任务生命周期: "
+                f"{event.get('event_type')} "
+                f"task={event.get('task_id')} "
+                f"status={event.get('status')}"
             )
         if context:
             print(f"    - 上下文因子: {self._format_mapping(context)}")

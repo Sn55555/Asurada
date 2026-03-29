@@ -454,6 +454,17 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
     snapshot_binding = interaction_input_event.get("snapshot_binding") or {}
     output_lifecycle = last_debug.get("output_lifecycle") or {}
     output_lifecycle_event = output_lifecycle.get("event") or {}
+    structured_query = last_debug.get("structured_query") or {}
+    query_route = last_debug.get("query_route") or {}
+    confirmation_policy = last_debug.get("confirmation_policy") or {}
+    task_handle = last_debug.get("task_handle") or {}
+    task_lifecycle = last_debug.get("task_lifecycle") or {}
+    task_lifecycle_event = task_lifecycle.get("event") or {}
+    voice_pipeline_log = last_debug.get("voice_pipeline_log") or {}
+    asr_stage = voice_pipeline_log.get("asr") or {}
+    query_stage = voice_pipeline_log.get("query_normalization") or {}
+    strategy_stage = voice_pipeline_log.get("strategy") or {}
+    tts_stage = voice_pipeline_log.get("tts") or {}
     checks = {
         "capture_exists": capture_path.exists(),
         "required_packets_seen": not missing_required,
@@ -470,6 +481,27 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
         "output_lifecycle_present": bool(output_lifecycle),
         "output_lifecycle_contract_present": bool(output_lifecycle_event.get("output_event_id"))
         and bool(output_lifecycle_event.get("event_type")),
+        "structured_query_present": bool(structured_query),
+        "structured_query_contract_present": bool(structured_query.get("schema_version"))
+        and bool(structured_query.get("query_kind"))
+        and bool(query_route.get("handler")),
+        "confirmation_policy_present": bool(confirmation_policy),
+        "confirmation_policy_contract_present": bool(confirmation_policy.get("policy_version"))
+        and bool(confirmation_policy.get("decision"))
+        and isinstance(confirmation_policy.get("requires_confirmation"), bool),
+        "task_handle_present": bool(task_handle),
+        "task_handle_contract_present": bool(task_handle.get("task_id"))
+        and bool(task_handle.get("handler"))
+        and bool(task_handle.get("task_type")),
+        "task_lifecycle_present": bool(task_lifecycle),
+        "task_lifecycle_contract_present": bool(task_lifecycle_event.get("task_id"))
+        and bool(task_lifecycle_event.get("event_type"))
+        and bool(task_lifecycle_event.get("status")),
+        "voice_pipeline_log_present": bool(voice_pipeline_log),
+        "voice_pipeline_contract_present": bool(query_stage.get("normalized_query_text"))
+        and bool(strategy_stage.get("primary_action_code"))
+        and bool(tts_stage.get("event_type"))
+        and bool(asr_stage.get("stage_status")),
         "dashboard_chain_ui_present": has_chain_ui,
         "time_trial_route_filters_race_actions": latest_raw.get("timing_mode") != "time_trial_disabled"
         or (
@@ -492,6 +524,12 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
         "latest_session_route": session_route,
         "latest_interaction_input_event": interaction_input_event,
         "latest_output_lifecycle": output_lifecycle,
+        "latest_structured_query": structured_query,
+        "latest_query_route": query_route,
+        "latest_confirmation_policy": confirmation_policy,
+        "latest_task_handle": task_handle,
+        "latest_task_lifecycle": task_lifecycle,
+        "latest_voice_pipeline_log": voice_pipeline_log,
         "latest_raw": {
             "session_type": latest_raw.get("session_type"),
             "timing_mode": latest_raw.get("timing_mode"),

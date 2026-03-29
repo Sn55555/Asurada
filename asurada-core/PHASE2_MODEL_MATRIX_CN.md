@@ -35,12 +35,15 @@
 | 模型 / 模块 | 当前状态 | 当前结论 |
 | --- | --- | --- |
 | `rear_threat_model` | 已完成第一版 baseline | 当前可用 |
-| `fuel_risk_model` | 已完成第一版 baseline | 当前可用，已切到派生燃油口径 |
+| `fuel_risk_model` | 已完成第一版 baseline 并按新口径重训 | 当前可用，已切到 `fuel_margin_laps` 主导口径 |
 | `ers_risk_model` | 已完成第一版 baseline | 当前可用 |
 | `tyre_risk_model` | 已完成第一版 baseline | 当前可用 |
 | `dynamics_risk_model` | 已完成第一版 baseline | 当前可用 |
 | `defence_cost_model` | 已完成第一版 baseline | 当前可用，但属于 proxy-distillation baseline，已旁路接入 runtime debug |
 | `rival_pressure_model` | 已完成第一版 baseline | 已旁路接入 runtime debug；当前 `rear_pressure` 最稳，`front/rival` 仍需补更强样本与标签 |
+| `entry_quality_model` | 已完成第一版 baseline | 已旁路接入 runtime debug；当前适合作为趋势/观察分数 |
+| `apex_quality_model` | 已完成第一版 baseline | 已旁路接入 runtime debug；当前适合作为趋势/观察分数 |
+| `exit_traction_model` | 已完成第一版 baseline | 已旁路接入 runtime debug；当前适合作为趋势/观察分数 |
 | `attack_opportunity_model` | 已完成第一版 baseline | 当前可用，已具备 exported `val/test` |
 | `front_attack_commit_model` | 已完成第一版 baseline | 当前可接受，已具备 exported `val/test`，后续仍需继续收紧标签 |
 | `strategy_action_model` | 已完成第一版 baseline | 当前适合作为 `top-k` 候选提供器，不适合直接 `top-1` 直出 |
@@ -49,6 +52,10 @@
 | `session_mode_router` | 已完成最小规则版 | 已生成真实 `session_route`，并同时过滤规则候选与模型候选 |
 | `interaction_input_event model` | 已完成最小版 | 已生成真实 `interaction_session_id / turn_id / request_id / snapshot_binding`，并写入 debug 与日志 |
 | `output_lifecycle model` | 已完成最小版 | 已生成真实 `start / interrupt / suppress / cancel / idle` 输出生命周期事件，并写入 debug 与日志 |
+| `voice_pipeline_log skeleton` | 已完成最小版 | 已生成 `asr / query_normalization / strategy / tts` 四层日志骨架，并写入 debug 与日志 |
+| `structured_query / query_route` | 已完成最小版 | 已生成独立 `structured_query schema` 与 `query_route`，并写入 debug 与分层日志 |
+| `confirmation_policy` | 已完成最小版 | 已生成独立确认/权限策略，当前系统播报走 `auto_approve`，高风险动作预留 `confirm_before_execute` |
+| `task_handle / task_lifecycle` | 已完成最小版 | 已生成独立任务句柄与取消生命周期，当前输出层可记录 `active_task / cancelled_task` 逻辑取消语义 |
 | `yield_vs_defend_model` | 已试跑 baseline | 当前暂停，等待更稳定标签与样本 |
 | `event_impact_model` | 已试跑 baseline | 当前暂停，等待更多事件样本与更强后验标签 |
 
@@ -857,13 +864,15 @@
 - 燃油风险评分和节奏压力判断
 
 当前状态：
-- `已完成第一版 baseline`
+- `已完成第一版 baseline，并已按新燃油边际口径重训`
 - 当前指标：
-  - `mae=1.8142`
-  - `rmse=3.3618`
-  - `r2=0.9919`
+  - `mae=20.7958`
+  - `rmse=39.2586`
+  - `r2=0.0000`
 - 当前说明：
   - 已切换到项目内派生燃油口径
+  - 已去掉 `derived fuel` 可用时由 `tank_ratio <= 0.08` 直接触发 `critical` 的旧口径
+  - 当前 `uid16` exported test 标签已收敛到稳定低风险范围
   - 训练表已纳入：
     - `derived_fuel_laps_remaining`
     - `fuel_margin_laps`

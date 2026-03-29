@@ -50,14 +50,20 @@
 - `turn_id / interaction_session_id / request_id` 最小版
 - 策略查询与状态快照绑定协议最小版
 - 输出层可取消 / 可中断生命周期最小版
+- `ASR -> query normalization -> strategy -> TTS` 分层日志骨架最小版
+- 结构化语音查询 schema 与指令路由接口最小版
+- 语音确认 / 权限分级规则最小版
+- 工具与长任务取消接口最小版
 
 阶段二当前未完成：
 
 - 本地 ASR / TTS 原型的正式代码落地
 - 双向语音原型的正式代码落地
 - 结构化语音问答原型的正式代码落地
-- 语音确认 / 权限分级规则
-- `ASR -> query normalization -> strategy -> TTS` 分层日志骨架
+- 语音确认 / 权限分级规则的正式扩展
+- 工具与长任务取消接口的正式扩展
+- `ASR -> query normalization -> strategy -> TTS` 分层日志骨架的正式扩展
+- 结构化语音查询 schema 与指令路由接口的正式扩展
 
 阶段二的核心特点：
 

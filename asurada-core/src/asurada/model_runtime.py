@@ -61,6 +61,26 @@ DEFAULT_RIVAL_PRESSURE_REPORTS = {
     / "rival_pressure"
     / "rival_pressure_baseline_report.json",
 }
+DEFAULT_DRIVING_QUALITY_REPORTS = {
+    "entry_quality": PROJECT_ROOT
+    / "training"
+    / "reports"
+    / "driving_quality_baselines"
+    / "entry_quality"
+    / "entry_quality_baseline_report.json",
+    "apex_quality": PROJECT_ROOT
+    / "training"
+    / "reports"
+    / "driving_quality_baselines"
+    / "apex_quality"
+    / "apex_quality_baseline_report.json",
+    "exit_traction": PROJECT_ROOT
+    / "training"
+    / "reports"
+    / "driving_quality_baselines"
+    / "exit_traction"
+    / "exit_traction_baseline_report.json",
+}
 
 
 @dataclass
@@ -374,6 +394,26 @@ class RivalPressureRuntimeSet:
 
     def __post_init__(self) -> None:
         paths = self.report_paths or DEFAULT_RIVAL_PRESSURE_REPORTS
+        self._runtimes = {
+            name: ResourceRiskModelRuntime(name=name, report_path=path)
+            for name, path in paths.items()
+        }
+
+    def predict_all(self, *, state: SessionState, context: ContextProfile) -> dict[str, dict[str, Any]]:
+        return {
+            name: runtime.predict_score(state=state, context=context)
+            for name, runtime in self._runtimes.items()
+        }
+
+
+@dataclass
+class DrivingQualityRuntimeSet:
+    """Convenience wrapper for entry/apex/exit driving-quality regressors."""
+
+    report_paths: dict[str, Path] | None = None
+
+    def __post_init__(self) -> None:
+        paths = self.report_paths or DEFAULT_DRIVING_QUALITY_REPORTS
         self._runtimes = {
             name: ResourceRiskModelRuntime(name=name, report_path=path)
             for name, path in paths.items()

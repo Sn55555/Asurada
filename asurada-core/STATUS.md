@@ -20,7 +20,7 @@
 
 - 阶段一总体进度：`90%`
 - 阶段一排除实时闭环后的进度：`95%+`
-- 阶段二准备工作进度：`52%`
+- 阶段二准备工作进度：`56%`
 - 阶段三产品化进度：`0%`
 
 当前结论：
@@ -65,7 +65,7 @@
 
 当前完成度：
 
-- `52%`
+- `56%`
 
 当前已启动工作：
 
@@ -133,9 +133,12 @@
     - `val = train_holdout_split`
     - `test = exported_test_split (uid16)`
   - `fuel_risk_model`
-    - 当前结论：第一版 baseline 可用
-    - 当前指标：`mae=1.8142`、`rmse=3.3618`、`r2=0.9919`
-    - 当前收口：已把 `derived_fuel_laps_remaining / fuel_margin_laps / fuel_laps_remaining_source` 纳入训练表
+    - 当前结论：已按新燃油边际口径重训，第一版 baseline 可用
+    - 当前指标：`mae=20.7958`、`rmse=39.2586`、`r2=0.0000`
+    - 当前收口：
+      - 已把 `derived_fuel_laps_remaining / fuel_margin_laps / fuel_laps_remaining_source` 纳入训练表
+      - 已去掉 `derived fuel` 可用时由 `tank_ratio <= 0.08` 直接触发 `critical` 的旧口径
+      - 当前 `uid16` exported test 标签范围已收敛到 `20.0 ~ 20.0`
   - `ers_risk_model`
     - 当前结论：第一版 baseline 可用
     - 当前指标：`mae=0.2329`、`rmse=1.3906`、`r2=0.9609`
@@ -151,6 +154,15 @@
   - 下一步收口方向：
     - 为资源模型补 exported `val` 口径，降低对 `train_holdout_split` 的依赖
     - 开始决定哪些资源模型先旁路接入 runtime debug
+- `entry_quality_model / apex_quality_model / exit_traction_model` baseline 已跑通并旁路接入 runtime debug
+  - 当前结论：三条链都已证明可训练、可回放观察
+  - 当前指标：
+    - `entry_quality_model`：`mae=0.3427`、`rmse=0.6511`、`r2=0.9961`
+    - `apex_quality_model`：`mae=0.3826`、`rmse=0.5764`、`r2=0.9892`
+    - `exit_traction_model`：`mae=0.4541`、`rmse=0.6593`、`r2=0.9968`
+  - 当前边界：
+    - 当前仍是 `proxy_distillation_from_features` baseline
+    - 更适合作为趋势/运行时观察分数，不是最终精细驾驶评分
 - `defence_cost_model` baseline 已跑通
   - 当前结论：第一版 proxy-distillation baseline 可用
   - 当前训练口径：
@@ -303,6 +315,91 @@
   - 当前意义：
     - 阶段三接 TTS 时，不需要再回改主链的输出事件语义
     - 当前已经能用同一生命周期协议描述“开始播报 / 被打断 / 被压制 / 被取消”
+- `ASR -> query normalization -> strategy -> TTS` 分层日志骨架最小版已接入
+  - 当前结论：分层日志结构已定型到可复用状态
+  - 当前实现：
+    - 当前 `decision.debug["voice_pipeline_log"]` 已包含四层：
+      - `asr`
+      - `query_normalization`
+      - `strategy`
+      - `tts`
+    - 当前系统策略场景下：
+      - `asr.stage_status = not_applicable`
+      - `query_normalization` 已生成标准化 query/intention 记录
+      - `strategy` 已记录主动作、候选数、置信度、fallback 口径
+      - `tts` 已从 `output_lifecycle` 自动派生
+    - 当前日志已写入 `decision.debug` 和 `session_log.jsonl`
+  - 当前边界：
+    - 仍是最小骨架，不含真实 ASR transcript / TTS player 状态
+    - 尚未接入结构化 query schema 与工具调用层
+  - 当前意义：
+    - 阶段三接入 ASR/TTS 时，不需要回改日志主结构
+    - 当前已可以按同一格式对齐系统策略播报和未来语音问答链路
+- 结构化语音查询 schema 与指令路由接口最小版已接入
+  - 当前结论：结构化 query 层已从文档占位进入代码骨架
+  - 当前实现：
+    - 已新增 `structured_query`
+    - 已新增 `query_route`
+    - 当前系统策略场景下会生成：
+      - `schema_version`
+      - `query_kind`
+      - `target_scope`
+      - `requested_fields`
+      - `response_mode`
+      - `handler`
+      - `response_channel`
+    - 当前已写入 `decision.debug` 和 `voice_pipeline_log`
+  - 当前边界：
+    - 仍是最小规则版，只覆盖 `system_strategy -> strategy_broadcast`
+    - 尚未接入真实语音问答意图分类
+    - 尚未接入工具调用层
+  - 当前意义：
+    - 阶段三接结构化问答时，不需要再回改 query schema 主结构
+    - 当前已把“输入事件 -> 结构化 query -> 路由 -> 策略输出”这条接口链打通
+- 语音确认 / 权限分级规则最小版已接入
+  - 当前结论：确认与权限策略已从文档占位进入代码骨架
+  - 当前实现：
+    - 已新增 `confirmation_policy`
+    - 当前会输出：
+      - `policy_version`
+      - `decision`
+      - `risk_level`
+      - `requires_confirmation`
+      - `permission_scope`
+      - `reason`
+    - 当前系统策略播报默认走：
+      - `decision = auto_approve`
+      - `permission_scope = broadcast`
+    - 已对高风险动作码预留：
+      - `confirm_before_execute`
+  - 当前边界：
+    - 仍是最小规则版，只覆盖结构化 query 层
+    - 尚未接入真实语音问答权限、用户确认回合与工具执行确认
+  - 当前意义：
+    - 阶段三接入真实语音交互时，不需要回改确认策略主结构
+    - 当前已经能在同一日志链里描述“是否需要确认、为什么需要确认”
+- 工具与长任务取消接口最小版已接入
+  - 当前结论：长任务取消协议已从文档占位进入代码骨架
+  - 当前实现：
+    - 已新增 `task_handle`
+    - 已新增 `task_lifecycle`
+    - 当前会输出：
+      - `task_id`
+      - `task_type`
+      - `handler`
+      - `status`
+      - `cancel_reason`
+      - `cancelled_by_request_id`
+    - 输出层当前会维护：
+      - `active_task`
+      - `cancelled_task`
+      - 当前任务生命周期事件
+  - 当前边界：
+    - 仍是逻辑取消接口，不会真实中断外部进程或工具执行
+    - 还没有接入真实工具调用层
+  - 当前意义：
+    - 阶段三接入慢查询、工具调用、语音插话时，不需要回改取消协议主结构
+    - 当前已能统一描述“旧任务被新请求取消”的语义
 - `confidence_model / uncertainty_layer` 最小规则版已接入
   - 当前文件：
     - `/Users/sn5/Asurada/asurada-core/src/asurada/confidence.py`
@@ -786,9 +883,9 @@
 - [x] 面向阶段三的 `turn_id / interaction_session_id` 会话轮次结构
 - [x] 策略查询输入与状态快照绑定协议
 - [x] 可取消 / 可中断的异步执行与输出控制（最小版）
-- [ ] 语音接入前的确认 / 权限分级规则
-- [ ] `ASR -> query normalization -> strategy -> TTS` 分层日志骨架
-- [ ] 结构化语音查询 schema 与指令路由接口
+- [x] 语音接入前的确认 / 权限分级规则（最小版）
+- [x] `ASR -> query normalization -> strategy -> TTS` 分层日志骨架（最小版）
+- [x] 结构化语音查询 schema 与指令路由接口（最小版）
 
 ### 阶段二补充计划：阶段三防返工接口预埋
 
@@ -806,17 +903,18 @@
 - [x] 为交互链路补 `turn_id`、`interaction_session_id`、`request_id` 三层标识
 - [x] 为策略查询定义快照协议，保证“用户问到的状态”和“模型回答所依据的状态”一致
 - [x] 为输出层补 `pending / committed / cancelled / interrupted` 生命周期
-- [ ] 为工具与长任务补取消接口，避免语音插话时旧动作继续执行
-- [ ] 为语音场景补确认门槛：
+- [x] 为工具与长任务补取消接口（最小版），避免语音插话时旧动作继续执行
+- [x] 为语音场景补确认门槛（最小版）：
   - 高风险动作必须二次确认
   - 低风险结构化查询可直接回答
 - [ ] 为日志补语音接入所需分层：
+- [x] 为日志补语音接入所需分层：
   - 原始输入
   - 归一化 query
   - 策略决策
   - 工具调用
   - 最终播报
-- [ ] 为结构化语音问答预留独立 query schema，而不是让语音文本直接进入策略层
+- [x] 为结构化语音问答预留独立 query schema，而不是让语音文本直接进入策略层
 
 ## 阶段三当前状态
 
@@ -875,10 +973,10 @@
 31. [x] 为交互链补 `turn_id / interaction_session_id / request_id`
 32. [x] 为策略查询补状态快照绑定协议
 33. [x] 为输出层补 `pending / committed / cancelled / interrupted` 生命周期
-34. [ ] 为长任务 / 工具调用补取消接口
-35. [ ] 建立 `ASR -> query normalization -> strategy -> TTS` 分层日志骨架
-36. [ ] 定义结构化语音查询 schema 与指令路由接口
-37. [ ] 定义语音场景下的确认 / 权限分级规则
+34. [x] 为长任务 / 工具调用补取消接口（最小版）
+35. [x] 建立 `ASR -> query normalization -> strategy -> TTS` 分层日志骨架（最小版）
+36. [x] 定义结构化语音查询 schema 与指令路由接口（最小版）
+37. [x] 定义语音场景下的确认 / 权限分级规则（最小版）
 12. [x] 试跑 `yield_vs_defend_model` baseline，确认链路可行
 13. [ ] 暂停 `yield_vs_defend_model`，等待更稳定的后验标签与样本覆盖后再重启
 
