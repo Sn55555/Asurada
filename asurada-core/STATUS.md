@@ -20,7 +20,7 @@
 
 - 阶段一总体进度：`90%`
 - 阶段一排除实时闭环后的进度：`95%+`
-- 阶段二准备工作进度：`56%`
+- 阶段二准备工作进度：`58%`
 - 阶段三产品化进度：`0%`
 
 当前结论：
@@ -65,7 +65,7 @@
 
 当前完成度：
 
-- `56%`
+- `58%`
 
 当前已启动工作：
 
@@ -163,6 +163,57 @@
   - 当前边界：
     - 当前仍是 `proxy_distillation_from_features` baseline
     - 更适合作为趋势/运行时观察分数，不是最终精细驾驶评分
+- `counterattack_window_model` 已完成训练入口与可训练性检查
+  - 当前结论：阻塞，暂不能继续训练
+  - 当前阻塞原因：
+    - `counterattack_candidate_label` 正类样本极少
+    - 当前 split 分布：
+      - `train=2025`，正类 `1`
+      - `val=1012`，正类 `1`
+      - `test=4970`，正类 `0`
+    - 在此分布下继续训练只会得到假模型，不应接 runtime 或主链
+  - 当前意义：
+    - 训练入口已补齐
+    - 阻塞条件已固化为可复现报告
+  - 下一步收口方向：
+    - 设计 `counterattack` 专题样本集
+    - 评估 `player + rear_rival` 双视角 counterattack 导出
+    - 扩大 `position_lost -> drs_recovery -> regain_position` 的 lookahead 窗口
+- `tyre_degradation_trend_model` baseline 已跑通
+  - 当前结论：第一版趋势基线成立
+  - 当前训练口径：
+    - 使用 `features.csv`
+    - 仅保留 `official_preferred + race-like` 样本
+    - 未来窗口：`15.0s`
+    - split：
+      - `uid15 lap 1/3 -> train`
+      - `uid15 lap 2 -> val`
+      - `uid16 -> test`
+  - 当前指标：
+    - `future_tyre_wear_delta`：`mae=0.1159`、`rmse=0.1806`、`r2=0.6131`
+    - `future_grip_drop_score`：`mae=0.8203`、`rmse=1.2437`、`r2=0.5770`
+  - 当前边界：
+    - 当前仍是基于未来窗口后验标签的 `LightGBM baseline`
+    - 已旁路接入 runtime debug
+    - 当前不进入主链，只作为趋势观察分数
+- `short_horizon_risk_forecast_model` 已完成 baseline 试跑
+  - 当前结论：暂不推进
+  - 当前训练口径：
+    - 使用 `features.csv + labels.csv`
+    - 仅保留 `official_preferred + race-like` 样本
+    - 目标：
+      - `risk_forecast_3s`
+      - `risk_forecast_next_zone`
+  - 当前指标：
+    - `risk_forecast_3s`：`mae=25.14`、`rmse=26.94`、`r2=-3.16`
+    - `risk_forecast_next_zone`：`mae=16.21`、`rmse=17.16`、`r2=-0.81`
+  - 当前阻塞原因：
+    - 目标定义过粗，容易被未来极端帧支配
+    - 当前快照特征不足以支撑未来 3 秒风险演化预测
+    - 现阶段继续训练不会得到可信模型
+  - 下一步收口方向：
+    - 后续若重启，需要先重做时序标签定义
+    - 需要显式短窗序列特征，再决定是否上 `LSTM / Temporal CNN`
 - `defence_cost_model` baseline 已跑通
   - 当前结论：第一版 proxy-distillation baseline 可用
   - 当前训练口径：
@@ -411,7 +462,7 @@
       - `low_confidence_falls_back_to_rules`
   - 当前边界：
     - 仍是规则校准层，不是训练出来的轻量分类器
-    - `fallback_policy` 还不是完整独立模块
+    - 当前仍未引入特征缺失率和 OOD 信号
   - 下一步收口方向：
     - 补特征缺失率和 OOD 信号
     - 细化 `voice_allowed / hud_only` 口径
@@ -436,11 +487,51 @@
       - `time_trial_route_filters_race_actions`
   - 当前边界：
     - 仍是最小规则版，还没有细化到按 `Qualifying / Sprint / Feature Race` 拆出更深的动作优先级与参数模板
-    - 还没有独立的 `fallback_policy` 模块与之配套
+    - 当前只完成了和 `fallback_policy` 的最小联动
   - 下一步收口方向：
     - 细化 `QualifyingLike / SprintRaceLike / FeatureRaceLike` 的动作空间和优先级
     - 为 `strategy_action_model / arbiter_v2` 增加 session-specific priority profile
     - 与 `uncertainty layer / fallback_policy` 进一步联动
+- `fallback_policy` 最小独立模块已接入
+  - 当前文件：
+    - `/Users/sn5/Asurada/asurada-core/src/asurada/fallback.py`
+  - 当前结论：
+    - 已从 `uncertainty layer` 之后、`strategy_arbiter_v2` 之前生效
+    - 当前会根据 `session_route + confidence_resolution + tactical_state` 生成真实 `fallback_context / output_control`
+    - 当前已能覆盖：
+      - timing 动作在非 timing session 下回退 `rule_only`
+      - 低置信度战术态回退 `rule_only`
+      - 高不稳定战术态降级为 `hud_only`
+      - 战术锁定时提高 `cooldown_hint`
+  - 当前边界：
+    - 仍是最小规则版
+    - 还没有接真实输出历史和多轮任务状态
+  - 下一步收口方向：
+    - 接入真实 `last_emitted_action`
+    - 细化 `suppression_window`
+    - 与输出层生命周期和任务取消接口联动
+- `tactical_state_machine` 最小规则版已接入
+  - 当前文件：
+    - `/Users/sn5/Asurada/asurada-core/src/asurada/state_machine.py`
+  - 当前结论：
+    - 已从 `StrategyEngine` 主链生效，不再是写死的战术态分支
+    - 当前会根据前一帧位置变化、当前攻防窗口和短窗上下文生成真实：
+      - `previous_tactical_state`
+      - `tactical_state`
+      - `state_transition`
+      - `state_priority_hint`
+      - `state_lock`
+    - 当前结果已写入 `decision.debug["arbiter_v2"]["input"]["tactical_state_machine"]`
+    - 当前已接入真实输出历史：
+      - 按 `session_uid` 记住上一帧战术态
+      - 按 `session_uid` 记住上一条主动作
+      - 在 gap 仍处于宽松阈值内时保持 `DEFEND_WINDOW / ATTACK_WINDOW` 对应战术态，降低抖动
+  - 当前边界：
+    - 仍是最小规则版
+    - 还没有接入 `yield_vs_defend_model / counterattack_window_model / event_impact_model` 的正式输出
+  - 下一步收口方向：
+    - 细化 `counterattack_active` 与 `attack_prepare` 的切换条件
+    - 后续与 `yield_vs_defend_model / counterattack_window_model` 正式联动
 
 ### 阶段三：产品化与平台化
 
@@ -879,6 +970,7 @@
 - [ ] 特征版本管理
 - [ ] 回归验证体系进一步扩展
 - [ ] 多赛道泛化语义库
+- [ ] `counterattack` 专题样本集与导出策略
 - [x] 面向阶段三的统一交互输入事件模型
 - [x] 面向阶段三的 `turn_id / interaction_session_id` 会话轮次结构
 - [x] 策略查询输入与状态快照绑定协议
@@ -915,6 +1007,28 @@
   - 工具调用
   - 最终播报
 - [x] 为结构化语音问答预留独立 query schema，而不是让语音文本直接进入策略层
+
+### `counterattack` 专题样本设计
+
+当前 `counterattack_window_model` 的主要阻塞项不是训练脚本，而是样本设计。
+
+最小可行方案：
+
+- 事件起点：
+  - `position_lost_recently = 1`
+- 正类后验条件：
+  - 未来 `5.0 ~ 8.0s` 内满足至少一项：
+    - `position_gain_recently = 1`
+    - `drs_recovery_window = 1`
+    - `official_gap_ahead_s` 缩小到攻击阈值
+- split 最低目标：
+  - `train >= 12` 个正类
+  - `val >= 4` 个正类
+  - `test >= 4` 个正类
+- 设计优先级：
+  1. 扩大 `lookahead_s`
+  2. 评估 `player + rear_rival` 双视角 counterattack 导出
+  3. 再决定是否扩到更长赛程样本
 
 ## 阶段三当前状态
 

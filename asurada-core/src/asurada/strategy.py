@@ -10,6 +10,7 @@ from .arbiter import (
 )
 from .confidence import StrategyUncertaintyLayer
 from .config import StrategyThresholds, load_usage_hooks
+from .fallback import StrategyFallbackPolicy
 from .interaction import (
     build_asr_stage_event,
     build_confirmation_policy,
@@ -36,8 +37,10 @@ from .model_runtime import (
     ResourceRiskModelRuntime,
     ResourceRiskRuntimeSet,
     StrategyActionModelRuntime,
+    TyreDegradationTrendRuntimeSet,
 )
 from .session_router import SessionModeRouter, SessionRoute
+from .state_machine import TacticalStateMachine
 from .track_model import load_track_profile
 
 
@@ -52,12 +55,17 @@ class StrategyEngine:
         self.resource_risk_runtime = ResourceRiskRuntimeSet()
         self.rival_pressure_runtime = RivalPressureRuntimeSet()
         self.driving_quality_runtime = DrivingQualityRuntimeSet()
+        self.tyre_degradation_trend_runtime = TyreDegradationTrendRuntimeSet()
         self.defence_cost_runtime = ResourceRiskModelRuntime(
             name="defence_cost",
             report_path=DEFAULT_DEFENCE_COST_REPORT,
         )
         self.uncertainty_layer = StrategyUncertaintyLayer()
+        self.fallback_policy = StrategyFallbackPolicy()
         self.session_mode_router = SessionModeRouter()
+        self.tactical_state_machine = TacticalStateMachine()
+        self._last_tactical_resolution_by_session: dict[str, object] = {}
+        self._last_primary_action_by_session: dict[str, str] = {}
 
     def evaluate(self, state: SessionState, history: list[SessionState] | None = None) -> StrategyDecision:
         """Evaluate one frame and return ranked strategy messages plus debug data."""
@@ -74,8 +82,19 @@ class StrategyEngine:
             session_route=session_route,
         )
         legacy_messages = self._arbitrate(candidates)
-        arbiter_sidecar = self._build_arbiter_sidecar(state, context, candidates, assessment, session_route)
+        arbiter_sidecar = self._build_arbiter_sidecar(
+            state,
+            history or [state],
+            context,
+            candidates,
+            assessment,
+            session_route,
+        )
         messages = self._resolve_final_messages(legacy_messages, arbiter_sidecar)
+        session_key = str(state.session_uid)
+        tactical_machine_debug = ((arbiter_sidecar.get("input", {}) or {}).get("tactical_state_machine", {}) or {})
+        self._last_tactical_resolution_by_session[session_key] = tactical_machine_debug
+        self._last_primary_action_by_session[session_key] = messages[0].code if messages else "NONE"
         usage_bias = self._usage_bias(context.track_usage)
         interaction_input_event = build_system_strategy_input_event(
             state=state,
@@ -558,24 +577,27 @@ class StrategyEngine:
     def _build_arbiter_sidecar(
         self,
         state: SessionState,
+        history: list[SessionState],
         context: ContextProfile,
         candidates: list[StrategyCandidate],
         assessment: StateAssessment,
         session_route: SessionRoute,
     ) -> dict[str, object]:
         """Build a sidecar arbiter output without changing the current final messages."""
-
-        tactical_state = "neutral"
-        state_priority_hint = None
-        state_lock = False
-
-        if assessment.defend_state == "urgent":
-            tactical_state = "defence_active"
-            state_priority_hint = "DEFEND_WINDOW"
-            state_lock = True
-        elif assessment.attack_state == "available":
-            tactical_state = "counterattack_prepare"
-            state_priority_hint = "ATTACK_WINDOW"
+        previous_state = history[-2] if len(history) >= 2 else None
+        session_key = str(state.session_uid)
+        previous_resolution_payload = self._last_tactical_resolution_by_session.get(session_key)
+        previous_resolution = None
+        if isinstance(previous_resolution_payload, dict):
+            previous_resolution = self._coerce_tactical_resolution(previous_resolution_payload)
+        tactical_resolution = self.tactical_state_machine.resolve(
+            state=state,
+            previous_state=previous_state,
+            previous_resolution=previous_resolution,
+            last_output_action=self._last_primary_action_by_session.get(session_key),
+            assessment=assessment,
+            context=context,
+        )
 
         model_candidates = self._build_strategy_action_model_candidates(
             state=state,
@@ -586,28 +608,36 @@ class StrategyEngine:
             state=state,
             context=context,
             model_candidates=model_candidates,
-            tactical_state=tactical_state,
+            tactical_state=tactical_resolution.tactical_state,
         )
         resource_models = self.resource_risk_runtime.predict_all(state=state, context=context)
         rival_pressure_models = self.rival_pressure_runtime.predict_all(state=state, context=context)
         driving_quality_models = self.driving_quality_runtime.predict_all(state=state, context=context)
+        tyre_degradation_trend_models = self.tyre_degradation_trend_runtime.predict_all(state=state, context=context)
         defence_cost_model = self.defence_cost_runtime.predict_score(state=state, context=context)
-        payload = ArbiterInput(
+        tactical_context = TacticalContext(
+            tactical_state=tactical_resolution.tactical_state,
+            state_priority_hint=tactical_resolution.state_priority_hint,
+            state_lock=tactical_resolution.state_lock,
+            state_transition=tactical_resolution.state_transition,
+        )
+        fallback_resolution = self.fallback_policy.resolve(
+            state=state,
+            context=context,
+            session_route=session_route,
+            confidence_resolution=confidence_resolution,
+            tactical_context=tactical_context,
             rule_candidates=[RuleCandidate.from_strategy_candidate(candidate) for candidate in candidates],
             model_candidates=model_candidates,
-            tactical_context=TacticalContext(
-                tactical_state=tactical_state,
-                state_priority_hint=state_priority_hint,
-                state_lock=state_lock,
-                state_transition=None,
-            ),
+        )
+        rule_candidates = [RuleCandidate.from_strategy_candidate(candidate) for candidate in candidates]
+        payload = ArbiterInput(
+            rule_candidates=rule_candidates,
+            model_candidates=model_candidates,
+            tactical_context=tactical_context,
             confidence_context=confidence_resolution.confidence_context,
-            fallback_context=confidence_resolution.fallback_context,
-            output_control=OutputControl(
-                cooldown_hint=0,
-                last_emitted_action=None,
-                suppression_window=0,
-            ),
+            fallback_context=fallback_resolution.fallback_context,
+            output_control=fallback_resolution.output_control,
         )
         result = self.arbiter_v2.arbitrate(payload)
         return {
@@ -615,6 +645,16 @@ class StrategyEngine:
                 "rule_candidates": [item.__dict__ for item in payload.rule_candidates],
                 "model_candidates": [item.__dict__ for item in payload.model_candidates],
                 "tactical_context": payload.tactical_context.__dict__,
+                "tactical_state_machine": {
+                    "previous_tactical_state": tactical_resolution.previous_tactical_state,
+                    "tactical_state": tactical_resolution.tactical_state,
+                    "state_transition": tactical_resolution.state_transition,
+                    "state_priority_hint": tactical_resolution.state_priority_hint,
+                    "state_lock": tactical_resolution.state_lock,
+                    "recommended_action": tactical_resolution.recommended_action,
+                    "position_lost_recently": tactical_resolution.position_lost_recently,
+                    "position_gain_recently": tactical_resolution.position_gain_recently,
+                },
                 "confidence_context": payload.confidence_context.__dict__,
                 "fallback_context": payload.fallback_context.__dict__,
                 "output_control": payload.output_control.__dict__,
@@ -623,9 +663,14 @@ class StrategyEngine:
                     "fallback_reason": confidence_resolution.fallback_reason,
                     "session_mode": confidence_resolution.session_mode,
                 },
+                "fallback_policy": {
+                    "policy_name": fallback_resolution.policy_name,
+                    "policy_reasons": fallback_resolution.policy_reasons,
+                },
                 "resource_models": resource_models,
                 "rival_pressure_models": rival_pressure_models,
                 "driving_quality_models": driving_quality_models,
+                "tyre_degradation_trend_models": tyre_degradation_trend_models,
                 "defence_cost_model": defence_cost_model,
                 "session_route": {
                     "session_mode": session_route.session_mode,
@@ -643,6 +688,22 @@ class StrategyEngine:
                 "suppressed_actions": [item.__dict__ for item in result.suppressed_actions],
             },
         }
+
+    def _coerce_tactical_resolution(self, payload: dict[str, object]):
+        from .state_machine import TacticalStateResolution
+
+        return TacticalStateResolution(
+            previous_tactical_state=str(payload.get("previous_tactical_state") or "neutral"),
+            tactical_state=str(payload.get("tactical_state") or "neutral"),
+            state_transition=str(payload.get("state_transition") or "stable"),
+            state_priority_hint=str(payload.get("state_priority_hint")) if payload.get("state_priority_hint") is not None else None,
+            state_lock=bool(payload.get("state_lock", False)),
+            recommended_action=str(payload.get("recommended_action") or "NONE"),
+            position_lost_recently=bool(payload.get("position_lost_recently", False)),
+            position_gain_recently=bool(payload.get("position_gain_recently", False)),
+            history_hold_applied=bool(payload.get("history_hold_applied", False)),
+            history_anchor_action=str(payload.get("history_anchor_action")) if payload.get("history_anchor_action") is not None else None,
+        )
 
     def _build_strategy_action_model_candidates(
         self,

@@ -44,12 +44,17 @@
 | `entry_quality_model` | 已完成第一版 baseline | 已旁路接入 runtime debug；当前适合作为趋势/观察分数 |
 | `apex_quality_model` | 已完成第一版 baseline | 已旁路接入 runtime debug；当前适合作为趋势/观察分数 |
 | `exit_traction_model` | 已完成第一版 baseline | 已旁路接入 runtime debug；当前适合作为趋势/观察分数 |
+| `counterattack_window_model` | 已完成训练入口与可训练性检查 | 当前阻塞：专题样本正类不足，不能继续训练 |
+| `tyre_degradation_trend_model` | 已完成第一版 baseline | 当前可用，已旁路接入 runtime debug |
+| `short_horizon_risk_forecast_model` | 已完成 baseline 试跑 | 当前暂不推进：未来风险标签定义和时序特征都不成立 |
 | `attack_opportunity_model` | 已完成第一版 baseline | 当前可用，已具备 exported `val/test` |
 | `front_attack_commit_model` | 已完成第一版 baseline | 当前可接受，已具备 exported `val/test`，后续仍需继续收紧标签 |
 | `strategy_action_model` | 已完成第一版 baseline | 当前适合作为 `top-k` 候选提供器，不适合直接 `top-1` 直出 |
+| `tactical_state_machine` | 已完成最小规则版 | 已生成真实 `previous/current tactical_state` 与 `state_transition`，并接入 `StrategyEngine` |
 | `strategy_arbiter_v2` | 已接入主链 | 已消费真实 `strategy_action_model top-k`，并已接入自动回归断言 |
 | `confidence_model / uncertainty_layer` | 已完成最小规则版 | 已生成真实 `confidence_context / fallback_context`，并接入 `arbiter_v2` |
 | `session_mode_router` | 已完成最小规则版 | 已生成真实 `session_route`，并同时过滤规则候选与模型候选 |
+| `fallback_policy` | 已完成最小规则版 | 已生成真实 `fallback_context / output_control`，并在 `arbiter_v2` 前生效 |
 | `interaction_input_event model` | 已完成最小版 | 已生成真实 `interaction_session_id / turn_id / request_id / snapshot_binding`，并写入 debug 与日志 |
 | `output_lifecycle model` | 已完成最小版 | 已生成真实 `start / interrupt / suppress / cancel / idle` 输出生命周期事件，并写入 debug 与日志 |
 | `voice_pipeline_log skeleton` | 已完成最小版 | 已生成 `asr / query_normalization / strategy / tts` 四层日志骨架，并写入 debug 与日志 |
@@ -373,6 +378,20 @@
 - 在失守后识别反击窗口
 - 判断下一段或下下段是否值得投入反击
 
+当前状态：
+- `已完成训练入口与可训练性检查`
+- 当前结论：
+  - 当前阻塞，不能继续训练
+  - 当前 `counterattack_candidate_label` 正类样本远不足以支持有效 baseline
+- 当前样本分布：
+  - `train = 2025`，正类 `1`
+  - `val = 1012`，正类 `1`
+  - `test = 4970`，正类 `0`
+- 当前说明：
+  - 训练入口已建立
+  - 阻塞报告已落地到 `training/reports/counterattack_window_baseline/`
+  - 后续应先补 `counterattack` 专题样本，而不是直接调参
+
 输入字段：
 - `position_lost_recently`
 - `official_gap_ahead_s`
@@ -415,6 +434,16 @@
 
 是否进入实时主链：
 - 是
+
+专题样本设计建议：
+- 事件起点：
+  - `position_lost_recently = 1`
+- 正类后验条件：
+  - 未来 `5.0 ~ 8.0s` 内满足至少一项：
+    - `position_gain_recently = 1`
+    - `drs_recovery_window = 1`
+    - `official_gap_ahead_s` 缩小到攻击阈值
+- 在正类数量未达最小阈值前，不接 runtime，不接主链
 
 ### `front_attack_commit_model`
 
@@ -601,6 +630,18 @@
 
 是否进入实时主链：
 - 是
+
+当前状态：
+- 已完成最小规则版并接入 `StrategyEngine`
+- 当前会根据前一帧位置变化、当前攻防窗口和短窗上下文生成：
+  - `previous_tactical_state`
+  - `tactical_state`
+  - `state_transition`
+  - `state_priority_hint`
+  - `state_lock`
+- 当前已按 `session_uid` 记住上一帧战术态和上一条主动作
+- 当 gap 仍处于宽松阈值内时，会保持 `DEFEND_WINDOW / ATTACK_WINDOW` 对应战术态，降低抖动
+- 当前仍未接入 `yield_vs_defend_model / counterattack_window_model / event_impact_model` 的正式输出
 
 ### `strategy_arbiter_v2`
 
@@ -855,6 +896,11 @@
 
 是否进入实时主链：
 - 是
+
+当前状态：
+- 已完成最小规则版并接入 `StrategyEngine -> strategy_arbiter_v2`
+- 当前会根据 `session_route + confidence_resolution + tactical_state` 输出真实 `fallback_context / output_control`
+- 当前仍未接真实 `last_emitted_action` 和多轮任务状态
 
 ## P1 第一批核心模型
 
@@ -1369,6 +1415,26 @@
 主要功能：
 - 预测短期胎耗和抓地下滑趋势
 
+当前状态：
+- `已完成第一版 baseline`
+- 当前指标：
+  - `future_tyre_wear_delta`
+    - `mae=0.1159`
+    - `rmse=0.1806`
+    - `r2=0.6131`
+  - `future_grip_drop_score`
+    - `mae=0.8203`
+    - `rmse=1.2437`
+    - `r2=0.5770`
+- 当前说明：
+  - 训练口径：
+    - 仅保留 `official_preferred + race-like`
+    - 未来窗口 `15.0s`
+    - `uid15 lap 2 -> val`
+    - `uid16 -> test`
+  - 当前已旁路接入 runtime debug
+  - 当前不进入主链，只作为趋势观察分数
+
 输入字段：
 - `tyre.age_laps`
 - `tyre.wear_pct`
@@ -1396,6 +1462,14 @@
 
 是否进入实时主链：
 - 后续再定
+
+当前状态：
+- 已完成 baseline 试跑
+- 当前指标：
+  - `risk_forecast_3s`：`mae=25.14`、`rmse=26.94`、`r2=-3.16`
+  - `risk_forecast_next_zone`：`mae=16.21`、`rmse=17.16`、`r2=-0.81`
+- 当前结论：
+  - 目标定义和时序特征都不成立，暂不推进
 
 ### `short_horizon_risk_forecast_model`
 

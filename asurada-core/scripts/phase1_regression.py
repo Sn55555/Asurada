@@ -27,11 +27,13 @@ from asurada.arbiter import (
 from asurada.config import AppConfig
 from asurada.dashboard import DebugDashboardBuilder
 from asurada.decode import decode_snapshot
+from asurada.models import ContextProfile, DriverState, SessionState, StateAssessment, TyreState
 from asurada.output import ConsoleVoiceOutput
 from asurada.packet_snapshot import CaptureSnapshotAssembler
 from asurada.pdu_decoder import F125PacketDecoder, PacketDecodeError
 from asurada.replay import ReplayLogger
 from asurada.state import UnifiedStateStore
+from asurada.state_machine import TacticalStateMachine, TacticalStateResolution
 from asurada.strategy import StrategyEngine
 
 DEFAULT_CAPTURE = Path("/Users/sn5/Asurada/tools/captures/f1_25_udp_capture_20260321_024707.jsonl")
@@ -131,6 +133,7 @@ def run_regression(
         for sample in sample_metadata.get("samples", [])
     ]
     arbiter_contract = analyze_arbiter_contract()
+    tactical_state_machine_contract = analyze_tactical_state_machine_contract()
 
     checks = {
         "full_capture_passed": full_capture["passed"],
@@ -138,6 +141,7 @@ def run_regression(
         "session_samples_present": bool(session_samples),
         "all_session_samples_passed": all(item["passed"] for item in session_samples),
         "arbiter_contract_passed": arbiter_contract["passed"],
+        "tactical_state_machine_contract_passed": tactical_state_machine_contract["passed"],
     }
     return {
         "passed": all(checks.values()),
@@ -145,6 +149,7 @@ def run_regression(
         "full_capture": full_capture,
         "session_samples": session_samples,
         "arbiter_contract": arbiter_contract,
+        "tactical_state_machine_contract": tactical_state_machine_contract,
     }
 
 
@@ -712,6 +717,152 @@ def analyze_arbiter_contract() -> dict[str, Any]:
             },
         },
     }
+
+
+def analyze_tactical_state_machine_contract() -> dict[str, Any]:
+    """Run synthetic regression checks against TacticalStateMachine behavior."""
+
+    state_machine = TacticalStateMachine()
+    context = ContextProfile(
+        recent_unstable_ratio=0.1,
+        recent_front_overload_ratio=0.0,
+        driving_mode="push_exit",
+        track_zone="deployment_straight",
+        track_segment="T14 Exit",
+        track_usage="attack",
+        tyre_age_factor=2,
+        brake_phase_factor=0,
+        throttle_phase_factor=8,
+        steering_phase_factor=2,
+    )
+
+    defend_previous = _make_session_state(position=2, gap_ahead_s=0.8, gap_behind_s=0.4, drs_available=False)
+    defend_current = _make_session_state(position=2, gap_ahead_s=0.9, gap_behind_s=0.3, drs_available=False)
+    defend_assessment = StateAssessment(
+        fuel_state="stable",
+        tyre_state="stable",
+        ers_state="stable",
+        race_state="green",
+        attack_state="closed",
+        defend_state="urgent",
+        dynamics_state="stable",
+    )
+    defend_result = state_machine.resolve(
+        state=defend_current,
+        previous_state=defend_previous,
+        previous_resolution=None,
+        last_output_action=None,
+        assessment=defend_assessment,
+        context=context,
+    )
+
+    counter_previous = _make_session_state(position=1, gap_ahead_s=None, gap_behind_s=0.4, drs_available=False)
+    counter_current = _make_session_state(position=2, gap_ahead_s=0.45, gap_behind_s=0.6, drs_available=True)
+    counter_assessment = StateAssessment(
+        fuel_state="stable",
+        tyre_state="stable",
+        ers_state="stable",
+        race_state="green",
+        attack_state="available",
+        defend_state="clear",
+        dynamics_state="stable",
+    )
+    counter_result = state_machine.resolve(
+        state=counter_current,
+        previous_state=counter_previous,
+        previous_resolution=None,
+        last_output_action=None,
+        assessment=counter_assessment,
+        context=context,
+    )
+
+    history_previous = _make_session_state(position=2, gap_ahead_s=0.8, gap_behind_s=0.9, drs_available=False)
+    history_current = _make_session_state(position=2, gap_ahead_s=1.0, gap_behind_s=1.35, drs_available=False)
+    history_previous_resolution = TacticalStateResolution(
+        previous_tactical_state="neutral",
+        tactical_state="defence_prepare",
+        state_transition="neutral->defence_prepare",
+        state_priority_hint="DEFEND_WINDOW",
+        state_lock=False,
+        recommended_action="DEFEND_WINDOW",
+        position_lost_recently=False,
+        position_gain_recently=False,
+        history_hold_applied=False,
+        history_anchor_action=None,
+    )
+    history_assessment = StateAssessment(
+        fuel_state="stable",
+        tyre_state="stable",
+        ers_state="stable",
+        race_state="green",
+        attack_state="closed",
+        defend_state="clear",
+        dynamics_state="stable",
+    )
+    history_result = state_machine.resolve(
+        state=history_current,
+        previous_state=history_previous,
+        previous_resolution=history_previous_resolution,
+        last_output_action="DEFEND_WINDOW",
+        assessment=history_assessment,
+        context=context,
+    )
+
+    checks = {
+        "defence_window_locks_state": defend_result.tactical_state == "defence_active"
+        and defend_result.state_lock
+        and defend_result.state_priority_hint == "DEFEND_WINDOW",
+        "position_loss_arms_counterattack": counter_result.position_lost_recently
+        and counter_result.tactical_state in {"counterattack_prepare", "counterattack_active"}
+        and counter_result.state_priority_hint == "ATTACK_WINDOW",
+        "output_history_holds_tactical_state": history_result.history_hold_applied
+        and history_result.tactical_state == "defence_prepare"
+        and history_result.history_anchor_action == "DEFEND_WINDOW",
+    }
+    return {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "analysis": {
+            "defence_result": defend_result.__dict__,
+            "counterattack_result": counter_result.__dict__,
+            "history_hold_result": history_result.__dict__,
+        },
+    }
+
+
+def _make_session_state(
+    *,
+    position: int,
+    gap_ahead_s: float | None,
+    gap_behind_s: float | None,
+    drs_available: bool,
+) -> SessionState:
+    player = DriverState(
+        car_index=0,
+        name="player",
+        position=position,
+        lap=3,
+        gap_ahead_s=gap_ahead_s,
+        gap_behind_s=gap_behind_s,
+        fuel_laps_remaining=4.0,
+        ers_pct=45.0,
+        drs_available=drs_available,
+        tyre=TyreState(compound="C3", wear_pct=22.0, age_laps=3),
+        speed_kph=245.0,
+        status_tags=[],
+    )
+    return SessionState(
+        session_uid="synthetic-session",
+        track="Shanghai",
+        lap_number=3,
+        total_laps=5,
+        weather="Clear",
+        safety_car="NONE",
+        player=player,
+        rivals=[],
+        source_timestamp_ms=0,
+        raw={},
+    )
 
 
 def summarize_final_classification(final_classification: dict[str, Any]) -> dict[str, Any]:
