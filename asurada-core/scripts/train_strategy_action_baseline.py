@@ -139,8 +139,19 @@ def main() -> int:
     )
 
     best_iteration = booster.best_iteration or 300
+    class_min_score_thresholds = choose_class_min_score_thresholds(
+        booster=booster,
+        feature_columns=feature_columns,
+        val_df=val_df,
+        best_iteration=best_iteration,
+        target_actions=TARGET_ACTIONS,
+    )
     test_proba = booster.predict(test_df[feature_columns], num_iteration=best_iteration)
-    test_pred = test_proba.argmax(axis=1)
+    test_pred = calibrated_argmax_predictions(
+        probabilities=test_proba,
+        target_actions=TARGET_ACTIONS,
+        class_min_score_thresholds=class_min_score_thresholds,
+    )
     test_true = test_df["target_id"].to_numpy()
     report = classification_report(
         test_true,
@@ -185,6 +196,7 @@ def main() -> int:
         "confusion_matrix": confusion,
         "top_feature_importance": importance[:20],
         "class_weights": class_weights,
+        "class_min_score_thresholds": class_min_score_thresholds,
         "model_path": str(model_path),
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -203,6 +215,81 @@ def balanced_class_weights(target_ids: list[int]) -> dict[int, float]:
         class_count = max(1, counts.get(idx, 0))
         weights[idx] = total / (num_classes * class_count)
     return weights
+
+
+def choose_class_min_score_thresholds(
+    *,
+    booster,
+    feature_columns: list[str],
+    val_df,
+    best_iteration: int,
+    target_actions: list[str],
+) -> dict[str, float]:
+    try:
+        from sklearn.metrics import precision_recall_fscore_support  # type: ignore
+    except ModuleNotFoundError:
+        return {}
+
+    thresholds: dict[str, float] = {}
+    probabilities = booster.predict(val_df[feature_columns], num_iteration=best_iteration)
+    base_pred = probabilities.argmax(axis=1)
+    targets = val_df["target_id"].to_numpy()
+
+    for action in target_actions:
+        if action != "DYNAMICS_UNSTABLE":
+            continue
+        action_index = target_actions.index(action)
+        best: tuple[float, float, float] | None = None
+        for threshold in [value / 100.0 for value in range(50, 96, 5)]:
+            calibrated = calibrated_argmax_predictions(
+                probabilities=probabilities,
+                target_actions=target_actions,
+                class_min_score_thresholds={action: threshold},
+                base_pred=base_pred,
+            )
+            precision, recall, f1, _ = precision_recall_fscore_support(
+                (targets == action_index).astype(int),
+                (calibrated == action_index).astype(int),
+                average="binary",
+                zero_division=0,
+            )
+            candidate = (float(f1), float(precision), float(threshold))
+            if best is None or candidate > best:
+                best = candidate
+        if best is not None:
+            thresholds[action] = best[2]
+    return thresholds
+
+
+def calibrated_argmax_predictions(
+    *,
+    probabilities,
+    target_actions: list[str],
+    class_min_score_thresholds: dict[str, float],
+    base_pred=None,
+):
+    import numpy as np
+
+    calibrated = np.array(base_pred if base_pred is not None else probabilities.argmax(axis=1), copy=True)
+    for row_index in range(len(calibrated)):
+        predicted_index = int(calibrated[row_index])
+        predicted_action = target_actions[predicted_index]
+        min_threshold = class_min_score_thresholds.get(predicted_action)
+        if min_threshold is None or float(probabilities[row_index][predicted_index]) >= float(min_threshold):
+            continue
+        order = np.argsort(probabilities[row_index])[::-1]
+        for alternative_index in order:
+            alternative_index = int(alternative_index)
+            if alternative_index == predicted_index:
+                continue
+            alternative_action = target_actions[alternative_index]
+            alternative_threshold = class_min_score_thresholds.get(alternative_action)
+            alternative_score = float(probabilities[row_index][alternative_index])
+            if alternative_threshold is not None and alternative_score < float(alternative_threshold):
+                continue
+            calibrated[row_index] = alternative_index
+            break
+    return calibrated
 
 
 if __name__ == "__main__":

@@ -111,6 +111,7 @@ class StrategyActionModelRuntime:
         self._pd: Any = None
         self._feature_columns: list[str] = []
         self._target_actions: list[str] = []
+        self._class_min_score_thresholds: dict[str, float] = {}
         self._load()
 
     @property
@@ -141,6 +142,7 @@ class StrategyActionModelRuntime:
             return []
 
         scores = list(proba[0])
+        scores = self._apply_class_thresholds(scores)
         ranked = sorted(
             enumerate(scores),
             key=lambda item: item[1],
@@ -179,6 +181,10 @@ class StrategyActionModelRuntime:
         self._report = report
         self._feature_columns = list(report.get("feature_columns") or [])
         self._target_actions = list(report.get("target_actions") or [])
+        self._class_min_score_thresholds = {
+            str(key): float(value)
+            for key, value in (report.get("class_min_score_thresholds") or {}).items()
+        }
         self._pd = pd
         self._booster = lgb.Booster(model_file=str(model_path))
         self._enabled = True
@@ -270,6 +276,18 @@ class StrategyActionModelRuntime:
 
     def _detail_for_code(self, code: str, score: float) -> str:
         return f"{code} 候选分数 {score:.3f}"
+
+    def _apply_class_thresholds(self, scores: list[float]) -> list[float]:
+        if not self._class_min_score_thresholds:
+            return scores
+        calibrated = list(scores)
+        for index, action in enumerate(self._target_actions):
+            threshold = self._class_min_score_thresholds.get(action)
+            if threshold is None:
+                continue
+            if float(calibrated[index]) < threshold:
+                calibrated[index] = 0.0
+        return calibrated
 
 
 @dataclass
