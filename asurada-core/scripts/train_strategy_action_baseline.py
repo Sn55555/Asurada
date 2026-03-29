@@ -6,7 +6,17 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_FEATURES = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "strategy_action_features_v1.csv"
+
+
+def default_features_path() -> Path:
+    for dataset_name in ("phase2_dataset_v2_extended", "phase2_dataset_v1"):
+        candidate = PROJECT_ROOT / "training" / "exports" / dataset_name / "strategy_action_features_v1.csv"
+        if candidate.exists():
+            return candidate
+    return PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "strategy_action_features_v1.csv"
+
+
+DEFAULT_FEATURES = default_features_path()
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "training" / "reports" / "strategy_action_baseline"
 TARGET_ACTIONS = ["NONE", "LOW_FUEL", "DEFEND_WINDOW", "DYNAMICS_UNSTABLE"]
 

@@ -23,7 +23,16 @@ from asurada.strategy import StrategyEngine
 from asurada.track_model import load_track_profile
 
 
-DEFAULT_CONFIG = PROJECT_ROOT / "training" / "configs" / "phase2_dataset_v1.json"
+def default_export_config() -> Path:
+    """Prefer the local extended dataset config when present."""
+
+    preferred = PROJECT_ROOT / "training" / "configs" / "phase2_dataset_v2_extended.json"
+    if preferred.exists():
+        return preferred
+    return PROJECT_ROOT / "training" / "configs" / "phase2_dataset_v1.json"
+
+
+DEFAULT_CONFIG = default_export_config()
 
 FEATURE_COLUMNS = [
     "record_id",
@@ -604,10 +613,7 @@ def export_sample(
             split=split,
         )
 
-        feature_writer.writerow({column: feature_row.get(column) for column in FEATURE_COLUMNS})
-        label_writer.writerow({column: label_row.get(column) for column in LABEL_COLUMNS})
         sample_rows.append({"feature": feature_row, "label": label_row})
-        records += 1
         primary_action_counts[label_row["primary_action_label"]] += 1
 
         include_tactical, reason = should_include_tactical_row(feature_row=feature_row, label_row=label_row)
@@ -630,8 +636,12 @@ def export_sample(
         if include_strategy_action:
             strategy_action_indices.append(len(sample_rows) - 1)
 
-        if sample_limit is not None and records >= sample_limit:
-            break
+    exported_feature_indices = select_feature_label_indices(sample_rows=sample_rows, sample_limit=sample_limit)
+    for row_index in exported_feature_indices:
+        row_bundle = sample_rows[row_index]
+        feature_writer.writerow({column: row_bundle["feature"].get(column) for column in FEATURE_COLUMNS})
+        label_writer.writerow({column: row_bundle["label"].get(column) for column in LABEL_COLUMNS})
+        records += 1
 
     for row_index in tactical_indices:
         row_bundle = sample_rows[row_index]
@@ -704,6 +714,50 @@ def export_sample(
         "attack_filter_reasons": dict(attack_filter_reasons.most_common()),
         "strategy_action_filter_reasons": dict(strategy_action_filter_reasons.most_common()),
     }
+
+
+def select_feature_label_indices(
+    *,
+    sample_rows: list[dict[str, dict[str, Any]]],
+    sample_limit: int | None,
+) -> list[int]:
+    """Select raw feature/label rows while preserving session coverage.
+
+    备注:
+    `sample_limit` 主要用于受控导出调试集，不应把 session 后半段完全截掉，
+    否则 `LOW_FUEL` 这类后段动作永远不会进入 exported val/test。
+    这里改成：
+    - 默认跨全 session 均匀抽样
+    - 优先保留 `LOW_FUEL` 锚点，避免动作覆盖缺失
+    """
+
+    total_rows = len(sample_rows)
+    if sample_limit is None or sample_limit <= 0 or total_rows <= sample_limit:
+        return list(range(total_rows))
+
+    anchor_indices = [
+        idx
+        for idx, row_bundle in enumerate(sample_rows)
+        if str(row_bundle["label"].get("primary_action_label") or "NONE") == "LOW_FUEL"
+    ]
+    if len(anchor_indices) >= sample_limit:
+        step = max(1, len(anchor_indices) // sample_limit)
+        selected = anchor_indices[::step][:sample_limit]
+        return selected
+
+    base_slots = max(sample_limit - len(anchor_indices), 0)
+    selected: set[int] = set(anchor_indices)
+    if base_slots > 0:
+        for step_index in range(base_slots):
+            position = int((step_index * total_rows) / base_slots)
+            if position >= total_rows:
+                position = total_rows - 1
+            selected.add(position)
+
+    ordered = sorted(selected)
+    if len(ordered) > sample_limit:
+        ordered = ordered[:sample_limit]
+    return ordered
 
 
 def build_feature_row(
@@ -1203,7 +1257,7 @@ def derive_strategy_action_split(feature_row: dict[str, Any], label_row: dict[st
     - `uid15` 第 2 圈 -> val
     - `SprintRaceLike` 第 1 圈里再抽一小部分 `DEFEND_WINDOW` -> val，确保 exported val 覆盖防守类
     - `uid16` 保持 test
-    - `uid8` 不进入 strategy-action 专项导出
+    - `uid8` 仅作为 `LOW_FUEL` 校准样本进入 strategy-action 导出，并按 deterministic 规则分到 train/val/test
     """
 
     base_split = str(feature_row.get("split") or "train")
@@ -1215,7 +1269,14 @@ def derive_strategy_action_split(feature_row: dict[str, Any], label_row: dict[st
     if "FeatureRaceLike" in session_type:
         return "test"
     if "ShortResultLike" in session_type:
-        return "skip"
+        if primary_action_label != "LOW_FUEL":
+            return "skip"
+        bucket = frame_identifier % 10
+        if bucket == 0:
+            return "test"
+        if bucket in {1, 2}:
+            return "val"
+        return "train"
     if "QualifyingLike" in session_type and lap_number == 1:
         return "val"
     if "SprintRaceLike" in session_type and lap_number == 2:
@@ -1288,9 +1349,12 @@ def should_include_strategy_action_row(*, feature_row: dict[str, Any], label_row
     """Keep strategy-action rows only for the current high-frequency action subset."""
 
     if feature_row["timing_support_level"] != "official_preferred":
-        return False, "non_official_timing"
+        action = str(label_row.get("primary_action_label") or "NONE")
+        session_type = str(feature_row.get("session_type") or "")
+        if not ("ShortResultLike" in session_type and action == "LOW_FUEL"):
+            return False, "non_official_timing"
     session_type = str(feature_row.get("session_type") or "")
-    if "RaceLike" not in session_type and "QualifyingLike" not in session_type:
+    if "RaceLike" not in session_type and "QualifyingLike" not in session_type and "ShortResultLike" not in session_type:
         return False, "unsupported_session"
     action = str(label_row.get("primary_action_label") or "NONE")
     if action not in {"NONE", "LOW_FUEL", "DEFEND_WINDOW", "DYNAMICS_UNSTABLE"}:

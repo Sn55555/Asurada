@@ -6,7 +6,17 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATASET = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "attack_features_v1.csv"
+
+
+def default_dataset_path() -> Path:
+    for dataset_name in ("phase2_dataset_v2_extended", "phase2_dataset_v1"):
+        candidate = PROJECT_ROOT / "training" / "exports" / dataset_name / "attack_features_v1.csv"
+        if candidate.exists():
+            return candidate
+    return PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "attack_features_v1.csv"
+
+
+DEFAULT_DATASET = default_dataset_path()
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "training" / "reports" / "front_attack_commit_baseline"
 
 

@@ -9,6 +9,7 @@ training/
   README.md
   configs/
     phase2_dataset_v1.json
+    phase2_dataset_v2_extended.json   # optional local extended config
   exports/
     <generated at runtime, ignored by git>
 ```
@@ -36,6 +37,12 @@ Default inputs:
   - [metadata.json](../data/capture_samples/shanghai_race_weekend/metadata.json)
 - dataset config:
   - [phase2_dataset_v1.json](../training/configs/phase2_dataset_v1.json)
+
+If the local extended dataset config exists, the exporter now prefers:
+
+- [phase2_dataset_v2_extended.json](../training/configs/phase2_dataset_v2_extended.json)
+
+and falls back to `phase2_dataset_v1.json` otherwise.
 
 Default outputs:
 
@@ -114,7 +121,7 @@ It also uses deterministic exported splits instead of training-time holdout:
 - `uid13` lap 1 -> exported `val`
 - `uid15` lap 2 -> exported `val`
 - `uid16` -> exported `test`
-- `uid8` -> excluded from this specialized view
+- `uid8` -> only used as `LOW_FUEL` calibration rows, with deterministic `train/val/test` split when present
 
 ## First Baseline Training
 
@@ -125,6 +132,11 @@ cd /Users/sn5/Asurada/asurada-core
 source .venv/bin/activate
 python3 scripts/train_rear_threat_baseline.py
 ```
+
+Current default behavior:
+
+- if `training/exports/phase2_dataset_v2_extended/...` exists locally, the main stage-two baselines now prefer it
+- otherwise they fall back to `phase2_dataset_v1`
 
 Outputs:
 
