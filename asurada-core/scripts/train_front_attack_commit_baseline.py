@@ -257,11 +257,32 @@ def scan_thresholds(*, y_true, scores) -> dict:
         if best is None:
             best = row
             continue
-        if row["macro_f1"] > best["macro_f1"]:
-            best = row
-            continue
-        if row["macro_f1"] == best["macro_f1"] and row["positive_recall"] > best["positive_recall"]:
-            best = row
+
+    conservative_candidates = [
+        row
+        for row in candidates
+        if row["positive_precision"] >= 0.85 and row["positive_recall"] >= 0.60
+    ]
+    if conservative_candidates:
+        best = max(
+            conservative_candidates,
+            key=lambda row: (
+                row["threshold"],
+                row["positive_precision"],
+                row["accuracy"],
+                row["macro_f1"],
+            ),
+        )
+    else:
+        for row in candidates:
+            if best is None:
+                best = row
+                continue
+            if row["macro_f1"] > best["macro_f1"]:
+                best = row
+                continue
+            if row["macro_f1"] == best["macro_f1"] and row["positive_recall"] > best["positive_recall"]:
+                best = row
 
     top_candidates = sorted(candidates, key=lambda item: (item["macro_f1"], item["positive_recall"]), reverse=True)[:8]
     return {
