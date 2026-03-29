@@ -559,6 +559,7 @@ class DebugDashboardBuilder:
             "resource_models": arbiter_input.get("resource_models", {}) or {},
             "rival_pressure_models": arbiter_input.get("rival_pressure_models", {}) or {},
             "driving_quality_models": arbiter_input.get("driving_quality_models", {}) or {},
+            "tyre_degradation_trend_models": arbiter_input.get("tyre_degradation_trend_models", {}) or {},
             "defence_cost_model": arbiter_input.get("defence_cost_model", {}) or {},
             "arbiter_input": {
                 "rule_candidates": arbiter_input.get("rule_candidates", []),
@@ -854,7 +855,7 @@ class DebugDashboardBuilder:
         .join('');
     }}
 
-    function renderResourceModels(resourceModels, defenceCostModel, rivalPressureModels, drivingQualityModels) {{
+    function renderResourceModels(resourceModels, defenceCostModel, rivalPressureModels, drivingQualityModels, tyreTrendModels) {{
       const modelOrder = [
         ['fuel_risk', 'Fuel'],
         ['ers_risk', 'ERS'],
@@ -910,6 +911,26 @@ class DebugDashboardBuilder:
             </div>
           `;
         }});
+      const trendOrder = [
+        ['future_tyre_wear_delta', 'Tyre Trend'],
+        ['future_grip_drop_score', 'Grip Trend'],
+      ];
+      const trendCards = trendOrder
+        .map(([key, label]) => {{
+          const item = tyreTrendModels?.[key] || {{}};
+          const enabled = item.enabled === true;
+          const score = enabled && item.score !== undefined && item.score !== null
+            ? Number(item.score).toFixed(1)
+            : '-';
+          const note = enabled ? 'runtime' : (item.disabled_reason || 'disabled');
+          return `
+            <div class="resource-box">
+              <div class="helper">${{label}}</div>
+              <div class="resource-value">${{score}}</div>
+              <div class="helper ellipsis-2">${{note}}</div>
+            </div>
+          `;
+        }});
       resourceModelGrid.innerHTML = resourceCards
         .concat([`
           <div class="resource-box">
@@ -925,6 +946,7 @@ class DebugDashboardBuilder:
           </div>
         `])
         .concat(drivingCards)
+        .concat(trendCards)
         .join('');
     }}
 
@@ -1060,6 +1082,7 @@ class DebugDashboardBuilder:
         frame.stage_two_model_debug?.defence_cost_model || {{}},
         frame.stage_two_model_debug?.rival_pressure_models || {{}},
         frame.stage_two_model_debug?.driving_quality_models || {{}},
+        frame.stage_two_model_debug?.tyre_degradation_trend_models || {{}},
       );
       document.getElementById('strategy-stack').innerHTML = frameMessages
         .slice(0, 5)

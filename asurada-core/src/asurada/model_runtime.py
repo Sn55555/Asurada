@@ -81,6 +81,20 @@ DEFAULT_DRIVING_QUALITY_REPORTS = {
     / "exit_traction"
     / "exit_traction_baseline_report.json",
 }
+DEFAULT_TYRE_DEGRADATION_TREND_REPORTS = {
+    "future_tyre_wear_delta": PROJECT_ROOT
+    / "training"
+    / "reports"
+    / "tyre_degradation_trend_baseline"
+    / "future_tyre_wear_delta"
+    / "future_tyre_wear_delta_baseline_report.json",
+    "future_grip_drop_score": PROJECT_ROOT
+    / "training"
+    / "reports"
+    / "tyre_degradation_trend_baseline"
+    / "future_grip_drop_score"
+    / "future_grip_drop_score_baseline_report.json",
+}
 
 
 @dataclass
@@ -414,6 +428,26 @@ class DrivingQualityRuntimeSet:
 
     def __post_init__(self) -> None:
         paths = self.report_paths or DEFAULT_DRIVING_QUALITY_REPORTS
+        self._runtimes = {
+            name: ResourceRiskModelRuntime(name=name, report_path=path)
+            for name, path in paths.items()
+        }
+
+    def predict_all(self, *, state: SessionState, context: ContextProfile) -> dict[str, dict[str, Any]]:
+        return {
+            name: runtime.predict_score(state=state, context=context)
+            for name, runtime in self._runtimes.items()
+        }
+
+
+@dataclass
+class TyreDegradationTrendRuntimeSet:
+    """Convenience wrapper for tyre degradation trend regressors."""
+
+    report_paths: dict[str, Path] | None = None
+
+    def __post_init__(self) -> None:
+        paths = self.report_paths or DEFAULT_TYRE_DEGRADATION_TREND_REPORTS
         self._runtimes = {
             name: ResourceRiskModelRuntime(name=name, report_path=path)
             for name, path in paths.items()
