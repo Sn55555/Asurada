@@ -367,13 +367,21 @@ class StrategyArbiterV2:
         resource_models = sidecar_scores.get("resource_models") or {}
         rival_pressure_models = sidecar_scores.get("rival_pressure_models") or {}
         defence_cost_model = sidecar_scores.get("defence_cost_model") or {}
+        driving_quality_models = sidecar_scores.get("driving_quality_models") or {}
         tyre_trend_models = sidecar_scores.get("tyre_degradation_trend_models") or {}
 
         fuel_risk = self._extract_score(resource_models, "fuel_risk")
         dynamics_risk = self._extract_score(resource_models, "dynamics_risk")
         rear_pressure = self._extract_score(rival_pressure_models, "rear_pressure")
         defence_cost = self._extract_score({"defence_cost": defence_cost_model}, "defence_cost")
+        entry_quality = self._extract_score(driving_quality_models, "entry_quality")
+        apex_quality = self._extract_score(driving_quality_models, "apex_quality")
+        exit_traction = self._extract_score(driving_quality_models, "exit_traction")
+        tyre_wear_trend = self._extract_score(tyre_trend_models, "future_tyre_wear_delta")
         grip_drop = self._extract_score(tyre_trend_models, "future_grip_drop_score")
+
+        poor_corner_quality = min(entry_quality, apex_quality) if entry_quality and apex_quality else 0.0
+        strong_corner_quality = min(entry_quality, apex_quality) if entry_quality and apex_quality else 0.0
 
         for item in ranked:
             bonus = 0.0
@@ -387,16 +395,37 @@ class StrategyArbiterV2:
                     bonus += 10.0
                 elif dynamics_risk <= 25.0:
                     bonus -= 8.0
+                if poor_corner_quality and poor_corner_quality <= 35.0:
+                    bonus += 8.0
+                elif strong_corner_quality >= 72.0 and exit_traction >= 72.0:
+                    bonus -= 5.0
             elif item.code == "DEFEND_WINDOW":
                 if rear_pressure >= 55.0:
                     bonus += 8.0
                 if defence_cost >= 65.0 and tactical_context.tactical_state not in {"defence_active", "defence_prepare"}:
                     bonus -= 6.0
+                if poor_corner_quality and poor_corner_quality <= 32.0 and not tactical_context.state_lock:
+                    bonus -= 4.0
+                elif exit_traction >= 75.0 and rear_pressure >= 45.0:
+                    bonus += 3.0
             elif item.code == "ATTACK_WINDOW":
                 if rear_pressure <= 20.0:
                     bonus += 4.0
                 if grip_drop >= 6.0:
                     bonus -= 5.0
+                if tyre_wear_trend >= 0.45:
+                    bonus -= 4.0
+                if exit_traction >= 72.0 and strong_corner_quality >= 55.0 and grip_drop <= 3.5:
+                    bonus += 6.0
+                if poor_corner_quality and poor_corner_quality <= 35.0:
+                    bonus -= 6.0
+                if exit_traction <= 42.0:
+                    bonus -= 5.0
+            elif item.code == "FRONT_LOAD":
+                if poor_corner_quality and poor_corner_quality <= 30.0:
+                    bonus += 7.0
+                elif strong_corner_quality >= 70.0 and exit_traction >= 68.0:
+                    bonus -= 4.0
 
             if bonus:
                 item.score += bonus
