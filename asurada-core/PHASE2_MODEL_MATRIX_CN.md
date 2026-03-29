@@ -47,6 +47,8 @@
 | `counterattack_window_model` | 已完成训练入口与可训练性检查 | 当前阻塞：专题样本正类不足，不能继续训练 |
 | `tyre_degradation_trend_model` | 已完成第一版 baseline | 当前可用，已旁路接入 runtime debug |
 | `short_horizon_risk_forecast_model` | 已完成 baseline 试跑 | 当前暂不推进：未来风险标签定义和时序特征都不成立 |
+| `driver_style_model` | 已完成 baseline 试跑 | 当前暂不推进：长窗口样本过少，风格标签塌缩 |
+| `pit_rejoin_traffic_model` | 已完成可训练性检查 | 当前阻塞：导出特征缺少 `pit_status`，无法构造 rejoin 标签 |
 | `attack_opportunity_model` | 已完成第一版 baseline | 当前可用，已具备 exported `val/test` |
 | `front_attack_commit_model` | 已完成第一版 baseline | 当前可接受，已具备 exported `val/test`，后续仍需继续收紧标签 |
 | `strategy_action_model` | 已完成第一版 baseline | 当前适合作为 `top-k` 候选提供器，不适合直接 `top-1` 直出 |
@@ -1539,6 +1541,14 @@
 是否进入实时主链：
 - 否
 
+当前状态：
+- 已完成 baseline 试跑
+- 当前采用 `20s` 长窗口聚合构造 `aggression_score / consistency_score / driver_style_tag` 代理标签
+- 当前结论：
+  - 长窗口样本仅 `42` 条
+  - `val/test` 类别分布塌缩
+  - 当前 baseline 不成立，暂不推进
+
 ### `pit_rejoin_traffic_model`
 
 主要功能：
@@ -1569,6 +1579,12 @@
 
 是否进入实时主链：
 - 否，后段再定
+
+当前状态：
+- 已完成可训练性检查
+- 当前阻塞：
+  - 当前导出训练表缺少 `pit_status`
+  - 没有显式进站进入/回场状态，无法构造 rejoin traffic 标签
 
 ## 阶段二必须建设的专题样本集
 

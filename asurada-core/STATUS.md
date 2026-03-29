@@ -214,6 +214,38 @@
   - 下一步收口方向：
     - 后续若重启，需要先重做时序标签定义
     - 需要显式短窗序列特征，再决定是否上 `LSTM / Temporal CNN`
+- `driver_style_model` 已完成 baseline 试跑
+  - 当前结论：暂不推进
+  - 当前训练口径：
+    - 使用 `features.csv`
+    - 仅保留 `official_preferred + race-like` 样本
+    - 按 `20s` 长窗口聚合成长时段风格样本
+    - 代理输出：
+      - `aggression_score`
+      - `consistency_score`
+      - `driver_style_tag`
+  - 当前指标：
+    - `aggression_score`：`mae=2.3228`、`rmse=3.2112`、`r2=-0.7460`
+    - `consistency_score`：`mae=3.8883`、`rmse=4.6502`、`r2=-0.3926`
+    - `driver_style_tag`：当前 test 基本塌成单类，分类结果不可信
+  - 当前阻塞原因：
+    - 长窗口样本仅 `42` 条
+    - `val/test` 分布过小且类别塌缩
+    - 当前继续训练不会得到可信风格模型
+  - 下一步收口方向：
+    - 后续若重启，需要更多长赛程窗口样本
+    - 需要重新设计风格标签，而不是只靠代理分数
+- `pit_rejoin_traffic_model` 已完成可训练性检查
+  - 当前结论：阻塞，暂不能训练
+  - 当前阻塞原因：
+    - 当前导出训练表缺少关键字段 `pit_status`
+    - 没有显式的进站进入/回场状态，就无法构造 rejoin traffic 标签
+  - 当前意义：
+    - 阻塞条件已固化为可复现报告
+    - 这条线当前问题不是模型，而是训练导出层缺字段
+  - 下一步收口方向：
+    - 在导出层补 `pit_status` 和进站状态转移字段
+    - 再设计 `pit_rejoin` 样本与标签
 - `defence_cost_model` baseline 已跑通
   - 当前结论：第一版 proxy-distillation baseline 可用
   - 当前训练口径：
