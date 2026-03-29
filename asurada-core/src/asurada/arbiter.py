@@ -147,6 +147,7 @@ class ArbiterInput:
     )
     fallback_context: FallbackContext = field(default_factory=FallbackContext)
     output_control: OutputControl = field(default_factory=OutputControl)
+    sidecar_scores: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -214,6 +215,7 @@ class StrategyArbiterV2:
             rule_candidates=rule_candidates,
             model_candidates=model_candidates,
             tactical_context=payload.tactical_context,
+            sidecar_scores=payload.sidecar_scores,
         )
 
         if payload.output_control.last_emitted_action and payload.output_control.suppression_window > 0:
@@ -290,6 +292,7 @@ class StrategyArbiterV2:
         rule_candidates: list[RuleCandidate],
         model_candidates: list[ModelCandidate],
         tactical_context: TacticalContext,
+        sidecar_scores: dict[str, object],
     ) -> list[_RankedAction]:
         ranked: list[_RankedAction] = []
 
@@ -326,6 +329,7 @@ class StrategyArbiterV2:
                     item.score += bonus
                     item.output_priority += int(round(bonus))
 
+        self._apply_sidecar_biases(ranked=ranked, sidecar_scores=sidecar_scores, tactical_context=tactical_context)
         ranked = sorted(ranked, key=lambda item: (item.score, item.code), reverse=True)
         return self._dedupe_ranked_actions(ranked)
 
@@ -352,3 +356,57 @@ class StrategyArbiterV2:
             seen_codes.add(item.code)
             deduped.append(item)
         return deduped
+
+    def _apply_sidecar_biases(
+        self,
+        *,
+        ranked: list[_RankedAction],
+        sidecar_scores: dict[str, object],
+        tactical_context: TacticalContext,
+    ) -> None:
+        resource_models = sidecar_scores.get("resource_models") or {}
+        rival_pressure_models = sidecar_scores.get("rival_pressure_models") or {}
+        defence_cost_model = sidecar_scores.get("defence_cost_model") or {}
+        tyre_trend_models = sidecar_scores.get("tyre_degradation_trend_models") or {}
+
+        fuel_risk = self._extract_score(resource_models, "fuel_risk")
+        dynamics_risk = self._extract_score(resource_models, "dynamics_risk")
+        rear_pressure = self._extract_score(rival_pressure_models, "rear_pressure")
+        defence_cost = self._extract_score({"defence_cost": defence_cost_model}, "defence_cost")
+        grip_drop = self._extract_score(tyre_trend_models, "future_grip_drop_score")
+
+        for item in ranked:
+            bonus = 0.0
+            if item.code == "LOW_FUEL":
+                if fuel_risk >= 85.0:
+                    bonus += 12.0
+                elif fuel_risk <= 35.0:
+                    bonus -= 10.0
+            elif item.code == "DYNAMICS_UNSTABLE":
+                if dynamics_risk >= 65.0:
+                    bonus += 10.0
+                elif dynamics_risk <= 25.0:
+                    bonus -= 8.0
+            elif item.code == "DEFEND_WINDOW":
+                if rear_pressure >= 55.0:
+                    bonus += 8.0
+                if defence_cost >= 65.0 and tactical_context.tactical_state not in {"defence_active", "defence_prepare"}:
+                    bonus -= 6.0
+            elif item.code == "ATTACK_WINDOW":
+                if rear_pressure <= 20.0:
+                    bonus += 4.0
+                if grip_drop >= 6.0:
+                    bonus -= 5.0
+
+            if bonus:
+                item.score += bonus
+                item.output_priority += int(round(bonus))
+
+    def _extract_score(self, payload: dict[str, object], key: str) -> float:
+        item = payload.get(key) if isinstance(payload, dict) else None
+        if not isinstance(item, dict):
+            return 0.0
+        try:
+            return float(item.get("score") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0

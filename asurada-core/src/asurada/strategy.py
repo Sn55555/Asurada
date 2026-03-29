@@ -638,6 +638,13 @@ class StrategyEngine:
             confidence_context=confidence_resolution.confidence_context,
             fallback_context=fallback_resolution.fallback_context,
             output_control=fallback_resolution.output_control,
+            sidecar_scores={
+                "resource_models": resource_models,
+                "rival_pressure_models": rival_pressure_models,
+                "driving_quality_models": driving_quality_models,
+                "tyre_degradation_trend_models": tyre_degradation_trend_models,
+                "defence_cost_model": defence_cost_model,
+            },
         )
         result = self.arbiter_v2.arbitrate(payload)
         return {
@@ -658,6 +665,7 @@ class StrategyEngine:
                 "confidence_context": payload.confidence_context.__dict__,
                 "fallback_context": payload.fallback_context.__dict__,
                 "output_control": payload.output_control.__dict__,
+                "sidecar_scores": payload.sidecar_scores,
                 "uncertainty_layer": {
                     "fallback_recommended": confidence_resolution.fallback_recommended,
                     "fallback_reason": confidence_resolution.fallback_reason,
