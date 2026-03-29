@@ -7,7 +7,7 @@
 ## 项目进度
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-90%25-2ea44f?style=for-the-badge)
-![Phase 2](https://img.shields.io/badge/Phase%202-63%25-f59e0b?style=for-the-badge)
+![Phase 2](https://img.shields.io/badge/Phase%202-65%25-f59e0b?style=for-the-badge)
 ![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
 
 ```mermaid
@@ -15,7 +15,7 @@ xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [90, 63, 0]
+    bar [90, 65, 0]
 ```
 
 ## 当前状态
@@ -29,7 +29,7 @@ flowchart TB
 ```
 
 - 阶段一：基本完成，当前只剩实时链和少量外部样本验证
-- 阶段二：进行中，已完成第一批可用 baseline、控制层主链接口，并扩展到趋势模型 runtime sidecar；`fallback_policy` 与 `tactical_state_machine` 已接主链，`counterattack_window_model / short_horizon_risk_forecast_model / driver_style_model / pit_rejoin_traffic_model` 当前处于样本或特征阻塞状态
+- 阶段二：进行中，已完成第一批可用 baseline、控制层主链接口，并扩展到趋势模型 runtime sidecar；新日本站样本已拆分接入训练链，攻击链与动作模型的 exported `val` 已补齐并收口，`fallback_policy` 与 `tactical_state_machine` 已接主链，`counterattack_window_model / short_horizon_risk_forecast_model / driver_style_model / pit_rejoin_traffic_model` 当前处于样本或标签阻塞状态
 - 阶段三：未启动
 
 详细看板：

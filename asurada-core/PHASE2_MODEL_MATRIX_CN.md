@@ -48,7 +48,8 @@
 | `tyre_degradation_trend_model` | 已完成第一版 baseline | 当前可用，已旁路接入 runtime debug |
 | `short_horizon_risk_forecast_model` | 已完成 baseline 试跑 | 当前暂不推进：未来风险标签定义和时序特征都不成立 |
 | `driver_style_model` | 已完成 baseline 试跑 | 当前暂不推进：长窗口样本过少，风格标签塌缩 |
-| `pit_rejoin_traffic_model` | 已完成可训练性检查 | 当前阻塞：导出特征缺少 `pit_status`，无法构造 rejoin 标签 |
+| `pit_rejoin_traffic_model` | 已完成可训练性检查 | 当前阻塞：`pit_status` 与状态转移字段已补齐，但 `pit_exit + rejoin_window` 候选样本仅 `11` 条，仍不够训练 |
+| `phase2_dataset_v2_extended` | 已完成扩展样本接入 | 已纳入 `Suzuka SprintRaceLike + Shanghai FeatureRaceLike(20lap)` 拆分样本，可进入阶段二训练链 |
 | `attack_opportunity_model` | 已完成第一版 baseline | 当前可用，已具备 exported `val/test` |
 | `front_attack_commit_model` | 已完成第一版 baseline | 当前可接受，已具备 exported `val/test`，后续仍需继续收紧标签 |
 | `strategy_action_model` | 已完成第一版 baseline | 当前适合作为 `top-k` 候选提供器，不适合直接 `top-1` 直出 |
@@ -67,6 +68,37 @@
 | `event_impact_model` | 已试跑 baseline | 当前暂停，等待更多事件样本与更强后验标签 |
 
 完整推进状态、暂停原因和 checklist 以 [STATUS.md](STATUS.md) 为准。
+
+## 本轮扩展样本接入更新
+
+当前阶段二训练链已新增扩展样本输入：
+
+- `suzuka_sprint_race_like_uid15`
+- `shanghai_feature_race_like_uid16_20lap`
+
+为支持这两段样本，当前已完成：
+
+- `track_id 13 -> Suzuka` 映射补齐
+- 混合大包按 `session_uid` 拆分为单 session `.jsonl`
+- `phase2_metadata_combined.json` 合并 metadata
+- `phase2_dataset_v2_extended.json` 扩展训练配置
+
+当前影响最大的两条修正：
+
+1. `strategy_action_model`
+- 扩展数据集下的 exported `val` 已修复
+- `DEFEND_WINDOW` 已稳定进入 `val`
+- 当前不再因缺类阻塞训练
+
+2. `attack_opportunity_model`
+- exported `val` 已从 holdout 回退状态改为显式导出
+- 伪标签已收紧
+- 阈值选择已改成偏高 precision 的保守策略
+- 当前扩展数据集受控结果：
+  - `accuracy=0.9994`
+  - `positive precision=0.9444`
+  - `positive recall=1.0000`
+  - `FP=1`
 
 ## 总体原则
 
@@ -1583,8 +1615,9 @@
 当前状态：
 - 已完成可训练性检查
 - 当前阻塞：
-  - 当前导出训练表缺少 `pit_status`
-  - 没有显式进站进入/回场状态，无法构造 rejoin traffic 标签
+  - `pit_status`、状态转移和 `rejoin_window` 字段已导出
+  - 当前 `pit_exit + rejoin_window` 候选样本仅 `11` 条
+  - 当前交通带宽分布只有 `light`，还不足以训练回场车流模型
 
 ## 阶段二必须建设的专题样本集
 

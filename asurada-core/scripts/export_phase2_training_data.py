@@ -74,6 +74,13 @@ FEATURE_COLUMNS = [
     "raw_fuel_laps_remaining",
     "derived_fuel_laps_remaining",
     "fuel_laps_remaining_source",
+    "pit_status",
+    "pit_status_code",
+    "pit_status_previous",
+    "pit_status_transition",
+    "pit_entry_event",
+    "pit_exit_event",
+    "pit_rejoin_phase",
     "remaining_race_laps",
     "fuel_margin_laps",
     "ers_store_energy",
@@ -771,6 +778,42 @@ def build_feature_row(
         if derived_fuel_laps_remaining is not None
         else None
     )
+    pit_status = str(raw.get("pit_status") or "NONE")
+    pit_status_code = raw.get("pit_status_code")
+    previous_pit_status = (
+        str(previous_state.raw.get("pit_status") or "NONE")
+        if previous_state is not None
+        else "NONE"
+    )
+    pit_status_transition = (
+        f"{previous_pit_status}->{pit_status}"
+        if pit_status != previous_pit_status
+        else "stable"
+    )
+    pit_entry_event = int(
+        previous_pit_status == "NONE" and pit_status in {"PITTING", "IN_PIT_AREA"}
+    )
+    pit_exit_event = int(
+        previous_pit_status in {"PITTING", "IN_PIT_AREA"} and pit_status == "NONE"
+    )
+    if pit_status == "PITTING":
+        pit_rejoin_phase = "pit_entry"
+    elif pit_status == "IN_PIT_AREA":
+        pit_rejoin_phase = "pit_lane"
+    elif pit_exit_event:
+        pit_rejoin_phase = "pit_exit"
+    elif (
+        pit_status == "NONE"
+        and session_time_s is not None
+        and recently_in_pit_window(
+            recent_states=recent_states,
+            current_session_time_s=session_time_s,
+            lookback_window_s=8.0,
+        )
+    ):
+        pit_rejoin_phase = "rejoin_window"
+    else:
+        pit_rejoin_phase = "none"
 
     return {
         "record_id": record_id,
@@ -821,6 +864,13 @@ def build_feature_row(
         "raw_fuel_laps_remaining": raw.get("raw_fuel_laps_remaining"),
         "derived_fuel_laps_remaining": raw.get("derived_fuel_laps_remaining"),
         "fuel_laps_remaining_source": raw.get("fuel_laps_remaining_source"),
+        "pit_status": pit_status,
+        "pit_status_code": pit_status_code,
+        "pit_status_previous": previous_pit_status,
+        "pit_status_transition": pit_status_transition,
+        "pit_entry_event": pit_entry_event,
+        "pit_exit_event": pit_exit_event,
+        "pit_rejoin_phase": pit_rejoin_phase,
         "remaining_race_laps": remaining_race_laps,
         "fuel_margin_laps": fuel_margin_laps,
         "ers_store_energy": raw.get("ers_store_energy"),
@@ -1059,7 +1109,7 @@ def build_strategy_action_feature_row(
     """Build a deterministic exported strategy-action training row."""
 
     row = {column: feature_row.get(column) for column in STRATEGY_ACTION_FEATURE_COLUMNS if column in feature_row}
-    row["split"] = derive_strategy_action_split(feature_row=feature_row)
+    row["split"] = derive_strategy_action_split(feature_row=feature_row, label_row=label_row)
     row["primary_action_label"] = label_row.get("primary_action_label")
     return row
 
@@ -1093,7 +1143,10 @@ def build_single_attack_feature_row(
         actor_view=actor_view,
     )
     row = {column: actor_feature.get(column) for column in ATTACK_FEATURE_COLUMNS if column in actor_feature}
-    row["split"] = derive_attack_split(actor_feature)
+    row["split"] = derive_attack_split(
+        feature_row=actor_feature,
+        attack_opportunity_binary_label=attack_opportunity_binary_label,
+    )
     row.update(
         {
             "actor_view": actor_view,
@@ -1108,27 +1161,38 @@ def build_single_attack_feature_row(
     return row
 
 
-def derive_attack_split(feature_row: dict[str, Any]) -> str:
+def derive_attack_split(
+    *,
+    feature_row: dict[str, Any],
+    attack_opportunity_binary_label: int,
+) -> str:
     """Assign a deterministic exported split for attack-chain models.
 
     备注:
-    当前攻击链只有 `uid15` 和 `uid16` 两段 race-like 样本。
-    为避免训练脚本继续依赖随机 holdout，这里把 `uid15` 的第 2 圈固定切成 exported val，
-    第 1/3 圈保留为 train，`uid16` 保持 test。
+    扩展数据集里，导出常常只覆盖样本前段；如果继续依赖“第 2 圈固定进 val”，
+    会导致 exported val 缺失。这里改成基于已算出的攻击代理标签做 deterministic 抽样：
+    - 正类按较高比例抽进 val，确保 exported val 稳定包含 attack positives
+    - 负类只在攻击区或固定步长下抽样，避免 val 被背景帧淹没
+    - metadata 明确标成 test 的样本仍保持 test
     """
 
     base_split = str(feature_row.get("split") or "train")
     if base_split != "train":
         return base_split
 
-    session_type = str(feature_row.get("session_type") or "")
-    lap_number = int(feature_row.get("lap_number") or 0)
-    if "SprintRaceLike" in session_type and lap_number == 2:
+    frame_identifier = int(feature_row.get("frame_identifier") or 0)
+    attack_zone_flag = int(feature_row.get("attack_zone_flag") or 0)
+
+    if attack_opportunity_binary_label == 1 and frame_identifier % 13 == 0:
+        return "val"
+    if attack_zone_flag == 1 and frame_identifier % 29 == 0:
+        return "val"
+    if frame_identifier % 73 == 0:
         return "val"
     return "train"
 
 
-def derive_strategy_action_split(feature_row: dict[str, Any]) -> str:
+def derive_strategy_action_split(feature_row: dict[str, Any], label_row: dict[str, Any]) -> str:
     """Assign deterministic exported splits for strategy-action modeling.
 
     备注:
@@ -1137,6 +1201,7 @@ def derive_strategy_action_split(feature_row: dict[str, Any]) -> str:
     为避免继续依赖随机 holdout，这里固定使用：
     - `uid13` 第 1 圈 -> val
     - `uid15` 第 2 圈 -> val
+    - `SprintRaceLike` 第 1 圈里再抽一小部分 `DEFEND_WINDOW` -> val，确保 exported val 覆盖防守类
     - `uid16` 保持 test
     - `uid8` 不进入 strategy-action 专项导出
     """
@@ -1144,6 +1209,8 @@ def derive_strategy_action_split(feature_row: dict[str, Any]) -> str:
     base_split = str(feature_row.get("split") or "train")
     session_type = str(feature_row.get("session_type") or "")
     lap_number = int(feature_row.get("lap_number") or 0)
+    primary_action_label = str(label_row.get("primary_action_label") or "NONE")
+    frame_identifier = int(feature_row.get("frame_identifier") or 0)
 
     if "FeatureRaceLike" in session_type:
         return "test"
@@ -1152,6 +1219,13 @@ def derive_strategy_action_split(feature_row: dict[str, Any]) -> str:
     if "QualifyingLike" in session_type and lap_number == 1:
         return "val"
     if "SprintRaceLike" in session_type and lap_number == 2:
+        return "val"
+    if (
+        "SprintRaceLike" in session_type
+        and lap_number == 1
+        and primary_action_label == "DEFEND_WINDOW"
+        and frame_identifier % 11 == 0
+    ):
         return "val"
     if base_split == "train":
         return "train"
@@ -1221,7 +1295,7 @@ def should_include_strategy_action_row(*, feature_row: dict[str, Any], label_row
     action = str(label_row.get("primary_action_label") or "NONE")
     if action not in {"NONE", "LOW_FUEL", "DEFEND_WINDOW", "DYNAMICS_UNSTABLE"}:
         return False, "unsupported_action"
-    split = derive_strategy_action_split(feature_row)
+    split = derive_strategy_action_split(feature_row, label_row)
     if split == "skip":
         return False, "excluded_split_policy"
     return True, "strategy_action"
@@ -1444,15 +1518,15 @@ def derive_attack_opportunity_labels(
         return 1, "immediate"
 
     strong_setup = (
-        gap_ahead <= 0.9
-        and speed_delta >= 2.0
-        and ers_pct >= 25.0
-        and unstable_ratio <= 0.4
+        gap_ahead <= 0.75
+        and speed_delta >= 3.0
+        and ers_pct >= 30.0
+        and unstable_ratio <= 0.35
         and (attack_zone_flag == 1 or drs_available == 1 or next_usage in {"primary_overtake_deploy", "overtake_setup", "primary_ers_deploy"})
     )
-    if outcome["closed_gap_strongly"] and strong_setup:
+    if outcome["closed_gap_strongly"] and strong_setup and gap_ahead <= 0.8:
         return 1, "building"
-    if strong_setup and gap_ahead <= 0.65:
+    if strong_setup and gap_ahead <= 0.5:
         return 1, "building"
     return 0, "none"
 
@@ -1815,6 +1889,29 @@ def closing_rate_from_recent_history(
             continue
         return (float(candidate_gap) - float(current_gap)) / delta_t
     return None
+
+
+def recently_in_pit_window(
+    *,
+    recent_states: list[Any],
+    current_session_time_s: float,
+    lookback_window_s: float,
+) -> bool:
+    if len(recent_states) < 2:
+        return False
+
+    for candidate in reversed(recent_states[:-1]):
+        candidate_time = optional_float(candidate.raw.get("session_time_s"))
+        if candidate_time is None:
+            continue
+        time_delta = current_session_time_s - candidate_time
+        if time_delta <= 0:
+            continue
+        if time_delta > lookback_window_s:
+            break
+        if str(candidate.raw.get("pit_status") or "NONE") in {"PITTING", "IN_PIT_AREA"}:
+            return True
+    return False
 
 
 def speed_delta(primary: float | None, secondary: float | None) -> float | None:

@@ -12,10 +12,10 @@ flowchart TB
     B --> C["协议解码层<br/>pdu_decoder"]
     C --> D["组帧与标准化<br/>packet_snapshot / decode_snapshot"]
     D --> E["内部状态层<br/>SessionState / UnifiedStateStore"]
-    E --> F["特征与语义层<br/>track_model / context / model_runtime features"]
-    F --> G["模型层<br/>rear_threat / attack_opportunity / front_attack_commit / strategy_action"]
-    G --> H["控制层<br/>strategy_arbiter_v2 / fallback / confidence(待补全)"]
-    H --> I["策略输出层<br/>final messages / HUD / Voice / Debug"]
+    E --> F["特征与语义层<br/>track_model / context / runtime features"]
+    F --> G["模型层<br/>rear_threat / attack_opportunity / front_attack_commit / strategy_action<br/>resource / pressure / quality / trend sidecars"]
+    G --> H["控制层<br/>session_mode_router / uncertainty_layer / fallback_policy / tactical_state_machine / strategy_arbiter_v2"]
+    H --> I["策略输出层<br/>final messages / HUD / Voice / Debug / interaction events"]
     I --> J["用户感知层<br/>语音播报 / 面板 / 回放日志"]
 ```
 
@@ -35,6 +35,15 @@ flowchart TB
 4. `Live UDP`
    - 实时 UDP 监听壳
    - 当前尚未打通完整主链
+
+当前训练样本侧还新增了一类来源：
+
+5. `Split Session JSONL`
+   - 从单个混合抓包大文件中按 `session_uid` 拆出的单 session 样本
+   - 当前已用于 `phase2_dataset_v2_extended`
+   - 例子：
+     - `suzuka_sprint_race_like_uid15`
+     - `shanghai_feature_race_like_uid16_20lap`
 
 对应代码：
 
@@ -162,8 +171,16 @@ flowchart TB
     A --> D["front_attack_commit_model"]
     A --> E["strategy_action_model"]
     E --> F["top-k action candidates"]
-    F --> G["strategy_arbiter_v2"]
-    G --> H["final messages"]
+    A --> G["session_mode_router"]
+    A --> H["uncertainty_layer"]
+    A --> I["fallback_policy"]
+    A --> J["tactical_state_machine"]
+    F --> K["strategy_arbiter_v2"]
+    G --> K
+    H --> K
+    I --> K
+    J --> K
+    K --> L["final messages"]
 ```
 
 当前实际参与决策的关键对象：
@@ -178,6 +195,14 @@ flowchart TB
   - 高频动作子集的 `top-k` 候选输出
 - `strategy_arbiter_v2`
   - 统一仲裁规则候选和模型候选
+- `session_mode_router`
+  - 按排位 / 冲刺 / 正赛过滤动作与模型候选
+- `confidence_model / uncertainty_layer`
+  - 生成 `confidence_context / fallback_context`
+- `fallback_policy`
+  - 低置信度、非 timing 场景、战术锁定时提供真实回退策略
+- `tactical_state_machine`
+  - 维护 `previous/current tactical_state`、`state_transition` 与状态保持
 
 ### 已试跑但当前未参与主链的模型
 
@@ -186,14 +211,27 @@ flowchart TB
 - `event_impact_model`
   - 当前暂停
 
-### 还未开始的关键模型
+### 已接入 runtime debug、暂未进主链的 sidecar 模型
 
 - `fuel_risk_model`
 - `ers_risk_model`
 - `tyre_risk_model`
 - `dynamics_risk_model`
+- `defence_cost_model`
+- `rival_pressure_model`
+- `entry_quality_model`
+- `apex_quality_model`
+- `exit_traction_model`
+- `tyre_degradation_trend_model`
+
+### 当前已阻塞或暂停的模型
+
+- `yield_vs_defend_model`
+- `event_impact_model`
 - `counterattack_window_model`
-- `confidence_model / uncertainty_layer`
+- `short_horizon_risk_forecast_model`
+- `driver_style_model`
+- `pit_rejoin_traffic_model`
 
 ## 6. 模型是怎么决策的
 
@@ -203,8 +241,33 @@ flowchart TB
 
 1. 多个模型先分别给出分数或候选
 2. `strategy_action_model` 负责给出 `top-k` 动作候选
-3. `strategy_arbiter_v2` 统一仲裁
-4. 最终生成 `decision.messages`
+3. 控制层先给出：
+   - `session_route`
+   - `confidence_context`
+   - `fallback_context`
+   - `tactical_state`
+4. `strategy_arbiter_v2` 统一仲裁
+5. 最终生成 `decision.messages`
+
+### 6.3 当前训练链新增扩展样本入口
+
+阶段二当前已支持把新的混合抓包拆成可训练样本后并入训练链：
+
+```mermaid
+flowchart TB
+    A["mixed capture jsonl"] --> B["split by session_uid"]
+    B --> C["single-session jsonl samples"]
+    C --> D["combined metadata"]
+    D --> E["phase2_dataset_v2_extended"]
+    E --> F["export_phase2_training_data.py"]
+    F --> G["features / tactical / attack / strategy_action"]
+```
+
+当前已验证：
+
+- 新样本拆分后可进入现有导出链
+- `strategy_action_model` 的 exported `val` 已在扩展数据集下修复
+- `attack_opportunity_model` 已按扩展数据集完成 `val` 切分、标签收紧和保守阈值收口
 
 ### 6.2 为什么是 `top-k + 仲裁`
 
@@ -225,10 +288,11 @@ flowchart TB
     A["strategy_action_model"] --> B["top-k candidates"]
     C["rule candidates"] --> D["strategy_arbiter_v2"]
     B --> D
-    E["tactical context"] --> D
-    F["fallback / confidence context"] --> D
-    D --> G["final ordered actions"]
-    G --> H["decision.messages"]
+    E["session route"] --> D
+    F["tactical context"] --> D
+    G["fallback / confidence context"] --> D
+    D --> H["final ordered actions"]
+    H --> I["decision.messages"]
 ```
 
 ## 7. 模型输出是什么
@@ -268,14 +332,16 @@ flowchart TB
 
 ## 8. 到语音流给用户的这条线
 
-当前完整生产级双向语音还没做完，但单向策略输出主线已经明确。
+当前完整生产级双向语音还没做完，但阶段三防返工接口已经补到位。
 
 ```mermaid
-flowchart LR
+flowchart TB
     A["真实数据 / 模型 / 仲裁"] --> B["decision.messages"]
-    B --> C["output.py / ConsoleVoiceOutput"]
-    C --> D["当前用户可见输出"]
-    D --> E["未来双向语音链"]
+    B --> C["interaction_input_event / structured_query / query_route"]
+    C --> D["confirmation_policy / task_handle / task_lifecycle"]
+    D --> E["output_lifecycle / ConsoleVoiceOutput"]
+    E --> F["当前用户可见输出"]
+    F --> G["未来 ASR / Query Normalization / TTS 全链路"]
 ```
 
 ### 当前已完成
@@ -283,6 +349,18 @@ flowchart LR
 - 模型和仲裁结果已经能进入 `decision.messages`
 - `output.py` 可以消费这些策略消息
 - debug payload 可以把模型候选、仲裁结果和最终消息展示出来
+- 统一交互输入事件模型已存在：
+  - `interaction_session_id`
+  - `turn_id`
+  - `request_id`
+  - `snapshot_binding_id`
+- 输出层已具备最小生命周期：
+  - `start / interrupt / suppress / cancel / idle`
+- 分层日志骨架已存在：
+  - `asr`
+  - `query_normalization`
+  - `strategy`
+  - `tts`
 
 ### 后续完整语音链
 
@@ -312,16 +390,16 @@ flowchart LR
 ### 已成立
 
 - 真实抓包 -> 状态 -> 模型 -> 仲裁 -> 最终消息，这条线已成立
-- `strategy_arbiter_v2` 已接入主链
-- 模型候选已不是纯调试 sidecar
+- `session_mode_router / uncertainty_layer / fallback_policy / tactical_state_machine / strategy_arbiter_v2` 已接主链
+- `strategy_action_model` 已作为真实 `top-k` 候选提供器参与主链
+- 资源/压力/驾驶质量/趋势模型已能作为 runtime sidecar 观察分数
 
 ### 还没完全成立
 
 - 完整实时 UDP 主链
-- 完整资源风险模型族
 - 完整防守/失守/反击闭环
-- 完整置信度层
 - 完整生产级语音链
+- 真实 ASR / query normalization / TTS 执行层
 
 ## 10. 建议阅读顺序
 

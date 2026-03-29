@@ -154,7 +154,7 @@ def main() -> int:
     best_iteration = booster.best_iteration or num_boost_round
     val_scores = booster.predict(val_df[feature_columns], num_iteration=best_iteration)
     threshold_scan = scan_thresholds(y_true=val_df[target_column].tolist(), scores=val_scores)
-    threshold = threshold_scan["selected_threshold"]
+    threshold = choose_attack_threshold(threshold_scan)
 
     test_scores = booster.predict(test_df[feature_columns], num_iteration=best_iteration)
     preds = (test_scores >= threshold).astype(int)
@@ -259,7 +259,29 @@ def scan_thresholds(*, y_true, scores) -> dict:
         "selected_threshold": best["threshold"] if best else 0.5,
         "selected_metrics": best,
         "top_candidates": top_candidates,
+        "all_candidates": candidates,
     }
+
+
+def choose_attack_threshold(threshold_scan: dict) -> float:
+    """Prefer conservative thresholds for attack-opportunity gating.
+
+    这条链用于主链上游预筛，误报代价高于少量漏报。
+    exported val 可用时，优先选择满足:
+    - positive_precision >= 0.95
+    - positive_recall >= 0.95
+    的最高阈值。
+    """
+
+    all_candidates = threshold_scan.get("all_candidates") or []
+    conservative = [
+        row
+        for row in all_candidates
+        if row["positive_precision"] >= 0.95 and row["positive_recall"] >= 0.95
+    ]
+    if conservative:
+        return max(conservative, key=lambda row: row["threshold"])["threshold"]
+    return float(threshold_scan["selected_threshold"])
 
 
 if __name__ == "__main__":

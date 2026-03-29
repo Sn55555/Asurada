@@ -20,14 +20,14 @@
 
 - 阶段一总体进度：`90%`
 - 阶段一排除实时闭环后的进度：`95%+`
-- 阶段二准备工作进度：`63%`
+- 阶段二准备工作进度：`65%`
 - 阶段三产品化进度：`0%`
 
 当前结论：
 
 - 离线真实抓包策略主链已经打通
 - 调试面板已经具备工程级检查能力
-- 阶段二已从“数据准备”推进到“baseline + 控制层 + runtime sidecar”并行阶段
+- 阶段二已从“数据准备”推进到“baseline + 控制层 + runtime sidecar + 扩展样本接入”并行阶段
 - 当前最大未完成项是实时 UDP 全闭环
 
 ## 阶段总览
@@ -65,7 +65,7 @@
 
 当前完成度：
 
-- `63%`
+- `65%`
 
 当前已启动工作：
 
@@ -238,14 +238,49 @@
 - `pit_rejoin_traffic_model` 已完成可训练性检查
   - 当前结论：阻塞，暂不能训练
   - 当前阻塞原因：
-    - 当前导出训练表缺少关键字段 `pit_status`
-    - 没有显式的进站进入/回场状态，就无法构造 rejoin traffic 标签
+    - `pit_status` 与进站状态转移字段已导出
+    - 当前 `pit_exit + rejoin_window` 候选样本仅 `11` 条，且全部在 `train`
+    - 当前交通分布只有 `light`，没有足够的回场车流带宽变化
   - 当前意义：
     - 阻塞条件已固化为可复现报告
-    - 这条线当前问题不是模型，而是训练导出层缺字段
+    - 这条线当前问题已从“缺字段”推进到“样本仍稀缺”
   - 下一步收口方向：
-    - 在导出层补 `pit_status` 和进站状态转移字段
+    - 继续扩 `rejoin_window` 样本
+    - 补更多进站/回场样本和交通带宽变化
     - 再设计 `pit_rejoin` 样本与标签
+- 扩展样本集已接入阶段二训练链
+  - 当前新增样本：
+    - `suzuka_sprint_race_like_uid15`
+    - `shanghai_feature_race_like_uid16_20lap`
+  - 当前新增基础设施：
+    - `track_id 13 -> Suzuka` 赛道映射已补齐
+    - `phase2_metadata_combined.json` 已建立
+    - `phase2_dataset_v2_extended.json` 已建立
+  - 当前结论：
+    - 新样本已拆分为单 session `.jsonl`
+    - smoke export 已通过
+    - 已可进入现有阶段二训练链
+- `strategy_action_model` 扩展数据集 split 已修复
+  - 当前结论：exported `val` 已稳定包含 `DEFEND_WINDOW`
+  - 当前处理：
+    - 保留 `uid13 lap1 -> val`
+    - 保留 race-like 固定 `val`
+    - 对 `SprintRaceLike lap1` 的 `DEFEND_WINDOW` 做 deterministic 抽样进入 `val`
+  - 当前意义：
+    - 扩展数据集下 `strategy_action_model` 不再因 `val` 缺类而阻塞
+- `attack_opportunity_model` 扩展数据集口径已收口
+  - 当前问题已修：
+    - 新样本接入后 exported `val` 缺失，训练回退到 holdout
+    - 伪标签过宽导致 test 误报显著增多
+  - 当前处理：
+    - 已为攻击链补 deterministic exported `val`
+    - 已收紧 `attack_opportunity` 伪标签
+    - 已把阈值选择改成偏高 precision 的保守策略
+  - 当前最新结果（扩展数据集受控导出）：
+    - `accuracy=0.9994`
+    - `positive precision=0.9444`
+    - `positive recall=1.0000`
+    - `FP=1`
 - `defence_cost_model` baseline 已跑通
   - 当前结论：第一版 proxy-distillation baseline 可用
   - 当前训练口径：

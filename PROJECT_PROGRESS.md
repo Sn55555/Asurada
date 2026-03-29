@@ -6,7 +6,7 @@
 ## 总览
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-90%25-2ea44f?style=for-the-badge)
-![Phase 2](https://img.shields.io/badge/Phase%202-63%25-f59e0b?style=for-the-badge)
+![Phase 2](https://img.shields.io/badge/Phase%202-65%25-f59e0b?style=for-the-badge)
 ![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
 
 ```mermaid
@@ -14,7 +14,7 @@ xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [90, 63, 0]
+    bar [90, 65, 0]
 ```
 
 ## 阶段一：核心开发闭环
@@ -51,9 +51,9 @@ xychart-beta
 ## 阶段二：模型与边缘化准备
 
 ![Status](https://img.shields.io/badge/Status-In%20Progress-f59e0b?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-63%25-f59e0b?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-65%25-f59e0b?style=flat-square)
 
-进度条：`██████░░░░ 63%`
+进度条：`███████░░░ 65%`
 
 ### 已完成项
 
@@ -81,6 +81,13 @@ xychart-beta
 - 语音确认 / 权限分级规则
 - 工具与长任务取消接口最小版
 - exported `val/test` 切分已用于攻击链和动作模型
+- 新增扩展训练样本接入：
+  - `suzuka_sprint_race_like_uid15`
+  - `shanghai_feature_race_like_uid16_20lap`
+- `track_id 13 -> Suzuka` 赛道映射已补齐
+- `phase2_dataset_v2_extended` 扩展数据集配置与合并 metadata 已建立
+- `strategy_action_model` 在扩展数据集下的 exported `val` 切分已修复，`DEFEND_WINDOW` 已稳定进入 `val`
+- `attack_opportunity_model` 已按扩展数据集重做 exported `val`、收紧伪标签并改成保守阈值选择，当前误报已显著压低
 
 ### 停滞项
 
@@ -95,15 +102,15 @@ xychart-beta
 - `driver_style_model`
   - 原因：长窗口样本过少，风格标签塌缩，baseline 不成立
 - `pit_rejoin_traffic_model`
-  - 原因：当前导出训练表缺少 `pit_status`，无法构造 rejoin traffic 标签
+  - 原因：`pit_status` 与状态转移字段已补齐，但 `pit_exit + rejoin_window` 候选样本仅 `11` 条，且交通分布只有 `light`
 
 ### 待开发项
 
 - `yield_vs_defend_model` 重启前的数据/标签收口
 - `event_impact_model` 事件样本补强
-- `pit_status` 与进站状态转移字段导出
 - 资源/压力/趋势 sidecar 分数有限度接入仲裁
 - 攻防链 DRS / closing-rate 信号进一步增强
+- 扩展数据集下 `rear_threat / front_attack_commit / strategy_action` 全链复核
 
 ### 当前新增控制层进展
 
