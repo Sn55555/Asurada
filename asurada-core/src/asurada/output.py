@@ -119,7 +119,7 @@ class ConsoleVoiceOutput:
         interrupt = bool(final_voice_action.get("interrupt"))
         speak_text = str(final_voice_action.get("speak_text") or top.title)
 
-        if self._active_code == code and not interrupt:
+        if self._active_code == code:
             return OutputLifecycleEvent(
                 output_session_id=self.output_session_id,
                 output_event_id=output_event_id,

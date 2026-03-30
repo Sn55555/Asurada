@@ -242,10 +242,7 @@ class CaptureSnapshotAssembler:
             "lap_number": int(lap.get("current_lap_num", 0)),
             "total_laps": int(session.get("total_laps", 0)),
             "weather": WEATHER_NAMES.get(int(session.get("weather", -1)), f"Weather({session.get('weather', 'unknown')})"),
-            "safety_car": SAFETY_CAR_NAMES.get(
-                int(session.get("safety_car_status", 0)),
-                f"SafetyCar({session.get('safety_car_status', 'unknown')})",
-            ),
+            "safety_car": self._normalize_safety_car_name(session.get("safety_car_status", 0)),
             "source_timestamp_ms": int(base_header.get("received_at_ms", 0)),
             "player": {
                 "car_index": int(base_header.get("player_car_index", 0)),
@@ -812,9 +809,17 @@ class CaptureSnapshotAssembler:
 
     def _is_session_valid(self, session: dict[str, Any]) -> bool:
         track_length_m = int(session.get("track_length_m", 0))
-        safety_car_status = int(session.get("safety_car_status", -1))
         track_id = int(session.get("track_id", -1))
-        return track_length_m > 1000 and 0 <= safety_car_status <= 3 and track_id >= 0
+        return track_length_m > 1000 and track_id >= 0
+
+    def _normalize_safety_car_name(self, raw_status: Any) -> str:
+        try:
+            status = int(raw_status)
+        except (TypeError, ValueError):
+            return "NONE"
+        if status not in SAFETY_CAR_NAMES:
+            return "NONE"
+        return SAFETY_CAR_NAMES[status]
 
     def _is_lap_valid(self, bundle: FrameBundle, session: dict[str, Any]) -> bool:
         lap = bundle.packets["LapData"]["body"]

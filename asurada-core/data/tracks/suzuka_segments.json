@@ -1,0 +1,398 @@
+{
+  "track": "Suzuka",
+  "lap_length_m": 5807.0,
+  "source": {
+    "description": "Suzuka Circuit - F1 Japanese Grand Prix",
+    "reference": "F1 2025 Official Track Data"
+  },
+  "braking_zones": [
+    {
+      "name": "T1 First Curve Entry",
+      "start_m": 0.0,
+      "end_m": 120.0
+    },
+    {
+      "name": "T8 End of S Curves",
+      "start_m": 2100.0,
+      "end_m": 2180.0
+    },
+    {
+      "name": "T9 Degner 1 Entry",
+      "start_m": 2450.0,
+      "end_m": 2520.0
+    },
+    {
+      "name": "T10 Degner 2 Entry",
+      "start_m": 2750.0,
+      "end_m": 2820.0
+    },
+    {
+      "name": "T11 Hairpin Entry",
+      "start_m": 3200.0,
+      "end_m": 3320.0
+    },
+    {
+      "name": "T14 Spoon Entry",
+      "start_m": 4750.0,
+      "end_m": 4850.0
+    },
+    {
+      "name": "T15 Spoon Exit Braking",
+      "start_m": 5000.0,
+      "end_m": 5080.0
+    },
+    {
+      "name": "T17 Casio Triangle Entry",
+      "start_m": 5450.0,
+      "end_m": 5530.0
+    }
+  ],
+  "corner_apexes": [
+    {
+      "name": "T1 First Curve",
+      "distance_m": 150.0,
+      "window_m": 80.0
+    },
+    {
+      "name": "T2",
+      "distance_m": 350.0,
+      "window_m": 60.0
+    },
+    {
+      "name": "T3",
+      "distance_m": 550.0,
+      "window_m": 50.0
+    },
+    {
+      "name": "T4",
+      "distance_m": 750.0,
+      "window_m": 50.0
+    },
+    {
+      "name": "T5 S Curve 1",
+      "distance_m": 1250.0,
+      "window_m": 70.0
+    },
+    {
+      "name": "T6 S Curve 2",
+      "distance_m": 1450.0,
+      "window_m": 70.0
+    },
+    {
+      "name": "T7 S Curve 3",
+      "distance_m": 1650.0,
+      "window_m": 70.0
+    },
+    {
+      "name": "T8",
+      "distance_m": 1950.0,
+      "window_m": 60.0
+    },
+    {
+      "name": "T9 Degner 1",
+      "distance_m": 2550.0,
+      "window_m": 80.0
+    },
+    {
+      "name": "T10 Degner 2",
+      "distance_m": 2850.0,
+      "window_m": 80.0
+    },
+    {
+      "name": "T11 Hairpin",
+      "distance_m": 3400.0,
+      "window_m": 120.0
+    },
+    {
+      "name": "T12",
+      "distance_m": 3750.0,
+      "window_m": 60.0
+    },
+    {
+      "name": "T13",
+      "distance_m": 4050.0,
+      "window_m": 60.0
+    },
+    {
+      "name": "T14 Spoon",
+      "distance_m": 4900.0,
+      "window_m": 150.0
+    },
+    {
+      "name": "T15 Spoon Exit",
+      "distance_m": 5150.0,
+      "window_m": 80.0
+    },
+    {
+      "name": "T16 130R",
+      "distance_m": 5350.0,
+      "window_m": 100.0
+    },
+    {
+      "name": "T17 Casio Triangle",
+      "distance_m": 5600.0,
+      "window_m": 90.0
+    }
+  ],
+  "semantic_segments": [
+    {
+      "name": "Start Straight",
+      "zone_type": "deployment_straight",
+      "start_m": 0.0,
+      "end_m": 50.0,
+      "usage": "lap_restart_accel"
+    },
+    {
+      "name": "T1 Attack Build",
+      "zone_type": "deployment_straight",
+      "start_m": 50.0,
+      "end_m": 100.0,
+      "usage": "overtake_setup"
+    },
+    {
+      "name": "T1 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 100.0,
+      "end_m": 150.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "T1 Apex",
+      "zone_type": "apex_rotation",
+      "start_m": 150.0,
+      "end_m": 250.0,
+      "usage": "slow_corner_rotation"
+    },
+    {
+      "name": "T1 Exit",
+      "zone_type": "exit_traction",
+      "start_m": 250.0,
+      "end_m": 350.0,
+      "usage": "traction_release"
+    },
+    {
+      "name": "T2-T4 Link",
+      "zone_type": "high_load_management",
+      "start_m": 350.0,
+      "end_m": 900.0,
+      "usage": "lateral_load_management"
+    },
+    {
+      "name": "Uphill Approach",
+      "zone_type": "deployment_straight",
+      "start_m": 900.0,
+      "end_m": 1150.0,
+      "usage": "ers_prepare"
+    },
+    {
+      "name": "S Curves Entry",
+      "zone_type": "braking_entry",
+      "start_m": 1150.0,
+      "end_m": 1200.0,
+      "usage": "front_end_commit"
+    },
+    {
+      "name": "T5 S Curve 1",
+      "zone_type": "high_load_management",
+      "start_m": 1200.0,
+      "end_m": 1350.0,
+      "usage": "lateral_load_management"
+    },
+    {
+      "name": "T6 S Curve 2",
+      "zone_type": "high_load_management",
+      "start_m": 1350.0,
+      "end_m": 1550.0,
+      "usage": "yaw_balance"
+    },
+    {
+      "name": "T7 S Curve 3",
+      "zone_type": "high_load_management",
+      "start_m": 1550.0,
+      "end_m": 1750.0,
+      "usage": "mid_corner_patience"
+    },
+    {
+      "name": "S Curves Exit",
+      "zone_type": "exit_traction",
+      "start_m": 1750.0,
+      "end_m": 1950.0,
+      "usage": "traction_rebuild"
+    },
+    {
+      "name": "T8 Approach",
+      "zone_type": "deployment_straight",
+      "start_m": 1950.0,
+      "end_m": 2050.0,
+      "usage": "brake_setup"
+    },
+    {
+      "name": "T8 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 2050.0,
+      "end_m": 2120.0,
+      "usage": "late_brake_control"
+    },
+    {
+      "name": "T8 Exit",
+      "zone_type": "exit_traction",
+      "start_m": 2120.0,
+      "end_m": 2350.0,
+      "usage": "throttle_stabilize"
+    },
+    {
+      "name": "T9 Degner 1 Entry",
+      "zone_type": "braking_entry",
+      "start_m": 2350.0,
+      "end_m": 2450.0,
+      "usage": "defensive_braking"
+    },
+    {
+      "name": "T9 Degner 1 Apex",
+      "zone_type": "apex_rotation",
+      "start_m": 2450.0,
+      "end_m": 2620.0,
+      "usage": "yaw_balance"
+    },
+    {
+      "name": "Degner Link",
+      "zone_type": "high_load_management",
+      "start_m": 2620.0,
+      "end_m": 2700.0,
+      "usage": "lateral_load_management"
+    },
+    {
+      "name": "T10 Degner 2 Entry",
+      "zone_type": "braking_entry",
+      "start_m": 2700.0,
+      "end_m": 2800.0,
+      "usage": "late_brake_control"
+    },
+    {
+      "name": "T10 Degner 2 Exit",
+      "zone_type": "exit_traction",
+      "start_m": 2800.0,
+      "end_m": 3000.0,
+      "usage": "traction_release"
+    },
+    {
+      "name": "Back Straight",
+      "zone_type": "deployment_straight",
+      "start_m": 3000.0,
+      "end_m": 3150.0,
+      "usage": "primary_overtake_deploy"
+    },
+    {
+      "name": "T11 Hairpin Attack Build",
+      "zone_type": "deployment_straight",
+      "start_m": 3150.0,
+      "end_m": 3200.0,
+      "usage": "brake_marker_commit"
+    },
+    {
+      "name": "T11 Hairpin Braking",
+      "zone_type": "braking_entry",
+      "start_m": 3200.0,
+      "end_m": 3350.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "T11 Hairpin Apex",
+      "zone_type": "apex_rotation",
+      "start_m": 3350.0,
+      "end_m": 3500.0,
+      "usage": "slow_corner_rotation"
+    },
+    {
+      "name": "T11 Exit",
+      "zone_type": "exit_traction",
+      "start_m": 3500.0,
+      "end_m": 3700.0,
+      "usage": "straight_launch_prep"
+    },
+    {
+      "name": "Downhill Straight",
+      "zone_type": "deployment_straight",
+      "start_m": 3700.0,
+      "end_m": 4200.0,
+      "usage": "primary_ers_deploy"
+    },
+    {
+      "name": "T12-T13 Link",
+      "zone_type": "high_load_management",
+      "start_m": 4200.0,
+      "end_m": 4600.0,
+      "usage": "lateral_load_management"
+    },
+    {
+      "name": "Spoon Approach",
+      "zone_type": "deployment_straight",
+      "start_m": 4600.0,
+      "end_m": 4700.0,
+      "usage": "overtake_setup"
+    },
+    {
+      "name": "T14 Spoon Entry",
+      "zone_type": "braking_entry",
+      "start_m": 4700.0,
+      "end_m": 4850.0,
+      "usage": "defensive_braking"
+    },
+    {
+      "name": "T14 Spoon Apex",
+      "zone_type": "apex_rotation",
+      "start_m": 4850.0,
+      "end_m": 5050.0,
+      "usage": "rear_grip_rebuild"
+    },
+    {
+      "name": "T15 Spoon Exit",
+      "zone_type": "exit_traction",
+      "start_m": 5050.0,
+      "end_m": 5200.0,
+      "usage": "traction_rebuild"
+    },
+    {
+      "name": "130R Approach",
+      "zone_type": "deployment_straight",
+      "start_m": 5200.0,
+      "end_m": 5300.0,
+      "usage": "overtake_setup"
+    },
+    {
+      "name": "T16 130R High Speed",
+      "zone_type": "high_load_management",
+      "start_m": 5300.0,
+      "end_m": 5420.0,
+      "usage": "front_tyre_protection"
+    },
+    {
+      "name": "130R Exit",
+      "zone_type": "exit_traction",
+      "start_m": 5420.0,
+      "end_m": 5500.0,
+      "usage": "throttle_commit"
+    },
+    {
+      "name": "T17 Casio Entry",
+      "zone_type": "braking_entry",
+      "start_m": 5500.0,
+      "end_m": 5600.0,
+      "usage": "late_brake_control"
+    },
+    {
+      "name": "T17 Casio Apex",
+      "zone_type": "apex_rotation",
+      "start_m": 5600.0,
+      "end_m": 5680.0,
+      "usage": "exit_line_commit"
+    },
+    {
+      "name": "Final Straight",
+      "zone_type": "deployment_straight",
+      "start_m": 5680.0,
+      "end_m": 5807.0,
+      "usage": "lap_restart_accel"
+    }
+  ]
+}

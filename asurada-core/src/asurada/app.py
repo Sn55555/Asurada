@@ -74,7 +74,15 @@ class AsuradaApp:
         print(f"[ASURADA][REPORT] 已生成复盘报告: {report_path}")
 
     def run_live_udp(self, udp_config: UdpConfig) -> None:
-        runtime = LiveRuntime(UdpPacketSource(udp_config))
+        self.logger.reset()
+        runtime = LiveRuntime(
+            UdpPacketSource(udp_config),
+            state_store=self.state_store,
+            strategy=self.strategy,
+            voice_output=self.voice_output,
+            logger=self.logger,
+            dashboard_refresh=None,
+        )
         runtime.run()
 
     def run_capture_replay(self, capture_path: Path, *, session_paced: bool = False, pace_multiplier: float = 1.0) -> None:
