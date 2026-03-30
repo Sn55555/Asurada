@@ -5,8 +5,8 @@
 
 ## 总览
 
-![Phase 1](https://img.shields.io/badge/Phase%201-90%25-2ea44f?style=for-the-badge)
-![Phase 2](https://img.shields.io/badge/Phase%202-65%25-f59e0b?style=for-the-badge)
+![Phase 1](https://img.shields.io/badge/Phase%201-95%25-2ea44f?style=for-the-badge)
+![Phase 2](https://img.shields.io/badge/Phase%202-66%25-f59e0b?style=for-the-badge)
 ![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
 
 ```mermaid
@@ -14,15 +14,15 @@ xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [90, 65, 0]
+    bar [95, 66, 0]
 ```
 
 ## 阶段一：核心开发闭环
 
 ![Status](https://img.shields.io/badge/Status-Basically%20Done-2ea44f?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-90%25-2ea44f?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-95%25-2ea44f?style=flat-square)
 
-进度条：`█████████░ 90%`
+进度条：`█████████▓ 95%`
 
 ### 已完成项
 
@@ -31,16 +31,17 @@ xychart-beta
 - 高价值 packet 解析与标准化状态输出
 - 分层策略引擎与调试 payload
 - HTML debug dashboard
+- `live UDP` 已接入完整主链，异常 `safety_car_status` 已容错，同码输出已做 suppress，日志已支持滚动切分
 - 固定样本阶段一回归
 - timing/gap 双轨收口：官方字段进主链，估算字段仅供 debug
 - `Session` trailer、`LapPositions`、session type 分类等协议精修
 
 ### 停滞项
 
-- `live UDP` 完整实时闭环
 - `live` 与 `capture replay` 完全共路径
 - `LobbyInfo` 真实联机样本验证
 - 稀有 `Event` code` 的真实样本验证
+- 实时链路毫秒级阶段观测
 
 ### 待开发项
 
@@ -51,9 +52,9 @@ xychart-beta
 ## 阶段二：模型与边缘化准备
 
 ![Status](https://img.shields.io/badge/Status-In%20Progress-f59e0b?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-65%25-f59e0b?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-66%25-f59e0b?style=flat-square)
 
-进度条：`███████░░░ 65%`
+进度条：`███████░░░ 66%`
 
 ### 已完成项
 
@@ -85,6 +86,7 @@ xychart-beta
   - `suzuka_sprint_race_like_uid15`
   - `shanghai_feature_race_like_uid16_20lap`
 - `track_id 13 -> Suzuka` 赛道映射已补齐
+- `Suzuka` 赛道语义模型已接入 `track_profile` 加载链
 - `phase2_dataset_v2_extended` 扩展数据集配置与合并 metadata 已建立
 - `strategy_action_model` 在扩展数据集下的 exported `val` 切分已修复，`DEFEND_WINDOW` 已稳定进入 `val`
 - `attack_opportunity_model` 已按扩展数据集重做 exported `val`、收紧伪标签并改成保守阈值选择，当前误报已显著压低
