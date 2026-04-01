@@ -7,14 +7,14 @@
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-98%25-2ea44f?style=for-the-badge)
 ![Phase 2](https://img.shields.io/badge/Phase%202-67%25-f59e0b?style=for-the-badge)
-![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
+![Phase 3](https://img.shields.io/badge/Phase%203-8%25-2563eb?style=for-the-badge)
 
 ```mermaid
 xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [98, 67, 0]
+    bar [98, 67, 8]
 ```
 
 ## 阶段一：核心开发闭环
@@ -140,25 +140,32 @@ xychart-beta
 
 ## 阶段三：产品化与平台化
 
-![Status](https://img.shields.io/badge/Status-Not%20Started-9ca3af?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-0%25-9ca3af?style=flat-square)
+![Status](https://img.shields.io/badge/Status-Started-2563eb?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-8%25-2563eb?style=flat-square)
 
-进度条：`░░░░░░░░░░ 0%`
+进度条：`█░░░░░░░░░ 8%`
 
 ### 已完成项
 
-- 暂无
+- 统一下行语音输出主线
+- `SpeechJob` 统一语音任务模型
+- `SpeechBackend / MacOSSayBackend` 真实播报 backend
+- `ConsoleVoiceOutput` 已演进为统一输出协调器，并保持 `emit(decision, render=...)` 入口不变
+- `1 active + 1 pending` 语音队列
+- `enqueue / replace_pending / complete` 生命周期
+- 系统主动播报与结构化查询响应共用同一条输出链
+- 阶段三语音回归脚本
 
 ### 停滞项
 
-- 暂无。该阶段尚未正式启动。
+- 暂无。本阶段当前只启动了输出侧基础设施。
 
 ### 待开发项
 
-- 实时 UDP 完整主链
-- 模型本地推理链
+- ASR 输入与双向语音闭环
+- 查询触发入口产品化
+- Pi 5 / CM5 / 边缘设备 TTS backend
 - Pi 5 / CM5 部署与延迟优化
-- 双向语音正式链路
 - 降级与 watchdog 机制
 - 产品级 HUD / 语音 / 控制台整合
 
