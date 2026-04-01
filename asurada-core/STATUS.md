@@ -21,7 +21,7 @@
 - 阶段一总体进度：`98%`
 - 阶段一排除实时闭环后的进度：`98%+`
 - 阶段二准备工作进度：`67%`
-- 阶段三产品化进度：`8%`
+- 阶段三产品化进度：`10%`
 
 当前结论：
 
@@ -29,7 +29,8 @@
 - 调试面板已经具备工程级检查能力
 - 阶段二已从“数据准备”推进到“baseline + 控制层 + runtime sidecar + 扩展样本接入”并行阶段
 - 本地扩展数据集整理工作流已落地，当前已具备本机复现 split -> metadata -> config -> export -> validation 的统一入口
-- 当前最大未完成项是稀有事件样本验证、少量协议精修，以及阶段三输入侧语音闭环
+- 阶段二下一条明确主线是 `pit_window_support_model + long_horizon_strategy_baseline`
+- 当前最大未完成项是稀有事件样本验证、少量协议精修，以及阶段三语音输入侧闭环与设备侧部署
 
 ## 阶段总览
 
@@ -248,6 +249,50 @@
     - 继续扩 `rejoin_window` 样本
     - 补更多进站/回场样本和交通带宽变化
     - 再设计 `pit_rejoin` 样本与标签
+- `pit_window_support_model` 已完成方案设计
+  - 当前结论：作为阶段二后半中间层，先做 deterministic scorer，不先做监督学习
+  - 当前要补的中间量：
+    - `lap_life_remaining_est`
+    - `pit_window_open_prob`
+    - `compound_risk_score`
+    - `rejoin_traffic_penalty`
+    - `estimated_rejoin_position_loss`
+    - `undercut_defence_score`
+  - 当前依赖：
+    - `tyre_degradation_trend_model`
+    - `fuel_margin_laps / fuel_risk_model`
+    - `pit_status / pit_rejoin_phase`
+    - `safety_car / weather`
+  - 当前状态：未开始实现，已纳入阶段二正式计划
+- `long_horizon_strategy_baseline` 已完成方案设计
+  - 当前结论：作为阶段二后半长周期规划层，先做 sidecar baseline，不直接替代短时仲裁主链
+  - 当前缺口：
+    - 仓库里还没有统一的 `recommended_pit_lap / recommended_compound / strategy_confidence / stint_risk_score`
+  - 第一版候选空间：
+    - `stay_out`
+    - `pit_now`
+    - `pit_in_1`
+    - `pit_in_2`
+    - `pit_in_3`
+    - `pit_in_4`
+    - `pit_in_5`
+  - 第一版输出：
+    - `recommended_pit_lap`
+    - `pit_window_start_lap`
+    - `pit_window_end_lap`
+    - `recommended_compound`
+    - `lap_life_remaining_est`
+    - `pit_window_open_prob`
+    - `stint_risk_score`
+    - `compound_risk_score`
+    - `strategy_confidence`
+    - `aggression_bias`
+    - `rationale`
+  - 当前接入策略：
+    - 先写入 `decision.debug`
+    - 先作为 `arbiter_v2` 上下文输入
+    - 第一版不直接生成最终动作码
+  - 当前状态：未开始实现，已纳入阶段二正式计划
 - 扩展样本集已接入阶段二训练链
   - 当前新增样本：
     - `suzuka_sprint_race_like_uid15`
@@ -620,7 +665,7 @@
 
 当前完成度：
 
-- `8%`
+- `10%`
 
 ## 阶段一详细状态
 
@@ -856,6 +901,7 @@
 
 未完成：
 
+- [ ] 长周期 `pit_window / compound / stint` baseline
 - [ ] 进站收益模拟
 - [ ] undercut / overcut 推理
 - [ ] 更完整对手策略推断
@@ -1122,6 +1168,8 @@
 - [x] `enqueue / replace_pending / complete` 生命周期
 - [x] 系统主动播报与结构化查询响应共路径
 - [x] 阶段三语音回归脚本
+- [x] 阶段三语音模块架构文档
+- [x] 阶段三语音模块实施计划
 
 当前边界：
 

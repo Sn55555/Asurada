@@ -7,14 +7,14 @@
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-98%25-2ea44f?style=for-the-badge)
 ![Phase 2](https://img.shields.io/badge/Phase%202-67%25-f59e0b?style=for-the-badge)
-![Phase 3](https://img.shields.io/badge/Phase%203-8%25-2563eb?style=for-the-badge)
+![Phase 3](https://img.shields.io/badge/Phase%203-10%25-2563eb?style=for-the-badge)
 
 ```mermaid
 xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [98, 67, 8]
+    bar [98, 67, 10]
 ```
 
 ## 阶段一：核心开发闭环
@@ -114,6 +114,12 @@ xychart-beta
 
 ### 待开发项
 
+- `pit_window_support_model`
+  - 目标：补齐 `lap_life_remaining_est / pit_window_open_prob / compound_risk_score / rejoin_traffic_penalty`
+  - 当前口径：先做 deterministic scorer sidecar，不直接接最终动作
+- `long_horizon_strategy_baseline`
+  - 目标：补齐 `recommended_pit_lap / recommended_compound / stint_risk_score / strategy_confidence`
+  - 当前口径：先枚举 `stay_out / pit_now / pit_in_1..5`，只进入 debug 与仲裁上下文
 - `yield_vs_defend_model` 重启前的数据/标签收口
 - `event_impact_model` 事件样本补强
 - 资源/压力/趋势 sidecar 分数有限度接入仲裁
@@ -141,9 +147,9 @@ xychart-beta
 ## 阶段三：产品化与平台化
 
 ![Status](https://img.shields.io/badge/Status-Started-2563eb?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-8%25-2563eb?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-10%25-2563eb?style=flat-square)
 
-进度条：`█░░░░░░░░░ 8%`
+进度条：`█░░░░░░░░░ 10%`
 
 ### 已完成项
 
@@ -155,6 +161,8 @@ xychart-beta
 - `enqueue / replace_pending / complete` 生命周期
 - 系统主动播报与结构化查询响应共用同一条输出链
 - 阶段三语音回归脚本
+- 阶段三语音模块架构文档
+- 阶段三语音模块实施计划
 
 ### 停滞项
 
