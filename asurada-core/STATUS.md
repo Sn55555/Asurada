@@ -18,8 +18,8 @@
 
 ## 当前总进度
 
-- 阶段一总体进度：`95%`
-- 阶段一排除实时闭环后的进度：`97%+`
+- 阶段一总体进度：`98%`
+- 阶段一排除实时闭环后的进度：`98%+`
 - 阶段二准备工作进度：`66%`
 - 阶段三产品化进度：`0%`
 
@@ -28,7 +28,7 @@
 - 离线真实抓包策略主链已经打通
 - 调试面板已经具备工程级检查能力
 - 阶段二已从“数据准备”推进到“baseline + 控制层 + runtime sidecar + 扩展样本接入”并行阶段
-- 当前最大未完成项是实时链路观测能力和剩余样本验证
+- 当前最大未完成项是稀有事件样本验证和少量协议精修
 
 ## 阶段总览
 
@@ -46,12 +46,10 @@
 
 当前完成度：
 
-- `95%`
+- `98%`
 
 当前主要未完成项：
 
-- `live` 与 `capture replay` 完全共路径
-- 实时链路毫秒级阶段观测
 - 部分协议字段的精修与命名收口
 
 ### 阶段二：模型与边缘化准备
@@ -659,6 +657,10 @@
 - [x] 抓包 JSONL 回放输入
 - [x] live UDP 监听壳
 - [x] live UDP 完整主链接入
+- [x] live 与 capture replay 共用运行主链
+- [x] 实时输入毫秒级阶段观测
+- [x] 顶层 `weather / safety_car / source_timestamp_ms / total_laps` 回写到 `session_log`
+- [x] 离线调试面板重做为单帧/短时回放检查页
 
 相关文件：
 
@@ -666,16 +668,14 @@
 - [csv_ingest.py](src/asurada/csv_ingest.py)
 - [capture_ingest.py](src/asurada/capture_ingest.py)
 - [udp_ingest.py](src/asurada/udp_ingest.py)
+- [runtime_pipeline.py](src/asurada/runtime_pipeline.py)
 
 未完成：
-
-- [ ] live 与 capture replay 完全共路径
-- [ ] 实时输入毫秒级阶段观测
 
 优化空间：
 
 - [ ] 增加统一输入源抽象层状态监控
-- [ ] 增加实时输入异常统计
+- [x] 增加实时输入异常统计
 
 ---
 
@@ -1005,13 +1005,13 @@
 
 ### 核心未完成项
 
-- [ ] `live` 与 `capture replay` 完全共路径
-- [ ] 实时链路毫秒级阶段观测
+- [ ] 稀有 `Event` detail 样本验证补齐
+- [ ] 少量协议尾项精修
 
 ### 协议精修项
 
-- [ ] `LapData` 前车 / 领跑 delta 语义最终校准
-- [ ] rival gap 官方时差口径
+- [x] `LapData` 前车 / 领跑 delta 语义最终校准
+- [x] rival gap 官方时差口径
 - [x] `LapPositions` 命名
 - [x] `LobbyInfo` 正文解析
   - 后续项：真实联机样本验证
@@ -1117,9 +1117,9 @@
 
 ### 如果目标是把阶段一彻底收口
 
-1. [ ] 打通 `live` 与 `capture replay` 共路径
-2. [ ] 补实时链路毫秒级阶段观测
-3. [ ] 收掉协议精修项
+1. [ ] 收掉协议精修项
+2. [ ] 补稀有 `Event` detail 样本验证
+3. [ ] 补真实联机外部样本验证
 
 ### 如果目标是推进阶段二模型工作
 

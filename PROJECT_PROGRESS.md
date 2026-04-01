@@ -5,7 +5,7 @@
 
 ## 总览
 
-![Phase 1](https://img.shields.io/badge/Phase%201-95%25-2ea44f?style=for-the-badge)
+![Phase 1](https://img.shields.io/badge/Phase%201-98%25-2ea44f?style=for-the-badge)
 ![Phase 2](https://img.shields.io/badge/Phase%202-66%25-f59e0b?style=for-the-badge)
 ![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
 
@@ -14,15 +14,15 @@ xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [95, 66, 0]
+    bar [98, 66, 0]
 ```
 
 ## 阶段一：核心开发闭环
 
 ![Status](https://img.shields.io/badge/Status-Basically%20Done-2ea44f?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-95%25-2ea44f?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-98%25-2ea44f?style=flat-square)
 
-进度条：`█████████▓ 95%`
+进度条：`█████████▓ 98%`
 
 ### 已完成项
 
@@ -32,20 +32,22 @@ xychart-beta
 - 分层策略引擎与调试 payload
 - HTML debug dashboard
 - `live UDP` 已接入完整主链，异常 `safety_car_status` 已容错，同码输出已做 suppress，日志已支持滚动切分
+- `live` 与 `capture replay` 已切到共用运行主链
+- 实时日志已补 `udp/decode/snapshot/strategy/output` 毫秒级阶段观测
+- 顶层 `weather / safety_car / source_timestamp_ms / total_laps` 已回写到 `session_log`
+- 离线调试面板已重做为单帧/短时回放检查页，前两分钟正赛窗口已验证可用
 - 固定样本阶段一回归
 - timing/gap 双轨收口：官方字段进主链，估算字段仅供 debug
 - `Session` trailer、`LapPositions`、session type 分类等协议精修
 
 ### 停滞项
 
-- `live` 与 `capture replay` 完全共路径
 - `LobbyInfo` 真实联机样本验证
 - 稀有 `Event` code` 的真实样本验证
-- 实时链路毫秒级阶段观测
 
 ### 待开发项
 
-- 若阶段一重新打开，优先处理实时链
+- 若阶段一重新打开，优先处理稀有事件样本和协议尾项
 - 补剩余外部样本验证
 - 增加一页式路线图图示
 

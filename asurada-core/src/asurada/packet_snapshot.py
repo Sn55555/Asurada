@@ -379,6 +379,8 @@ class CaptureSnapshotAssembler:
                 "rear_rival_position": rear_rival.get("position") if rear_rival else None,
                 "rear_rival_car_gap_ahead_s": rear_rival_car_gap_ahead_s,
                 "rear_rival_car_gap_behind_s": rear_rival_car_gap_behind_s,
+                "front_rival_lap_distance_m": front_rival.get("lap_distance_m") if front_rival else None,
+                "rear_rival_lap_distance_m": rear_rival.get("lap_distance_m") if rear_rival else None,
                 "world_forward_dir": dict(motion.get("world_forward_dir", {})),
                 "world_right_dir": dict(motion.get("world_right_dir", {})),
                 "wheel_slip_ratio": list(motion_ex.get("wheel_slip_ratio", [])),
@@ -565,8 +567,13 @@ class CaptureSnapshotAssembler:
         status_by_index = {item["car_index"]: item for item in status_cars}
         damage_by_index = {item["car_index"]: item for item in damage_cars}
         participants_by_index = {item["car_index"]: item for item in participant_cars}
+        position_to_lap = {
+            int(item.get("car_position", 0)): item
+            for item in lap_cars
+            if 1 <= int(item.get("car_position", 0)) <= 22 and int(item.get("result_status", 0)) != 0
+        }
         ahead_delta_s = self._lap_delta_seconds(player_lap.get("delta_to_car_in_front_ms"))
-        leader_delta_s = self._lap_delta_seconds(player_lap.get("delta_to_race_leader_ms"))
+        leader_delta_s = self._cumulative_delta_to_leader_seconds(position_to_lap, player_position)
         official_ahead_delta_s = ahead_delta_s if timing_mainline_allowed else None
         official_leader_delta_s = leader_delta_s if timing_mainline_allowed else None
         player_gap_meta = {
@@ -635,6 +642,23 @@ class CaptureSnapshotAssembler:
             estimated_gap_behind_s = None
             estimated_gap_source = estimated_gap_source
             estimated_gap_confidence = self._estimated_gap_confidence_from_source(estimated_gap_source)
+            rival_delta_to_front_s = self._lap_delta_seconds(item.get("delta_to_car_in_front_ms"))
+            rival_delta_to_leader_s = self._cumulative_delta_to_leader_seconds(position_to_lap, position)
+            rival_gap_ahead_s = rival_delta_to_front_s if timing_mainline_allowed else None
+            rival_gap_behind_s = None
+            rival_gap_source_ahead = "official_lapdata_adjacent" if rival_gap_ahead_s is not None else "unavailable"
+            rival_gap_confidence_ahead = self._official_gap_confidence_from_source(rival_gap_source_ahead)
+            rival_gap_source_behind = "unavailable"
+            rival_gap_confidence_behind = "none"
+            behind_car = position_to_lap.get(position + 1)
+            if timing_mainline_allowed and behind_car is not None:
+                behind_delta_to_front_s = self._lap_delta_seconds(behind_car.get("delta_to_car_in_front_ms"))
+                if behind_delta_to_front_s is not None:
+                    rival_gap_behind_s = behind_delta_to_front_s
+                    rival_gap_source_behind = "official_lapdata_adjacent"
+                    rival_gap_confidence_behind = self._official_gap_confidence_from_source(
+                        rival_gap_source_behind
+                    )
             if timing_mainline_allowed and position == player_position - 1 and official_ahead_delta_s is not None:
                 official_gap_ahead_s = official_ahead_delta_s
                 official_gap_source = "official_lapdata_adjacent"
@@ -654,6 +678,10 @@ class CaptureSnapshotAssembler:
                     player_gap_meta["gap_confidence_behind"] = self._official_gap_confidence_from_source(
                         "official_lapdata_adjacent"
                     )
+            if official_gap_source == "unavailable":
+                if rival_gap_ahead_s is not None or rival_gap_behind_s is not None:
+                    official_gap_source = "official_lapdata_adjacent"
+                    official_gap_confidence = self._official_gap_confidence_from_source(official_gap_source)
             if position < player_position:
                 estimated_gap_ahead_s = estimated_gap_seconds
                 if player_gap_meta["estimated_gap_ahead_s"] is None and position == player_position - 1:
@@ -678,10 +706,13 @@ class CaptureSnapshotAssembler:
                     "race_number": participants_by_index.get(car_index, {}).get("race_number"),
                     "position": position,
                     "lap": int(item.get("current_lap_num", 0)),
-                    "gap_ahead_s": official_gap_ahead_s,
-                    "gap_behind_s": official_gap_behind_s,
-                    "official_gap_ahead_s": official_gap_ahead_s,
-                    "official_gap_behind_s": official_gap_behind_s,
+                    "lap_distance_m": lap_distance_m,
+                    "gap_ahead_s": rival_gap_ahead_s,
+                    "gap_behind_s": rival_gap_behind_s,
+                    "official_gap_ahead_s": rival_gap_ahead_s,
+                    "official_gap_behind_s": rival_gap_behind_s,
+                    "official_delta_to_car_in_front_s": rival_delta_to_front_s if timing_mainline_allowed else None,
+                    "official_delta_to_race_leader_s": rival_delta_to_leader_s if timing_mainline_allowed else None,
                     "estimated_gap_ahead_s": estimated_gap_ahead_s,
                     "estimated_gap_behind_s": estimated_gap_behind_s,
                     "fuel_laps_remaining": float(status_by_index.get(car_index, {}).get("fuel_remaining_laps", 0.0)),
@@ -690,6 +721,14 @@ class CaptureSnapshotAssembler:
                     "speed_kph": speed_kph,
                     "gap_source": official_gap_source,
                     "gap_confidence": official_gap_confidence,
+                    "gap_source_ahead": rival_gap_source_ahead,
+                    "gap_source_behind": rival_gap_source_behind,
+                    "gap_confidence_ahead": rival_gap_confidence_ahead,
+                    "gap_confidence_behind": rival_gap_confidence_behind,
+                    "official_gap_source_ahead": rival_gap_source_ahead,
+                    "official_gap_source_behind": rival_gap_source_behind,
+                    "official_gap_confidence_ahead": rival_gap_confidence_ahead,
+                    "official_gap_confidence_behind": rival_gap_confidence_behind,
                     "estimated_gap_source": estimated_gap_source,
                     "estimated_gap_confidence": estimated_gap_confidence,
                     "tyre": {
@@ -736,6 +775,24 @@ class CaptureSnapshotAssembler:
         if value <= 0:
             return None
         return round(value / 1000.0, 3)
+
+    def _cumulative_delta_to_leader_seconds(
+        self,
+        position_to_lap: dict[int, dict[str, Any]],
+        position: int,
+    ) -> float | None:
+        if position <= 1:
+            return None
+        total_s = 0.0
+        for current_position in range(position, 1, -1):
+            lap_item = position_to_lap.get(current_position)
+            if lap_item is None:
+                return None
+            delta_s = self._lap_delta_seconds(lap_item.get("delta_to_car_in_front_ms"))
+            if delta_s is None:
+                return None
+            total_s += delta_s
+        return round(total_s, 3)
 
     def _car_relative_gap_pair(self, lap_cars: list[dict[str, Any]], target_position: int) -> tuple[float | None, float | None]:
         if target_position <= 0:

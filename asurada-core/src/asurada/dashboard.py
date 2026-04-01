@@ -1,94 +1,100 @@
 from __future__ import annotations
 
 import json
-from collections import Counter, defaultdict
 from pathlib import Path
 
 from .track_model import load_track_profile
 
 
 class DebugDashboardBuilder:
-    """Builds a static HTML dashboard from the replay log.
-
-    备注:
-    这里故意保持“零前端依赖”，便于在 Pi 或最小环境里直接生成、
-    打开和共享调试页面。
-    """
+    """Builds a compact offline debug dashboard from the replay log."""
 
     def __init__(self, output_dir: Path) -> None:
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def build_from_session_log(self, session_log_path: Path) -> Path:
-        # 备注:
-        # dashboard 只消费 replay logger 产出的 JSONL，不直接依赖运行时对象。
-        # 这样回放结束后仍可离线重建页面。
-        rows = []
-        if session_log_path.exists():
-            with session_log_path.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    if line.strip():
-                        try:
-                            rows.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            # 备注:
-                            # 回放被中断时 JSONL 末尾可能留下半行。
-                            # dashboard 重建跳过坏行，避免整个调试页失效。
-                            continue
-        capture_summary_path = self.output_dir.parent / "capture_summary.json"
-        capture_summary = {}
-        if capture_summary_path.exists():
-            capture_summary = json.loads(capture_summary_path.read_text(encoding="utf-8"))
+    def _load_rows(self, session_log_path: Path) -> list[dict]:
+        rows: list[dict] = []
+        if not session_log_path.exists():
+            return rows
+        with session_log_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        return rows
 
+    def build_from_session_log(self, session_log_path: Path) -> Path:
+        rows = self._load_rows(session_log_path)
         latest = rows[-1] if rows else {}
-        last_rows = rows
-        timing_summary = self._build_timing_summary(rows)
         track_name = latest.get("track") if latest else None
         track_profile = load_track_profile(str(track_name)) if track_name else None
-        frames = []
-        laps = []
-        seen_laps = set()
+        laps: list[int] = []
+        seen_laps: set[int] = set()
+        frames: list[dict] = []
 
-        for row_index, row in enumerate(last_rows):
-            player = row.get("player", {})
-            raw = row.get("raw", {})
-            debug = row.get("debug", {})
-            context = debug.get("context", {})
-            rivals = row.get("rivals", [])
-            messages = row.get("messages", [])
-            lap_number = int(row.get("lap_number", 0))
-            frame_identifier = int(raw.get("frame_identifier", 0))
-            player_position = int(player.get("position", 0))
-            front_rival = next((item for item in rivals if int(item.get("position", 0)) == player_position - 1), None)
-            rear_rival = next((item for item in rivals if int(item.get("position", 0)) == player_position + 1), None)
+        for row in rows:
+            player = row.get("player", {}) or {}
+            raw = row.get("raw", {}) or {}
+            debug = row.get("debug", {}) or {}
+            context = debug.get("context", {}) or {}
+            rivals = row.get("rivals", []) or []
+            messages = row.get("messages", []) or []
 
+            lap_number = int(row.get("lap_number", 0) or 0)
             if lap_number not in seen_laps:
-                laps.append(lap_number)
                 seen_laps.add(lap_number)
+                laps.append(lap_number)
+
+            player_position = int(player.get("position", 0) or 0)
+            front_rival = next((item for item in rivals if int(item.get("position", 0) or 0) == player_position - 1), None)
+            rear_rival = next((item for item in rivals if int(item.get("position", 0) or 0) == player_position + 1), None)
 
             frames.append(
                 {
-                    "frame": frame_identifier,
+                    "frame": int(raw.get("frame_identifier", 0) or 0),
                     "lap": lap_number,
-                    "session_time_s": float(raw.get("session_time_s", 0.0)),
+                    "session_time_s": float(raw.get("session_time_s", 0.0) or 0.0),
                     "total_laps": int((raw.get("session_packet", {}) or {}).get("total_laps", 0) or 0),
+                    "lap_distance_m": float(raw.get("lap_distance_m", 0.0) or 0.0),
+                    "front_rival_lap_distance_m": raw.get("front_rival_lap_distance_m"),
+                    "rear_rival_lap_distance_m": raw.get("rear_rival_lap_distance_m"),
                     "track": row.get("track"),
-                    "speed": float(player.get("speed_kph", 0.0)),
-                    "top_priority": messages[0]["priority"] if messages else 0,
-                    "top_message": messages[0]["title"] if messages else "",
-                    "top_detail": messages[0]["detail"] if messages else "",
-                    "messages": messages,
+                    "weather": row.get("weather"),
+                    "speed": float(player.get("speed_kph", 0.0) or 0.0),
                     "position": player_position,
+                    "fuel_laps_remaining": player.get("fuel_laps_remaining"),
+                    "ers_pct": player.get("ers_pct"),
+                    "tyre_wear_pct": (player.get("tyre") or {}).get("wear_pct"),
+                    "gap_ahead_s": player.get("gap_ahead_s"),
+                    "gap_behind_s": player.get("gap_behind_s"),
+                    "official_gap_ahead_s": raw.get("official_gap_ahead_s"),
+                    "official_gap_behind_s": raw.get("official_gap_behind_s"),
+                    "estimated_gap_ahead_s": raw.get("estimated_gap_ahead_s"),
+                    "estimated_gap_behind_s": raw.get("estimated_gap_behind_s"),
+                    "throttle": raw.get("throttle"),
+                    "brake": raw.get("brake"),
+                    "steer": raw.get("steer"),
+                    "gear": raw.get("gear"),
+                    "rpm": raw.get("rpm"),
+                    "top_priority": messages[0].get("priority", 0) if messages else 0,
+                    "top_message": messages[0].get("code") or messages[0].get("title") if messages else "",
+                    "top_detail": messages[0].get("detail", "") if messages else "",
+                    "messages": messages,
+                    "track_zone": context.get("track_zone"),
                     "track_segment": context.get("track_segment"),
                     "track_usage": context.get("track_usage"),
+                    "driving_mode": context.get("driving_mode"),
+                    "assessment": debug.get("assessment", {}) or {},
                     "player_world_x": raw.get("world_position_x"),
                     "player_world_z": raw.get("world_position_z"),
                     "front_world_x": raw.get("front_rival_world_position_x"),
                     "front_world_z": raw.get("front_rival_world_position_z"),
-                    "front_world_name": raw.get("front_rival_name"),
                     "rear_world_x": raw.get("rear_rival_world_position_x"),
                     "rear_world_z": raw.get("rear_rival_world_position_z"),
-                    "rear_world_name": raw.get("rear_rival_name"),
                     "front_rival": self._build_rival_summary(
                         front_rival,
                         relation="front",
@@ -102,18 +108,20 @@ class DebugDashboardBuilder:
                         display_gap_behind_s=raw.get("rear_rival_car_gap_behind_s"),
                     ),
                     "stage_two_model_debug": self._extract_stage_two_model_debug(row),
+                    "runtime_timing": debug.get("runtime_timing", {}) or {},
                 }
             )
 
         payload = {
             "latest": {
                 "track": latest.get("track"),
+                "weather": latest.get("weather"),
             },
-            "timing_summary": timing_summary,
+            "timing_summary": self._build_timing_summary(rows),
+            "track_profile": self._serialize_track_profile(track_profile),
             "frames": frames,
             "laps": sorted(laps),
         }
-
         html = self._render_html(payload)
         output_path = self.output_dir / "debug_dashboard.html"
         output_path.write_text(html, encoding="utf-8")
@@ -128,8 +136,21 @@ class DebugDashboardBuilder:
                 "session_span_label": "0m 0s",
             }
 
-        timestamps = [int(row.get("raw", {}).get("source_timestamp_ms", 0)) for row in rows if row.get("raw", {}).get("source_timestamp_ms") is not None]
-        session_times = [float(row.get("raw", {}).get("session_time_s", 0.0)) for row in rows if row.get("raw", {}).get("session_time_s") is not None]
+        timestamps = [
+            int(
+                row.get("source_timestamp_ms")
+                if row.get("source_timestamp_ms") is not None
+                else row.get("raw", {}).get("source_timestamp_ms", 0)
+            )
+            for row in rows
+            if row.get("source_timestamp_ms") is not None
+            or row.get("raw", {}).get("source_timestamp_ms") is not None
+        ]
+        session_times = [
+            float(row.get("raw", {}).get("session_time_s", 0.0))
+            for row in rows
+            if row.get("raw", {}).get("session_time_s") is not None
+        ]
         capture_wall_seconds = max((max(timestamps) - min(timestamps)) / 1000.0, 0.0) if timestamps else 0.0
         session_span_seconds = max(max(session_times) - min(session_times), 0.0) if session_times else 0.0
         return {
@@ -166,12 +187,10 @@ class DebugDashboardBuilder:
                 "drs_available": None,
                 "relation": relation,
             }
-
         if display_gap_ahead_s is None:
             display_gap_ahead_s = rival.get("gap_ahead_s")
         if display_gap_behind_s is None:
             display_gap_behind_s = rival.get("gap_behind_s")
-
         return {
             "name": rival.get("name") or "-",
             "position": int(rival.get("position", 0)) if rival.get("position") is not None else None,
@@ -180,372 +199,17 @@ class DebugDashboardBuilder:
             "speed_kph": rival.get("speed_kph"),
             "ers_pct": rival.get("ers_pct"),
             "drs_available": rival.get("drs_available"),
+            "official_gap_ahead_s": rival.get("official_gap_ahead_s"),
+            "official_gap_behind_s": rival.get("official_gap_behind_s"),
+            "estimated_gap_ahead_s": rival.get("estimated_gap_ahead_s"),
+            "estimated_gap_behind_s": rival.get("estimated_gap_behind_s"),
+            "gap_source_ahead": rival.get("gap_source_ahead"),
+            "gap_source_behind": rival.get("gap_source_behind"),
             "relation": relation,
         }
 
-    def _extract_parsed_packet_fields(self, row: dict) -> dict:
-        raw = row.get("raw", {})
-        player = row.get("player", {})
-        session_packet = raw.get("session_packet", {}) or {}
-        lap_positions = raw.get("lap_positions", {}) or {}
-        lobby_info = raw.get("lobby_info", {}) or {}
-        lobby_player = lobby_info.get("player", {}) or {}
-        return {
-            "frame_identifier": raw.get("frame_identifier"),
-            "session_time_s": raw.get("session_time_s"),
-            "timing_mode": raw.get("timing_mode"),
-            "timing_support_level": raw.get("timing_support_level"),
-            "lap_number": row.get("lap_number"),
-            "lap_distance_m": raw.get("lap_distance_m"),
-            "current_lap_time_ms": raw.get("current_lap_time_ms"),
-            "last_lap_time_ms": raw.get("last_lap_time_ms"),
-            "sector1_time_ms": raw.get("sector1_time_ms"),
-            "sector2_time_ms": raw.get("sector2_time_ms"),
-            "delta_to_car_in_front_minutes": raw.get("delta_to_car_in_front_minutes"),
-            "delta_to_car_in_front_ms": raw.get("delta_to_car_in_front_ms"),
-            "delta_to_race_leader_minutes": raw.get("delta_to_race_leader_minutes"),
-            "delta_to_race_leader_ms": raw.get("delta_to_race_leader_ms"),
-            "official_delta_to_car_in_front_s": raw.get("official_delta_to_car_in_front_s"),
-            "official_delta_to_race_leader_s": raw.get("official_delta_to_race_leader_s"),
-            "official_gap_ahead_s": raw.get("official_gap_ahead_s"),
-            "official_gap_behind_s": raw.get("official_gap_behind_s"),
-            "official_gap_source_ahead": raw.get("official_gap_source_ahead"),
-            "official_gap_source_behind": raw.get("official_gap_source_behind"),
-            "official_gap_confidence_ahead": raw.get("official_gap_confidence_ahead"),
-            "official_gap_confidence_behind": raw.get("official_gap_confidence_behind"),
-            "estimated_gap_ahead_s": raw.get("estimated_gap_ahead_s"),
-            "estimated_gap_behind_s": raw.get("estimated_gap_behind_s"),
-            "estimated_gap_source_ahead": raw.get("estimated_gap_source_ahead"),
-            "estimated_gap_source_behind": raw.get("estimated_gap_source_behind"),
-            "estimated_gap_confidence_ahead": raw.get("estimated_gap_confidence_ahead"),
-            "estimated_gap_confidence_behind": raw.get("estimated_gap_confidence_behind"),
-            "rival_gap_sources": raw.get("rival_gap_sources"),
-            "pit_status": raw.get("pit_status"),
-            "speed_kph": player.get("speed_kph"),
-            "throttle": raw.get("throttle"),
-            "brake": raw.get("brake"),
-            "steer": raw.get("steer"),
-            "gear": raw.get("gear"),
-            "rpm": raw.get("rpm"),
-            "fuel_in_tank": raw.get("fuel_in_tank"),
-            "fuel_capacity": raw.get("fuel_capacity"),
-            "ers_store_energy": raw.get("ers_store_energy"),
-            "ers_deploy_mode": raw.get("ers_deploy_mode"),
-            "tyres_wear_pct": raw.get("tyres_wear_pct"),
-            "tyres_damage_pct": raw.get("tyres_damage_pct"),
-            "tyre_blisters_pct": raw.get("tyre_blisters_pct"),
-            "brakes_damage_pct": raw.get("brakes_damage_pct"),
-            "wheel_slip_ratio": raw.get("wheel_slip_ratio"),
-            "wheel_slip_angle": raw.get("wheel_slip_angle"),
-            "wheel_lat_force": raw.get("wheel_lat_force"),
-            "wheel_long_force": raw.get("wheel_long_force"),
-            "local_velocity": raw.get("local_velocity"),
-            "angular_velocity": raw.get("angular_velocity"),
-            "world_forward_dir": raw.get("world_forward_dir"),
-            "world_right_dir": raw.get("world_right_dir"),
-            "event_code": raw.get("event_code"),
-            "event_detail": raw.get("event_detail"),
-            "track_temperature_c": session_packet.get("track_temperature_c"),
-            "air_temperature_c": session_packet.get("air_temperature_c"),
-            "weather": row.get("weather"),
-            "weather_forecast_samples_head": (session_packet.get("weather_forecast_samples") or [])[:3],
-            "forecast_accuracy": session_packet.get("forecast_accuracy"),
-            "ai_difficulty": session_packet.get("ai_difficulty"),
-            "season_link_identifier": session_packet.get("season_link_identifier"),
-            "weekend_link_identifier": session_packet.get("weekend_link_identifier"),
-            "session_link_identifier": session_packet.get("session_link_identifier"),
-            "pit_stop_window_ideal_lap": session_packet.get("pit_stop_window_ideal_lap"),
-            "pit_stop_window_latest_lap": session_packet.get("pit_stop_window_latest_lap"),
-            "pit_stop_rejoin_position": session_packet.get("pit_stop_rejoin_position"),
-            "game_mode": session_packet.get("game_mode"),
-            "rule_set": session_packet.get("rule_set"),
-            "time_of_day_minutes": session_packet.get("time_of_day_minutes"),
-            "session_length": session_packet.get("session_length"),
-            "weekend_structure": session_packet.get("weekend_structure"),
-            "sector2_lap_distance_start_m": session_packet.get("sector2_lap_distance_start_m"),
-            "sector3_lap_distance_start_m": session_packet.get("sector3_lap_distance_start_m"),
-            "lap_positions_num_laps": lap_positions.get("num_laps"),
-            "lap_positions_lap_start": lap_positions.get("lap_start"),
-            "player_lap_positions_head": (lap_positions.get("player_lap_positions") or [])[:6],
-            "lobby_num_players": lobby_info.get("num_players"),
-            "lobby_player_name": lobby_player.get("name"),
-            "lobby_player_ready_status": lobby_player.get("ready_status"),
-        }
-
-    def _extract_field_sources(self) -> dict:
-        return {
-            "Session": [
-                "track_temperature_c",
-                "air_temperature_c",
-                "weather",
-                "weather_forecast_samples_head",
-                "forecast_accuracy",
-                "ai_difficulty",
-                "season_link_identifier",
-                "weekend_link_identifier",
-                "session_link_identifier",
-                "pit_stop_window_ideal_lap",
-                "pit_stop_window_latest_lap",
-                "pit_stop_rejoin_position",
-                "game_mode",
-                "rule_set",
-                "time_of_day_minutes",
-                "session_length",
-                "weekend_structure",
-                "sector2_lap_distance_start_m",
-                "sector3_lap_distance_start_m",
-                "lap_positions_num_laps",
-                "lap_positions_lap_start",
-                "player_lap_positions_head",
-                "lobby_num_players",
-                "lobby_player_name",
-                "lobby_player_ready_status",
-            ],
-            "LapData": [
-                "lap_number",
-                "timing_mode",
-                "timing_support_level",
-                "lap_distance_m",
-                "current_lap_time_ms",
-                "last_lap_time_ms",
-                "sector1_time_ms",
-                "sector2_time_ms",
-                "delta_to_car_in_front_minutes",
-                "delta_to_car_in_front_ms",
-                "delta_to_race_leader_minutes",
-                "delta_to_race_leader_ms",
-                "official_delta_to_car_in_front_s",
-                "official_delta_to_race_leader_s",
-                "official_gap_ahead_s",
-                "official_gap_behind_s",
-                "official_gap_source_ahead",
-                "official_gap_source_behind",
-                "official_gap_confidence_ahead",
-                "official_gap_confidence_behind",
-                "estimated_gap_ahead_s",
-                "estimated_gap_behind_s",
-                "estimated_gap_source_ahead",
-                "estimated_gap_source_behind",
-                "estimated_gap_confidence_ahead",
-                "estimated_gap_confidence_behind",
-                "rival_gap_sources",
-                "pit_status",
-            ],
-            "CarTelemetry": [
-                "speed_kph",
-                "throttle",
-                "brake",
-                "steer",
-                "gear",
-                "rpm",
-            ],
-            "CarStatus": [
-                "fuel_in_tank",
-                "fuel_capacity",
-                "ers_store_energy",
-                "ers_deploy_mode",
-            ],
-            "CarDamage": [
-                "tyres_wear_pct",
-                "tyres_damage_pct",
-                "tyre_blisters_pct",
-                "brakes_damage_pct",
-            ],
-            "Motion": [
-                "world_forward_dir",
-                "world_right_dir",
-            ],
-            "MotionEx": [
-                "wheel_slip_ratio",
-                "wheel_slip_angle",
-                "wheel_lat_force",
-                "wheel_long_force",
-                "local_velocity",
-                "angular_velocity",
-            ],
-            "Event": [
-                "event_code",
-                "event_detail",
-            ],
-        }
-
-    def _extract_field_trace(self) -> dict:
-        return {
-            "lap_number": {"packet": "LapData", "decoder_method": "_decode_lap_data", "snapshot_key": "lap_number"},
-            "timing_mode": {"packet": "LapData", "decoder_method": "_timing_mode_name", "snapshot_key": "raw.timing_mode"},
-            "timing_support_level": {"packet": "LapData", "decoder_method": "_timing_support_level", "snapshot_key": "raw.timing_support_level"},
-            "lap_distance_m": {"packet": "LapData", "decoder_method": "_decode_lap_data", "snapshot_key": "raw.lap_distance_m"},
-            "current_lap_time_ms": {"packet": "LapData", "decoder_method": "_decode_lap_data", "snapshot_key": "raw.current_lap_time_ms"},
-            "last_lap_time_ms": {"packet": "LapData", "decoder_method": "_decode_lap_data", "snapshot_key": "raw.last_lap_time_ms"},
-            "sector1_time_ms": {"packet": "LapData", "decoder_method": "_decode_lap_data", "snapshot_key": "raw.sector1_time_ms"},
-            "sector2_time_ms": {"packet": "LapData", "decoder_method": "_decode_lap_data", "snapshot_key": "raw.sector2_time_ms"},
-            "delta_to_car_in_front_minutes": {"packet": "LapData", "decoder_method": "_decode_lap_data", "snapshot_key": "raw.delta_to_car_in_front_minutes"},
-            "delta_to_car_in_front_ms": {"packet": "LapData", "decoder_method": "_decode_lap_data", "snapshot_key": "raw.delta_to_car_in_front_ms"},
-            "delta_to_race_leader_minutes": {"packet": "LapData", "decoder_method": "_decode_lap_data", "snapshot_key": "raw.delta_to_race_leader_minutes"},
-            "delta_to_race_leader_ms": {"packet": "LapData", "decoder_method": "_decode_lap_data", "snapshot_key": "raw.delta_to_race_leader_ms"},
-            "official_delta_to_car_in_front_s": {"packet": "LapData", "decoder_method": "_lap_delta_seconds", "snapshot_key": "raw.official_delta_to_car_in_front_s"},
-            "official_delta_to_race_leader_s": {"packet": "LapData", "decoder_method": "_lap_delta_seconds", "snapshot_key": "raw.official_delta_to_race_leader_s"},
-            "official_gap_ahead_s": {"packet": "LapData", "decoder_method": "_build_rivals", "snapshot_key": "raw.official_gap_ahead_s"},
-            "official_gap_behind_s": {"packet": "LapData", "decoder_method": "_build_rivals", "snapshot_key": "raw.official_gap_behind_s"},
-            "official_gap_source_ahead": {"packet": "LapData", "decoder_method": "_build_rivals", "snapshot_key": "raw.official_gap_source_ahead"},
-            "official_gap_source_behind": {"packet": "LapData", "decoder_method": "_build_rivals", "snapshot_key": "raw.official_gap_source_behind"},
-            "official_gap_confidence_ahead": {"packet": "LapData", "decoder_method": "_official_gap_confidence_from_source", "snapshot_key": "raw.official_gap_confidence_ahead"},
-            "official_gap_confidence_behind": {"packet": "LapData", "decoder_method": "_official_gap_confidence_from_source", "snapshot_key": "raw.official_gap_confidence_behind"},
-            "estimated_gap_ahead_s": {"packet": "LapData", "decoder_method": "_estimate_gap_seconds", "snapshot_key": "raw.estimated_gap_ahead_s"},
-            "estimated_gap_behind_s": {"packet": "LapData", "decoder_method": "_estimate_gap_seconds", "snapshot_key": "raw.estimated_gap_behind_s"},
-            "estimated_gap_source_ahead": {"packet": "LapData", "decoder_method": "_estimate_gap_seconds", "snapshot_key": "raw.estimated_gap_source_ahead"},
-            "estimated_gap_source_behind": {"packet": "LapData", "decoder_method": "_estimate_gap_seconds", "snapshot_key": "raw.estimated_gap_source_behind"},
-            "estimated_gap_confidence_ahead": {"packet": "LapData", "decoder_method": "_estimated_gap_confidence_from_source", "snapshot_key": "raw.estimated_gap_confidence_ahead"},
-            "estimated_gap_confidence_behind": {"packet": "LapData", "decoder_method": "_estimated_gap_confidence_from_source", "snapshot_key": "raw.estimated_gap_confidence_behind"},
-            "rival_gap_sources": {"packet": "LapData", "decoder_method": "_build_rivals", "snapshot_key": "raw.rival_gap_sources"},
-            "pit_status": {"packet": "LapData", "decoder_method": "_normalize_snapshot", "snapshot_key": "raw.pit_status"},
-            "speed_kph": {"packet": "CarTelemetry", "decoder_method": "_decode_car_telemetry", "snapshot_key": "player.speed_kph"},
-            "throttle": {"packet": "CarTelemetry", "decoder_method": "_decode_car_telemetry", "snapshot_key": "raw.throttle"},
-            "brake": {"packet": "CarTelemetry", "decoder_method": "_decode_car_telemetry", "snapshot_key": "raw.brake"},
-            "steer": {"packet": "CarTelemetry", "decoder_method": "_decode_car_telemetry", "snapshot_key": "raw.steer"},
-            "gear": {"packet": "CarTelemetry", "decoder_method": "_decode_car_telemetry", "snapshot_key": "raw.gear"},
-            "rpm": {"packet": "CarTelemetry", "decoder_method": "_decode_car_telemetry", "snapshot_key": "raw.rpm"},
-            "fuel_in_tank": {"packet": "CarStatus", "decoder_method": "_decode_car_status", "snapshot_key": "raw.fuel_in_tank"},
-            "fuel_capacity": {"packet": "CarStatus", "decoder_method": "_decode_car_status", "snapshot_key": "raw.fuel_capacity"},
-            "ers_store_energy": {"packet": "CarStatus", "decoder_method": "_decode_car_status", "snapshot_key": "raw.ers_store_energy"},
-            "ers_deploy_mode": {"packet": "CarStatus", "decoder_method": "_decode_car_status", "snapshot_key": "raw.ers_deploy_mode"},
-            "tyres_wear_pct": {"packet": "CarDamage", "decoder_method": "_decode_car_damage", "snapshot_key": "raw.tyres_wear_pct"},
-            "tyres_damage_pct": {"packet": "CarDamage", "decoder_method": "_decode_car_damage", "snapshot_key": "raw.tyres_damage_pct"},
-            "tyre_blisters_pct": {"packet": "CarDamage", "decoder_method": "_decode_car_damage", "snapshot_key": "raw.tyre_blisters_pct"},
-            "brakes_damage_pct": {"packet": "CarDamage", "decoder_method": "_decode_car_damage", "snapshot_key": "raw.brakes_damage_pct"},
-            "world_forward_dir": {"packet": "Motion", "decoder_method": "_decode_motion", "snapshot_key": "raw.world_forward_dir"},
-            "world_right_dir": {"packet": "Motion", "decoder_method": "_decode_motion", "snapshot_key": "raw.world_right_dir"},
-            "wheel_slip_ratio": {"packet": "MotionEx", "decoder_method": "_decode_motion_ex", "snapshot_key": "raw.wheel_slip_ratio"},
-            "wheel_slip_angle": {"packet": "MotionEx", "decoder_method": "_decode_motion_ex", "snapshot_key": "raw.wheel_slip_angle"},
-            "wheel_lat_force": {"packet": "MotionEx", "decoder_method": "_decode_motion_ex", "snapshot_key": "raw.wheel_lat_force"},
-            "wheel_long_force": {"packet": "MotionEx", "decoder_method": "_decode_motion_ex", "snapshot_key": "raw.wheel_long_force"},
-            "local_velocity": {"packet": "MotionEx", "decoder_method": "_decode_motion_ex", "snapshot_key": "raw.local_velocity"},
-            "angular_velocity": {"packet": "MotionEx", "decoder_method": "_decode_motion_ex", "snapshot_key": "raw.angular_velocity"},
-            "track_temperature_c": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.track_temperature_c"},
-            "air_temperature_c": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.air_temperature_c"},
-            "weather": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "weather"},
-            "weather_forecast_samples_head": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.weather_forecast_samples"},
-            "forecast_accuracy": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.forecast_accuracy"},
-            "ai_difficulty": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.ai_difficulty"},
-            "season_link_identifier": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.season_link_identifier"},
-            "weekend_link_identifier": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.weekend_link_identifier"},
-            "session_link_identifier": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.session_link_identifier"},
-            "pit_stop_window_ideal_lap": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.pit_stop_window_ideal_lap"},
-            "pit_stop_window_latest_lap": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.pit_stop_window_latest_lap"},
-            "pit_stop_rejoin_position": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.pit_stop_rejoin_position"},
-            "game_mode": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.game_mode"},
-            "rule_set": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.rule_set"},
-            "time_of_day_minutes": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.time_of_day_minutes"},
-            "session_length": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.session_length"},
-            "weekend_structure": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.weekend_structure"},
-            "sector2_lap_distance_start_m": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.sector2_lap_distance_start_m"},
-            "sector3_lap_distance_start_m": {"packet": "Session", "decoder_method": "_decode_session", "snapshot_key": "raw.session_packet.sector3_lap_distance_start_m"},
-            "lap_positions_num_laps": {"packet": "LapPositions", "decoder_method": "_decode_lap_positions", "snapshot_key": "raw.lap_positions.num_laps"},
-            "lap_positions_lap_start": {"packet": "LapPositions", "decoder_method": "_decode_lap_positions", "snapshot_key": "raw.lap_positions.lap_start"},
-            "player_lap_positions_head": {"packet": "LapPositions", "decoder_method": "_decode_lap_positions", "snapshot_key": "raw.lap_positions.player_lap_positions"},
-            "lobby_num_players": {"packet": "LobbyInfo", "decoder_method": "_decode_lobby_info", "snapshot_key": "raw.lobby_info.num_players"},
-            "lobby_player_name": {"packet": "LobbyInfo", "decoder_method": "_decode_lobby_info", "snapshot_key": "raw.lobby_info.player.name"},
-            "lobby_player_ready_status": {"packet": "LobbyInfo", "decoder_method": "_decode_lobby_info", "snapshot_key": "raw.lobby_info.player.ready_status"},
-            "event_code": {"packet": "Event", "decoder_method": "_decode_event", "snapshot_key": "raw.event_code"},
-            "event_detail": {"packet": "Event", "decoder_method": "_decode_event_detail", "snapshot_key": "raw.event_detail"},
-        }
-
-    def _extract_trigger_highlights(self, row: dict) -> dict:
-        player = row.get("player", {})
-        debug = row.get("debug", {})
-        assessment = debug.get("assessment", {})
-        context = debug.get("context", {})
-        risk_profile = debug.get("risk_profile", {})
-        messages = row.get("messages", [])
-        semantic = []
-        strategy = []
-
-        if assessment.get("fuel_state") == "critical":
-            semantic.append({"field": "fuel_laps_remaining", "value": player.get("fuel_laps_remaining"), "reason": "fuel_state -> critical"})
-            strategy.append({"field": "fuel_risk", "value": risk_profile.get("fuel_risk"), "reason": "LOW_FUEL candidate/message"})
-        if assessment.get("tyre_state") in {"manage", "box_now"}:
-            semantic.append({"field": "tyre.wear_pct", "value": player.get("tyre", {}).get("wear_pct"), "reason": f"tyre_state -> {assessment.get('tyre_state')}"})
-            strategy.append({"field": "tyre_risk", "value": risk_profile.get("tyre_risk"), "reason": "TYRE_MANAGE or BOX_WINDOW"})
-        if assessment.get("ers_state") == "low":
-            semantic.append({"field": "ers_pct", "value": player.get("ers_pct"), "reason": "ers_state -> low"})
-            strategy.append({"field": "ers_risk", "value": risk_profile.get("ers_risk"), "reason": "ERS_LOW"})
-        if assessment.get("attack_state") == "available":
-            semantic.append({"field": "official_gap_ahead_s", "value": player.get("gap_ahead_s"), "reason": "attack_state -> available"})
-            semantic.append({"field": "drs_available", "value": player.get("drs_available"), "reason": "DRS open"})
-            strategy.append({"field": "attack_opportunity", "value": risk_profile.get("attack_opportunity"), "reason": "ATTACK_WINDOW"})
-        if assessment.get("defend_state") == "urgent":
-            semantic.append({"field": "official_gap_behind_s", "value": player.get("gap_behind_s"), "reason": "defend_state -> urgent"})
-            strategy.append({"field": "defend_risk", "value": risk_profile.get("defend_risk"), "reason": "DEFEND_WINDOW"})
-        if assessment.get("dynamics_state") != "stable":
-            semantic.append({"field": "status_tags", "value": player.get("status_tags"), "reason": f"dynamics_state -> {assessment.get('dynamics_state')}"})
-            semantic.append({"field": "track_usage", "value": context.get("track_usage"), "reason": "dynamic context weighting"})
-            strategy.append({"field": "dynamics_risk", "value": risk_profile.get("dynamics_risk"), "reason": "DYNAMICS_UNSTABLE or FRONT_LOAD"})
-        if context.get("track_usage"):
-            strategy.append({"field": "usage_bias", "value": debug.get("usage_bias", {}), "reason": f"track_usage -> {context.get('track_usage')}"})
-        if messages:
-            strategy.append({"field": "messages", "value": [item.get("code") for item in messages], "reason": "final arbitrated output"})
-        return {"semantic_triggers": semantic, "strategy_triggers": strategy}
-
-    def _extract_frame_diff(self, row: dict, previous_row: dict) -> dict:
-        if not previous_row:
-            return {"parsed_packet_fields": {}, "semantic_layer": {}, "strategy_output": {}}
-        current_parsed = self._extract_parsed_packet_fields(row)
-        previous_parsed = self._extract_parsed_packet_fields(previous_row)
-        current_semantic = self._extract_semantic_layer(row)
-        previous_semantic = self._extract_semantic_layer(previous_row)
-        current_strategy = self._extract_strategy_output(row)
-        previous_strategy = self._extract_strategy_output(previous_row)
-        return {
-            "parsed_packet_fields": self._diff_dict(current_parsed, previous_parsed),
-            "semantic_layer": self._diff_dict(current_semantic, previous_semantic),
-            "strategy_output": self._diff_dict(current_strategy, previous_strategy),
-        }
-
-    def _diff_dict(self, current: dict, previous: dict) -> dict:
-        diff = {}
-        for key in sorted(set(current) | set(previous)):
-            if current.get(key) != previous.get(key):
-                diff[key] = {"previous": previous.get(key), "current": current.get(key)}
-        return diff
-
-    def _extract_semantic_layer(self, row: dict) -> dict:
-        debug = row.get("debug", {})
-        context = debug.get("context", {})
-        assessment = debug.get("assessment", {})
-        player = row.get("player", {})
-        rivals = row.get("rivals", [])
-        return {
-            "track": row.get("track"),
-            "track_zone": context.get("track_zone"),
-            "track_segment": context.get("track_segment"),
-            "track_usage": context.get("track_usage"),
-            "driving_mode": context.get("driving_mode"),
-            "recent_unstable_ratio": context.get("recent_unstable_ratio"),
-            "recent_front_overload_ratio": context.get("recent_front_overload_ratio"),
-            "tyre_age_factor": context.get("tyre_age_factor"),
-            "brake_phase_factor": context.get("brake_phase_factor"),
-            "throttle_phase_factor": context.get("throttle_phase_factor"),
-            "steering_phase_factor": context.get("steering_phase_factor"),
-            "status_tags": player.get("status_tags", []),
-            "player_position": player.get("position"),
-            "gap_ahead_s": player.get("gap_ahead_s"),
-            "gap_behind_s": player.get("gap_behind_s"),
-            "rival_names": [item.get("name") for item in rivals[:4]],
-            "assessment": assessment,
-        }
-
-    def _extract_strategy_output(self, row: dict) -> dict:
-        debug = row.get("debug", {})
-        return {
-            "risk_profile": debug.get("risk_profile", {}),
-            "risk_explain": debug.get("risk_explain", {}),
-            "usage_bias": debug.get("usage_bias", {}),
-            "candidates": debug.get("candidates", []),
-            "messages": row.get("messages", []),
-        }
-
     def _extract_stage_two_model_debug(self, row: dict) -> dict:
-        debug = row.get("debug", {})
+        debug = row.get("debug", {}) or {}
         arbiter = debug.get("arbiter_v2", {}) or {}
         arbiter_input = arbiter.get("input", {}) or {}
         arbiter_output = arbiter.get("output", {}) or {}
@@ -578,740 +242,949 @@ class DebugDashboardBuilder:
             },
         }
 
-    def _segment_order(self, track_profile, segment_name: str) -> int | None:
+    def _serialize_track_profile(self, track_profile) -> dict:
         if track_profile is None:
-            return None
-        return track_profile.segment_order(segment_name)
+            return {}
+        return {
+            "track": track_profile.track,
+            "lap_length_m": track_profile.lap_length_m,
+            "semantic_segments": [
+                {
+                    "name": segment.name,
+                    "zone_type": segment.zone_type,
+                    "start_m": segment.start_m,
+                    "end_m": segment.end_m,
+                    "usage": segment.usage,
+                }
+                for segment in track_profile.semantic_segments
+            ],
+            "braking_zones": [
+                {
+                    "name": zone.name,
+                    "start_m": zone.start_m,
+                    "end_m": zone.end_m,
+                }
+                for zone in track_profile.braking_zones
+            ],
+            "corner_apexes": [
+                {
+                    "name": apex.name,
+                    "distance_m": apex.distance_m,
+                    "window_m": apex.window_m,
+                }
+                for apex in track_profile.corner_apexes
+            ],
+        }
 
     def _render_html(self, payload: dict) -> str:
-        embedded = json.dumps(payload, ensure_ascii=False)
-        return f"""<!doctype html>
+        embedded = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+        template = """<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Asurada Debug Dashboard</title>
+  <title>Asurada Offline Debug Dashboard</title>
   <style>
-    :root {{
-      --bg: #f7f7f5;
+    :root {
+      --bg: #f4f7fb;
       --card: #ffffff;
-      --text: #141414;
-      --muted: #60646c;
-      --line: #d9dde3;
-      --accent: #005bbb;
-      --warn: #d9480f;
-      --good: #2b8a3e;
-      --heat: #c92a2a;
-      --heat-soft: #ffe3e3;
-    }}
-    body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }}
-    .wrap {{ max-width: 1400px; margin: 0 auto; padding: 18px 20px 24px; }}
-    h1 {{ margin: 0 0 4px; font-size: 26px; }}
-    .sub {{ color: var(--muted); margin-bottom: 12px; font-size: 13px; }}
-    .grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }}
-    .grid3 {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }}
-    .grid2 {{ display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; margin-bottom: 16px; }}
-    .dashboard-grid {{ position: relative; min-height: 980px; margin-bottom: 16px; }}
-    .panel {{ background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: 0 8px 20px rgba(0,0,0,0.04); }}
-    .dashboard-card {{ position: absolute; min-height: 0; overflow: hidden; box-sizing: border-box; }}
-    .dashboard-card.dragging {{ opacity: 0.78; }}
-    .card-head {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: move; user-select: none; }}
-    .card-handle {{ color: var(--muted); font-size: 12px; }}
-    .resize-handle {{ position: absolute; right: 10px; bottom: 10px; width: 16px; height: 16px; border-right: 2px solid var(--line); border-bottom: 2px solid var(--line); cursor: nwse-resize; opacity: 0.9; }}
-    .metric-panel {{ height: 150px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }}
-    .primary-panel {{ height: 260px; display: flex; flex-direction: column; overflow: hidden; }}
-    .rival-panel {{ height: 170px; overflow: hidden; }}
-    .trajectory-panel {{ height: 442px; overflow: hidden; }}
-    .trajectory-canvas {{ width: 100%; height: 350px; display: block; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg, #fcfdff, #f6f8fb); }}
-    .scores-panel {{ overflow: hidden; }}
-    .trajectory-legend {{ display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }}
-    .legend-item {{ display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }}
-    .legend-dot {{ width: 10px; height: 10px; border-radius: 999px; display: inline-block; }}
-    .metric {{ font-size: 30px; font-weight: 700; margin-top: 6px; }}
-    .metric.compact {{ font-size: 24px; line-height: 1.2; }}
-    .label {{ color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }}
-    .label-note {{ color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 6px; }}
-    .two {{ display: grid; grid-template-columns: 2fr 1.2fr; gap: 16px; margin-bottom: 16px; }}
-    .rival-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }}
-    .rival-box {{ border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fbfcfe; min-height: 0; overflow: hidden; }}
-    .resource-grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }}
-    .resource-box {{ border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; background: #fbfcfe; min-height: 0; overflow: hidden; }}
-    .resource-value {{ font-size: 15px; font-weight: 700; margin-top: 3px; }}
-    .rival-name {{ font-size: 18px; font-weight: 700; line-height: 1.2; }}
-    .rival-stats {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-top: 10px; }}
-    .rival-stat {{ min-width: 0; }}
-    .rival-stat .helper {{ margin-bottom: 2px; }}
-    .chart {{ height: 180px; width: 100%; background: linear-gradient(180deg, #fff, #fafbfc); border-radius: 12px; }}
-    .list {{ display: grid; gap: 10px; min-height: 0; }}
-    .item {{ border-top: 1px solid var(--line); padding-top: 10px; }}
-    .item:first-child {{ border-top: 0; padding-top: 0; }}
-    .pill {{ display: inline-block; padding: 3px 8px; border-radius: 999px; background: #eef4ff; color: var(--accent); font-size: 12px; margin-right: 8px; }}
-    .prio-high {{ color: var(--warn); }}
-    .prio-mid {{ color: #9c6b00; }}
-    .ellipsis-2 {{
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
+      --line: #d6ddea;
+      --line-strong: #b7c2d4;
+      --text: #0f1b2d;
+      --muted: #5f6e85;
+      --accent: #0b63ce;
+      --good: #117a5a;
+      --warn: #a45a00;
+      --bad: #b33d3f;
+      --shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Display", "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 24px;
+      margin-bottom: 16px;
+    }
+    .page-header h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.1;
+    }
+    .page-header p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+      max-width: 760px;
+    }
+    .meta-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .meta-chip {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #eef4fb;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+    .section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .section-title h2 {
+      margin: 0;
+      font-size: 16px;
+    }
+    .section-title span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr) 96px 96px 96px 150px;
+      gap: 12px;
+      align-items: end;
+    }
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+    .field label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    select, input[type="range"], button {
+      width: 100%;
+      font: inherit;
+    }
+    select, button {
+      height: 40px;
+      border-radius: 10px;
+      border: 1px solid var(--line-strong);
+      background: #fff;
+      color: var(--text);
+      padding: 0 12px;
+    }
+    button { cursor: pointer; }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.16fr) minmax(0, 0.84fr);
+      gap: 16px;
+      margin-top: 16px;
+    }
+    .stack {
+      display: grid;
+      gap: 16px;
+      min-width: 0;
+    }
+    .kv-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .kv {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fafcff;
+    }
+    .kv small {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .kv strong {
+      display: block;
+      font-size: 18px;
+      line-height: 1.25;
+    }
+    .subtext {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .trace-list, .signal-list {
+      display: grid;
+      gap: 10px;
+    }
+    .trace-row, .signal-row {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fafcff;
+    }
+    .trace-row header, .signal-row header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+    .trace-row header strong, .signal-row header strong {
+      font-size: 14px;
+    }
+    .trace-row header span, .signal-row header span {
+      color: var(--muted);
+      font-size: 12px;
+      text-align: right;
+    }
+    .trace-row p, .signal-row p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .pill {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .pill.muted { color: var(--muted); }
+    .rival-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .rival-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fafcff;
+    }
+    .rival-card h3 {
+      margin: 0 0 10px;
+      font-size: 14px;
+    }
+    .rival-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .rival-stats div {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #fff;
+    }
+    .rival-stats small {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .rival-stats strong {
+      display: block;
+      font-size: 15px;
+    }
+    .track-context-wrap {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fcfdff;
+      padding: 12px;
+    }
+    .track-bar {
+      position: relative;
+      width: 100%;
+      height: 28px;
+      border-radius: 999px;
       overflow: hidden;
-    }}
-    .ellipsis-3 {{
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 3;
-      overflow: hidden;
-    }}
-    .controls {{ display: grid; grid-template-columns: 140px 1fr 96px; gap: 10px; align-items: end; margin-top: 8px; }}
-    .controls4 {{ display: grid; grid-template-columns: 96px 1fr 132px; gap: 10px; align-items: end; margin-top: 8px; }}
-    .mono {{ font-variant-numeric: tabular-nums; }}
-    input[type=range] {{ width: 100%; }}
-    select {{ width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }}
-    button {{ width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; }}
-    button:hover {{ background: #f6f8fb; }}
-    table {{ width: 100%; border-collapse: collapse; }}
-    th, td {{ text-align: left; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; vertical-align: top; }}
-    th {{ color: var(--muted); font-weight: 600; border-top: 0; }}
-    .heat-row {{ display: grid; grid-template-columns: 210px 1fr 56px; gap: 12px; align-items: center; margin: 8px 0; }}
-    .heat-bar {{ position: relative; height: 10px; border-radius: 999px; background: #f1f3f5; overflow: hidden; }}
-    .heat-bar > span {{ position: absolute; inset: 0 auto 0 0; display: block; background: linear-gradient(90deg, var(--heat-soft), var(--heat)); }}
-    .helper {{ color: var(--muted); font-size: 12px; }}
-    .chain-grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }}
-    .chain-intro {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 14px; }}
-    .chain-note {{ padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; background: #fcfdff; font-size: 13px; line-height: 1.5; color: var(--muted); }}
-    .chain-actions {{ display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: end; margin-top: 14px; }}
-    .jsonbox {{ margin: 10px 0 0; padding: 12px; border-radius: 12px; background: #fbfcfe; border: 1px solid var(--line); min-height: 280px; max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
-    .browser-panel {{ min-height: 0; padding: 14px 16px; }}
-    @media (max-width: 980px) {{
-      .grid, .grid2, .grid3, .two, .controls, .chain-grid, .chain-intro {{ grid-template-columns: 1fr; grid-template-rows: none; }}
-      .dashboard-grid {{ min-height: 0; }}
-      .dashboard-card {{ position: relative; left: auto !important; top: auto !important; width: auto !important; height: auto !important; margin-bottom: 16px; }}
-      .trajectory-panel, .primary-panel, .rival-panel {{ height: auto; }}
-      .resize-handle, .card-handle {{ display: none; }}
-    }}
+      border: 1px solid var(--line);
+      background: #eef3fa;
+    }
+    .track-segments {
+      position: absolute;
+      inset: 0;
+    }
+    .track-segment {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+    }
+    .track-marker {
+      position: absolute;
+      top: -8px;
+      width: 12px;
+      height: 44px;
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+    .track-marker::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 0;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 7px solid transparent;
+      border-right: 7px solid transparent;
+      border-top: 0;
+      border-bottom: 12px solid #0f1b2d;
+    }
+    .track-marker::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 12px;
+      transform: translateX(-50%);
+      width: 4px;
+      height: 32px;
+      background: #0f1b2d;
+      border-radius: 999px;
+    }
+    .track-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .track-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .track-legend i {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+    }
+    .track-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 10px;
+    }
+    .track-context-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .track-context-card {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fafcff;
+    }
+    .track-context-card small {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .track-context-card strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.3;
+    }
+    .track-context-card .subtext {
+      margin-top: 6px;
+    }
+    .timeline-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .timeline-summary .kv strong {
+      font-size: 16px;
+    }
+    .event-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .event-table th,
+    .event-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    .event-table th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .json-block {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #0f172a;
+      color: #d6e1f2;
+      min-height: 180px;
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: "SF Mono", "JetBrains Mono", monospace;
+      font-size: 11px;
+      line-height: 1.55;
+    }
+    .tone-good { color: var(--good); }
+    .tone-warn { color: var(--warn); }
+    .tone-bad { color: var(--bad); }
+    @media (max-width: 1200px) {
+      .layout { grid-template-columns: 1fr; }
+      .controls { grid-template-columns: 1fr 1fr; }
+      .kv-grid, .rival-grid, .timeline-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 760px) {
+      .controls, .kv-grid, .rival-grid, .timeline-summary { grid-template-columns: 1fr; }
+      .page-header { flex-direction: column; }
+      .meta-strip { justify-content: flex-start; }
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Asurada Debug Dashboard</h1>
-    <div class="sub">回放观察页。默认桌面视口下一屏查看轨迹、策略、前后车摘要和回放控制。</div>
-    <div class="dashboard-grid" id="dashboard-grid">
-      <div class="panel dashboard-card trajectory-panel" data-card-id="trajectory">
-        <div class="card-head">
-          <div class="label">World Trajectory</div>
-          <div class="card-handle">拖动</div>
-        </div>
-        <div class="label-note">按当前播放进度，绘制玩家、前车、后车三辆车在世界坐标下的线路。</div>
-        <canvas id="trajectory-canvas" class="trajectory-canvas" width="960" height="270"></canvas>
-        <div class="trajectory-legend">
-          <span class="legend-item"><span class="legend-dot" style="background:#005bbb;"></span><span id="legend-player">玩家</span></span>
-          <span class="legend-item"><span class="legend-dot" style="background:#d9480f;"></span><span id="legend-front">前车</span></span>
-          <span class="legend-item"><span class="legend-dot" style="background:#2b8a3e;"></span><span id="legend-rear">后车</span></span>
-        </div>
-        <div class="resize-handle" title="调整大小"></div>
+    <header class="page-header">
+      <div>
+        <h1>Asurada Offline Debug Dashboard</h1>
+        <p>围绕单帧和短时回放检查状态、策略、仲裁和模型输出。页面只保留离线复盘需要的核心信息，不再承担实时 HUD 观察职责。</p>
       </div>
-      <div class="panel dashboard-card primary-panel" data-card-id="strategy">
-        <div class="card-head">
-          <div class="label">Current Strategy Output</div>
-          <div class="card-handle">拖动</div>
+      <div class="meta-strip" id="meta-strip"></div>
+    </header>
+
+    <section class="panel">
+      <div class="controls">
+        <div class="field">
+          <label for="lap-filter">圈数</label>
+          <select id="lap-filter"></select>
         </div>
-        <div class="label-note">当前时间点排在最前面的策略输出，以及其后的候选消息栈。</div>
-        <div class="metric compact ellipsis-2" id="primary-call" style="margin-top:10px;"></div>
-        <div id="primary-time" class="helper ellipsis-2" style="margin-top:6px;"></div>
-        <div id="primary-detail" class="sub ellipsis-3" style="margin:8px 0 0"></div>
-        <div id="strategy-stack" class="list" style="margin-top:12px; overflow:auto; flex:1; min-height:0;"></div>
-        <div class="resize-handle" title="调整大小"></div>
+        <div class="field">
+          <label for="frame-slider">时间轴</label>
+          <input id="frame-slider" type="range" min="0" max="0" step="1">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="prev-frame">上一帧</button>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="play-toggle">播放</button>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="next-frame">下一帧</button>
+        </div>
+        <div class="field">
+          <label>当前索引</label>
+          <div class="meta-chip" id="frame-index">0 / 0</div>
+        </div>
       </div>
-      <div class="panel dashboard-card rival-panel" data-card-id="rivals">
-        <div class="card-head">
-          <div class="label">Front / Rear Rival</div>
-          <div class="card-handle">拖动</div>
-        </div>
-        <div class="label-note">当前前车与后车各自的状态摘要。差距字段按该车自身视角展示，不与玩家做换算。</div>
-        <div class="rival-grid">
-          <div class="rival-box">
-            <div class="helper">前车</div>
-            <div id="front-rival-name" class="rival-name ellipsis-2">-</div>
-            <div id="front-rival-stats" class="rival-stats"></div>
-          </div>
-          <div class="rival-box">
-            <div class="helper">后车</div>
-            <div id="rear-rival-name" class="rival-name ellipsis-2">-</div>
-            <div id="rear-rival-stats" class="rival-stats"></div>
-          </div>
-        </div>
-        <div class="resize-handle" title="调整大小"></div>
+
+      <div class="timeline-summary">
+        <div class="kv"><small>当前帧</small><strong id="timeline-frame">-</strong><div class="subtext" id="timeline-time">-</div></div>
+        <div class="kv"><small>赛道段</small><strong id="timeline-track">-</strong><div class="subtext" id="timeline-usage">-</div></div>
+        <div class="kv"><small>当前输出</small><strong id="timeline-message">-</strong><div class="subtext" id="timeline-priority">-</div></div>
       </div>
-      <div class="panel dashboard-card scores-panel" data-card-id="scores">
-        <div class="card-head">
-          <div class="label">Model Scores</div>
-          <div class="card-handle">拖动</div>
-        </div>
-        <div class="label-note">阶段二旁路模型分数。仅用于调试观察，不直接代表最终动作。</div>
-        <div id="resource-model-grid" class="resource-grid"></div>
-        <div class="resize-handle" title="调整大小"></div>
+    </section>
+
+    <main class="layout">
+      <div class="stack">
+        <section class="panel">
+          <div class="section-title"><h2>Decision Trace</h2><span>策略、仲裁、输出</span></div>
+          <div class="trace-list" id="decision-trace"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title"><h2>Current Frame</h2><span>状态快照</span></div>
+          <div class="kv-grid" id="current-frame-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title"><h2>Nearby Frames</h2><span>前后帧对照</span></div>
+          <table class="event-table">
+            <thead>
+              <tr><th>位置</th><th>帧</th><th>时间</th><th>策略</th><th>速度</th><th>后车差距</th></tr>
+            </thead>
+            <tbody id="neighbor-rows"></tbody>
+          </table>
+        </section>
       </div>
-      <div class="panel dashboard-card browser-panel" data-card-id="browser">
-        <div class="card-head">
-          <div class="label">Frame Browser</div>
-          <div class="card-handle">拖动</div>
-        </div>
-        <div class="label-note">全量 session 时间轴。支持播放、暂停和拖动。</div>
-        <div class="controls">
-          <div>
-            <div class="helper">浏览范围</div>
-            <select id="lap-filter"><option value="all">全量 session</option></select>
+
+      <div class="stack">
+        <section class="panel">
+          <div class="section-title"><h2>Model Signals</h2><span>参与判断的模型信号</span></div>
+          <div class="signal-list" id="model-signals"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title"><h2>Front / Rear Rival</h2><span>相邻车辆状态</span></div>
+          <div class="rival-grid" id="rival-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title"><h2>Track Context</h2><span>当前赛段与赛道语义</span></div>
+          <div class="track-context-wrap">
+            <div class="track-bar">
+              <div class="track-segments" id="track-segments"></div>
+              <div class="track-marker" id="track-marker"></div>
+            </div>
+            <div class="track-legend">
+              <span><i style="background:#0b63ce"></i>玩家位置</span>
+              <span><i style="background:#b33d3f"></i>制动分段</span>
+              <span><i style="background:#a45a00"></i>弯道分段</span>
+              <span><i style="background:#117a5a"></i>部署直道</span>
+            </div>
+            <div class="track-meta" id="trajectory-meta"></div>
+            <div class="track-context-grid" id="track-context-grid"></div>
           </div>
-          <div>
-            <div class="helper">回放进度</div>
-            <input id="frame-slider" type="range" min="0" max="0" value="0">
-          </div>
-            <div>
-              <div class="helper">选中帧</div>
-            <div id="frame-label" class="metric mono" style="font-size:16px; margin-top:4px;"></div>
-          </div>
-        </div>
-        <div class="controls4">
-          <div>
-            <div class="helper">播放控制</div>
-            <button id="play-toggle" type="button">播放</button>
-          </div>
-          <div>
-            <div class="helper">选中时间</div>
-            <div id="frame-time-label" class="metric mono" style="font-size:16px; margin-top:4px;"></div>
-          </div>
-          <div>
-            <div class="helper">当前圈段</div>
-            <div id="frame-lap-label" class="metric mono" style="font-size:16px; margin-top:4px;"></div>
-          </div>
-        </div>
-        <div class="list" id="frame-detail" style="margin-top:10px; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 10px;"></div>
-        <div class="resize-handle" title="调整大小"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title"><h2>Raw Debug</h2><span>原始调试信息</span></div>
+          <div class="json-block"><pre id="debug-json">-</pre></div>
+        </section>
       </div>
-    </div>
+    </main>
   </div>
+
   <script>
-    const payload = {embedded};
+    const payload = __EMBEDDED_PAYLOAD__;
+    const latest = payload.latest || {};
+    const timingSummary = payload.timing_summary || {};
+    const trackProfile = payload.track_profile || {};
     const frames = payload.frames || [];
-    const board = document.getElementById('dashboard-grid');
+    const laps = payload.laps || [];
+
+    const metaStrip = document.getElementById('meta-strip');
     const lapFilter = document.getElementById('lap-filter');
     const slider = document.getElementById('frame-slider');
-    const frameLabel = document.getElementById('frame-label');
-    const frameDetail = document.getElementById('frame-detail');
     const playToggle = document.getElementById('play-toggle');
-    const frameTimeLabel = document.getElementById('frame-time-label');
-    const frameLapLabel = document.getElementById('frame-lap-label');
-    const frontRivalName = document.getElementById('front-rival-name');
-    const rearRivalName = document.getElementById('rear-rival-name');
-    const frontRivalStats = document.getElementById('front-rival-stats');
-    const rearRivalStats = document.getElementById('rear-rival-stats');
-    const resourceModelGrid = document.getElementById('resource-model-grid');
+    const prevFrameButton = document.getElementById('prev-frame');
+    const nextFrameButton = document.getElementById('next-frame');
+    const frameIndex = document.getElementById('frame-index');
+    const timelineFrame = document.getElementById('timeline-frame');
+    const timelineTime = document.getElementById('timeline-time');
+    const timelineTrack = document.getElementById('timeline-track');
+    const timelineUsage = document.getElementById('timeline-usage');
+    const timelineMessage = document.getElementById('timeline-message');
+    const timelinePriority = document.getElementById('timeline-priority');
+    const currentFrameGrid = document.getElementById('current-frame-grid');
+    const rivalGrid = document.getElementById('rival-grid');
+    const decisionTrace = document.getElementById('decision-trace');
+    const modelSignals = document.getElementById('model-signals');
+    const neighborRows = document.getElementById('neighbor-rows');
+    const debugJson = document.getElementById('debug-json');
+    const trackSegments = document.getElementById('track-segments');
+    const trackMarker = document.getElementById('track-marker');
+    const trajectoryMeta = document.getElementById('trajectory-meta');
+    const trackContextGrid = document.getElementById('track-context-grid');
+
     let filteredFrames = frames.slice();
+    let playbackIndex = Math.max(filteredFrames.length - 1, 0);
     let playbackTimer = null;
     let isPlaying = false;
-    let playbackIndex = 0;
-    let draggingCard = null;
-    let draggedCardId = null;
-    let resizingCard = null;
-    let dragOffsetX = 0;
-    let dragOffsetY = 0;
-    let resizeStartX = 0;
-    let resizeStartY = 0;
-    let resizeStartW = 0;
-    let resizeStartH = 0;
 
-    const defaultCardLayout = {{
-      trajectory: {{ x: 0, y: 0, w: 760, h: 442 }},
-      strategy: {{ x: 776, y: 0, w: 548, h: 260 }},
-      rivals: {{ x: 776, y: 276, w: 548, h: 170 }},
-      scores: {{ x: 0, y: 458, w: 1324, h: 170 }},
-      browser: {{ x: 0, y: 644, w: 1324, h: 240 }},
-    }};
-    const layoutStorageKey = 'asurada:debug-dashboard-layout:absolute:v1';
-
-    function formatSessionTime(seconds) {{
-      const total = Number(seconds || 0);
-      const minutes = Math.floor(total / 60);
-      const remain = total - minutes * 60;
-      const whole = Math.floor(remain);
-      const tenths = Math.floor((remain - whole) * 10);
-      return `${{minutes}}:${{String(whole).padStart(2, '0')}}.${{tenths}}`;
-    }}
-
-    function formatMetric(value, formatter) {{
+    function num(value, digits = 1) {
       if (value === null || value === undefined || value === '') return '-';
-      return formatter ? formatter(value) : String(value);
-    }}
+      const parsed = Number(value);
+      if (Number.isNaN(parsed)) return '-';
+      return parsed.toFixed(digits);
+    }
 
-    function renderRivalStats(target, rival) {{
-      const stats = [
-        ['名次', formatMetric(rival.position)],
-        ['前车差距', formatMetric(rival.display_gap_ahead_s, (value) => `${{Number(value).toFixed(1)}} s`)],
-        ['后车差距', formatMetric(rival.display_gap_behind_s, (value) => `${{Number(value).toFixed(1)}} s`)],
-        ['时速', formatMetric(rival.speed_kph, (value) => `${{Number(value).toFixed(0)}} km/h`)],
-        ['ERS', formatMetric(rival.ers_pct, (value) => `${{Number(value).toFixed(0)}}%`)],
-        ['DRS', rival.drs_available === null || rival.drs_available === undefined ? '-' : (rival.drs_available ? '可用' : '不可用')],
-      ];
-      target.innerHTML = stats
-        .map(([label, value]) => `<div class="rival-stat"><div class="helper">${{label}}</div><div class="ellipsis-2">${{value}}</div></div>`)
-        .join('');
-    }}
+    function gap(value) {
+      if (value === null || value === undefined || value === '') return '-';
+      const parsed = Number(value);
+      if (Number.isNaN(parsed)) return '-';
+      return `${parsed.toFixed(3)}s`;
+    }
 
-    function renderResourceModels(resourceModels, defenceCostModel, rivalPressureModels, drivingQualityModels, tyreTrendModels) {{
-      const modelOrder = [
-        ['fuel_risk', 'Fuel'],
-        ['ers_risk', 'ERS'],
-        ['tyre_risk', 'Tyre'],
-        ['dynamics_risk', 'Dynamics'],
+    function gapWithSource(officialValue, estimatedValue) {
+      if (officialValue !== null && officialValue !== undefined && officialValue !== '') {
+        return { value: gap(officialValue), detail: 'official' };
+      }
+      if (estimatedValue !== null && estimatedValue !== undefined && estimatedValue !== '') {
+        return { value: gap(estimatedValue), detail: 'estimated' };
+      }
+      return { value: '-', detail: 'missing' };
+    }
+
+    function pct(value) {
+      if (value === null || value === undefined || value === '') return '-';
+      const parsed = Number(value);
+      if (Number.isNaN(parsed)) return '-';
+      return `${parsed.toFixed(1)}%`;
+    }
+
+    function listCodes(items) {
+      if (!Array.isArray(items) || !items.length) return ['-'];
+      return items.map((item) => item.code || item.title || '-');
+    }
+
+    function chip(text, muted = false) {
+      return `<span class="pill${muted ? ' muted' : ''}">${text}</span>`;
+    }
+
+    function toneClassForAction(code) {
+      if (code === 'LOW_FUEL') return 'tone-warn';
+      if (code === 'DYNAMICS_UNSTABLE' || code === 'SAFETY_CAR') return 'tone-bad';
+      if (code && code !== 'NONE') return 'tone-good';
+      return '';
+    }
+
+    function kvCell(label, value, detail = '') {
+      return `<div class="kv"><small>${label}</small><strong>${value}</strong><div class="subtext">${detail || '&nbsp;'}</div></div>`;
+    }
+
+    function renderMeta() {
+      const chips = [
+        `赛道 ${latest.track || '-'}`,
+        `天气 ${latest.weather || '-'}`,
+        `采样时长 ${timingSummary.capture_wall_label || '-'}`,
+        `会话跨度 ${timingSummary.session_span_label || '-'}`,
+        `总帧数 ${frames.length}`,
       ];
-      const resourceCards = modelOrder
-        .map(([key, label]) => {{
-          const item = resourceModels?.[key] || {{}};
-          const enabled = item.enabled === true;
-          const score = enabled && item.score !== undefined && item.score !== null
-            ? Number(item.score).toFixed(1)
-            : '-';
-          const note = enabled ? 'runtime' : (item.disabled_reason || 'disabled');
-          return `
-            <div class="resource-box">
-              <div class="helper">${{label}}</div>
-              <div class="resource-value">${{score}}</div>
-              <div class="helper ellipsis-2">${{note}}</div>
-            </div>
-          `;
-        }});
-      const defenceEnabled = defenceCostModel?.enabled === true;
-      const defenceScore = defenceEnabled && defenceCostModel.score !== undefined && defenceCostModel.score !== null
-        ? Number(defenceCostModel.score).toFixed(1)
-        : '-';
-      const defenceNote = defenceEnabled ? 'runtime' : (defenceCostModel?.disabled_reason || 'disabled');
-      const rivalPressure = rivalPressureModels || {{}};
-      const rivalModel = rivalPressure?.rival_pressure || {{}};
-      const rivalEnabled = rivalModel.enabled === true;
-      const rivalScore = rivalEnabled && rivalModel.score !== undefined && rivalModel.score !== null
-        ? Number(rivalModel.score).toFixed(1)
-        : '-';
-      const rivalNote = rivalEnabled ? 'runtime' : (rivalModel?.disabled_reason || 'disabled');
-      const drivingOrder = [
-        ['entry_quality', 'Entry'],
-        ['apex_quality', 'Apex'],
-        ['exit_traction', 'Exit'],
+      metaStrip.innerHTML = chips.map((item) => `<div class="meta-chip">${item}</div>`).join('');
+      lapFilter.innerHTML = `<option value="all">全部圈数</option>` + laps.map((lap) => `<option value="${lap}">Lap ${lap}</option>`).join('');
+    }
+
+    function renderCurrentFrame(frame) {
+      const gapAhead = gapWithSource(frame.official_gap_ahead_s, frame.estimated_gap_ahead_s);
+      const gapBehind = gapWithSource(frame.official_gap_behind_s, frame.estimated_gap_behind_s);
+      currentFrameGrid.innerHTML = [
+        kvCell('Top Message', `<span class="${toneClassForAction(frame.top_message)}">${frame.top_message || 'NONE'}</span>`, frame.top_detail || '无额外说明'),
+        kvCell('Lap / Total', `${frame.lap || '-'} / ${frame.total_laps || '-'}`, `frame=${frame.frame}`),
+        kvCell('Position / Speed', `P${frame.position || '-'} / ${num(frame.speed)} km/h`, frame.track || '-'),
+        kvCell('Track Context', `${frame.track_segment || '-'} / ${frame.track_usage || '-'}`, frame.track_zone || '-'),
+        kvCell('Gap Ahead', gapAhead.value, `玩家与前车 · ${gapAhead.detail}`),
+        kvCell('Gap Behind', gapBehind.value, `玩家与后车 · ${gapBehind.detail}`),
+        kvCell('Fuel / ERS', `${num(frame.fuel_laps_remaining, 2)} laps / ${pct(frame.ers_pct)}`, `wear=${pct(frame.tyre_wear_pct)}`),
+        kvCell('Controls', `T${num(frame.throttle, 2)} B${num(frame.brake, 2)} S${num(frame.steer, 2)}`, `G${frame.gear ?? '-'} / ${frame.rpm ?? '-'} rpm`),
+      ].join('');
+    }
+
+    function renderRivals(frame) {
+      const rivals = [
+        ['前车', frame.front_rival],
+        ['后车', frame.rear_rival],
       ];
-      const drivingCards = drivingOrder
-        .map(([key, label]) => {{
-          const item = drivingQualityModels?.[key] || {{}};
-          const enabled = item.enabled === true;
-          const score = enabled && item.score !== undefined && item.score !== null
-            ? Number(item.score).toFixed(1)
-            : '-';
-          const note = enabled ? 'runtime' : (item.disabled_reason || 'disabled');
-          return `
-            <div class="resource-box">
-              <div class="helper">${{label}}</div>
-              <div class="resource-value">${{score}}</div>
-              <div class="helper ellipsis-2">${{note}}</div>
-            </div>
-          `;
-        }});
-      const trendOrder = [
-        ['future_tyre_wear_delta', 'Tyre Trend'],
-        ['future_grip_drop_score', 'Grip Trend'],
-      ];
-      const trendCards = trendOrder
-        .map(([key, label]) => {{
-          const item = tyreTrendModels?.[key] || {{}};
-          const enabled = item.enabled === true;
-          const score = enabled && item.score !== undefined && item.score !== null
-            ? Number(item.score).toFixed(1)
-            : '-';
-          const note = enabled ? 'runtime' : (item.disabled_reason || 'disabled');
-          return `
-            <div class="resource-box">
-              <div class="helper">${{label}}</div>
-              <div class="resource-value">${{score}}</div>
-              <div class="helper ellipsis-2">${{note}}</div>
-            </div>
-          `;
-        }});
-      resourceModelGrid.innerHTML = resourceCards
-        .concat([`
-          <div class="resource-box">
-            <div class="helper">Defence</div>
-            <div class="resource-value">${{defenceScore}}</div>
-            <div class="helper ellipsis-2">${{defenceNote}}</div>
+      rivalGrid.innerHTML = rivals.map(([label, rival]) => `
+        <div class="rival-card">
+          <h3>${label} · ${rival?.name || '-'}</h3>
+          <div class="rival-stats">
+            <div><small>位置</small><strong>${rival?.position ? `P${rival.position}` : '-'}</strong></div>
+            <div><small>与前车差距</small><strong>${gap(rival?.display_gap_ahead_s)}</strong><div class="subtext">${rival?.official_gap_ahead_s != null ? 'official' : (rival?.estimated_gap_ahead_s != null ? 'estimated' : 'missing')}</div></div>
+            <div><small>与后车差距</small><strong>${gap(rival?.display_gap_behind_s)}</strong><div class="subtext">${rival?.official_gap_behind_s != null ? 'official' : (rival?.estimated_gap_behind_s != null ? 'estimated' : 'missing')}</div></div>
+            <div><small>速度</small><strong>${rival?.speed_kph != null ? `${num(rival.speed_kph)} km/h` : '-'}</strong></div>
+            <div><small>ERS</small><strong>${pct(rival?.ers_pct)}</strong></div>
+            <div><small>DRS</small><strong>${rival?.drs_available ? 'OPEN' : 'OFF'}</strong></div>
           </div>
-        `, `
-          <div class="resource-box">
-            <div class="helper">Pressure</div>
-            <div class="resource-value">${{rivalScore}}</div>
-            <div class="helper ellipsis-2">${{rivalNote}}</div>
-          </div>
-        `])
-        .concat(drivingCards)
-        .concat(trendCards)
-        .join('');
-    }}
+        </div>
+      `).join('');
+    }
 
-    function drawTrajectory(index) {{
-      const canvas = document.getElementById('trajectory-canvas');
-      const ctx = canvas.getContext('2d');
-      const subset = filteredFrames.slice(0, index + 1);
-      const series = [
-        {{
-          keyX: 'player_world_x',
-          keyZ: 'player_world_z',
-          color: '#005bbb',
-          labelTarget: document.getElementById('legend-player'),
-          label: '玩家',
-        }},
-        {{
-          keyX: 'front_world_x',
-          keyZ: 'front_world_z',
-          color: '#d9480f',
-          labelTarget: document.getElementById('legend-front'),
-          label: subset[index]?.front_world_name ? `前车：${{subset[index].front_world_name}}` : '前车',
-        }},
-        {{
-          keyX: 'rear_world_x',
-          keyZ: 'rear_world_z',
-          color: '#2b8a3e',
-          labelTarget: document.getElementById('legend-rear'),
-          label: subset[index]?.rear_world_name ? `后车：${{subset[index].rear_world_name}}` : '后车',
-        }},
+    function renderDecisionTrace(frame) {
+      const modelDebug = frame.stage_two_model_debug || {};
+      const arbiterInput = modelDebug.arbiter_input || {};
+      const arbiterOutput = modelDebug.arbiter_output || {};
+      const tactical = arbiterInput.tactical_context || {};
+      const confidence = arbiterInput.confidence_context || {};
+      const fallback = arbiterInput.fallback_context || {};
+      const outputControl = arbiterInput.output_control || {};
+      const traces = [
+        {
+          title: 'Messages',
+          value: listCodes(frame.messages || []).join(' / '),
+          detail: frame.top_detail || '当前帧输出栈。',
+          pills: (frame.messages || []).map((item) => chip(`${item.code || item.title || '-'}@${item.priority ?? '-'}`)),
+        },
+        {
+          title: 'Arbiter',
+          value: `${arbiterOutput.final_hud_action?.code || '-'} / ${arbiterOutput.final_voice_action?.code || '-'}`,
+          detail: `ordered=${listCodes(arbiterOutput.ordered_actions || []).join(' / ')} | suppressed=${listCodes(arbiterOutput.suppressed_actions || []).join(' / ')}`,
+          pills: [
+            chip(`rules ${listCodes(arbiterInput.rule_candidates || []).join(' / ')}`, true),
+            chip(`models ${listCodes(arbiterInput.model_candidates || []).join(' / ')}`, true),
+          ],
+        },
+        {
+          title: 'Tactical State',
+          value: tactical.tactical_state || '-',
+          detail: `transition=${tactical.state_transition || '-'} | lock=${tactical.state_lock ? 'yes' : 'no'} | priority=${tactical.state_priority_hint || '-'}`,
+          pills: [
+            chip(`recommended ${tactical.recommended_action || '-'}`),
+            chip(`history-hold ${tactical.history_hold_applied ? 'yes' : 'no'}`, true),
+          ],
+        },
+        {
+          title: 'Confidence / Fallback',
+          value: `${confidence.confidence_level || '-'} / ${fallback.fallback_mode || '-'}`,
+          detail: `score=${num(confidence.confidence_score, 2)} | mainline=${fallback.mainline_allowed ? 'yes' : 'no'} | voice=${outputControl.voice_allowed === false ? 'muted' : 'open'}`,
+          pills: [
+            chip(`hud-only ${outputControl.hud_only ? 'yes' : 'no'}`, true),
+            chip(`cooldown ${outputControl.cooldown_hint || '-'}`, true),
+          ],
+        },
       ];
+      decisionTrace.innerHTML = traces.map((item) => `
+        <div class="trace-row">
+          <header><strong>${item.title}</strong><span>${item.value}</span></header>
+          <p>${item.detail}</p>
+          <div class="pill-list">${item.pills.join('')}</div>
+        </div>
+      `).join('');
+    }
 
-      for (const item of series) {{
-        item.labelTarget.textContent = item.label;
-      }}
-
-      const points = [];
-      for (const frame of subset) {{
-        for (const item of series) {{
-          const x = frame[item.keyX];
-          const z = frame[item.keyZ];
-          if (x !== null && x !== undefined && z !== null && z !== undefined) {{
-            points.push([Number(x), Number(z)]);
-          }}
-        }}
-      }}
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (!points.length) {{
-        ctx.fillStyle = '#60646c';
-        ctx.font = '14px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
-        ctx.fillText('当前回放没有可用的三车世界坐标。', 24, 36);
-        return;
-      }}
-
-      const xs = points.map((item) => item[0]);
-      const zs = points.map((item) => item[1]);
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minZ = Math.min(...zs);
-      const maxZ = Math.max(...zs);
-      const padding = 18;
-      const usableWidth = canvas.width - padding * 2;
-      const usableHeight = canvas.height - padding * 2;
-      const spanX = Math.max(maxX - minX, 1);
-      const spanZ = Math.max(maxZ - minZ, 1);
-      const scale = Math.min(usableWidth / spanX, usableHeight / spanZ);
-
-      function mapPoint(x, z) {{
-        return [
-          padding + (x - minX) * scale,
-          canvas.height - padding - (z - minZ) * scale,
-        ];
-      }}
-
-      ctx.strokeStyle = '#d9dde3';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(0.5, 0.5, canvas.width - 1, canvas.height - 1);
-
-      for (const item of series) {{
-        const line = subset
-          .map((frame) => {{
-            const x = frame[item.keyX];
-            const z = frame[item.keyZ];
-            return x !== null && x !== undefined && z !== null && z !== undefined ? mapPoint(Number(x), Number(z)) : null;
-          }})
-          .filter(Boolean);
-        if (line.length < 2) continue;
-        ctx.beginPath();
-        ctx.strokeStyle = item.color;
-        ctx.lineWidth = 2.5;
-        ctx.moveTo(line[0][0], line[0][1]);
-        for (const point of line.slice(1)) {{
-          ctx.lineTo(point[0], point[1]);
-        }}
-        ctx.stroke();
-
-        const last = line[line.length - 1];
-        ctx.fillStyle = item.color;
-        ctx.beginPath();
-        ctx.arc(last[0], last[1], 4, 0, Math.PI * 2);
-        ctx.fill();
-      }}
-    }}
-
-    function renderFrame(index) {{
-      if (!filteredFrames.length) {{
-        document.getElementById('primary-call').textContent = 'No active call';
-        document.getElementById('primary-time').textContent = '-';
-        document.getElementById('primary-detail').textContent = 'No high-priority strategy output in the current frame.';
-        resourceModelGrid.innerHTML = '';
-        document.getElementById('strategy-stack').innerHTML = '';
-        frontRivalName.textContent = '-';
-        rearRivalName.textContent = '-';
-        frontRivalStats.innerHTML = '';
-        rearRivalStats.innerHTML = '';
-        frameLabel.textContent = '-';
-        frameTimeLabel.textContent = '-';
-        frameLapLabel.textContent = '-';
-        frameDetail.innerHTML = '<div class="item">没有可显示的帧数据</div>';
-        return;
-      }}
-      const frame = filteredFrames[index];
-      const previousFrame = index >= 1 ? filteredFrames[index - 1] : frame;
-      const speedDelta = Number(frame.speed || 0) - Number(previousFrame.speed || 0);
-      const frameMessages = Array.isArray(frame.messages) ? frame.messages : [];
-      document.getElementById('primary-call').textContent = frame.top_message || 'No active call';
-      document.getElementById('primary-time').textContent = `session_time=${{formatSessionTime(frame.session_time_s)}} | lap=${{
-        frame.total_laps > 0 ? `${{frame.lap}} / ${{frame.total_laps}}` : frame.lap
-      }} | pos=${{frame.position ?? '-'}}`;
-      document.getElementById('primary-detail').textContent = frame.top_detail || 'No high-priority strategy output in the current frame.';
-      renderResourceModels(
-        frame.stage_two_model_debug?.resource_models || {{}},
-        frame.stage_two_model_debug?.defence_cost_model || {{}},
-        frame.stage_two_model_debug?.rival_pressure_models || {{}},
-        frame.stage_two_model_debug?.driving_quality_models || {{}},
-        frame.stage_two_model_debug?.tyre_degradation_trend_models || {{}},
-      );
-      document.getElementById('strategy-stack').innerHTML = frameMessages
-        .slice(0, 5)
-        .map((item) => `<div class="item"><span class="pill">P${{item.priority}}</span><strong>${{item.title}}</strong><div>${{item.detail}}</div></div>`)
-        .join('');
-      frontRivalName.textContent = frame.front_rival?.name || '-';
-      rearRivalName.textContent = frame.rear_rival?.name || '-';
-      renderRivalStats(frontRivalStats, frame.front_rival || {{}});
-      renderRivalStats(rearRivalStats, frame.rear_rival || {{}});
-      drawTrajectory(index);
-      frameLabel.textContent = `F${{frame.frame}}`;
-      frameTimeLabel.textContent = formatSessionTime(frame.session_time_s);
-      frameLapLabel.textContent = frame.total_laps > 0 ? `${{frame.lap}} / ${{frame.total_laps}}` : String(frame.lap);
-      const detail = [
-        ['Session Time', `${{formatSessionTime(frame.session_time_s)}} (${{Number(frame.session_time_s || 0).toFixed(1)}} s)`],
-        ['Track', payload.latest?.track || '-'],
-        ['Lap', frame.total_laps > 0 ? `${{frame.lap}} / ${{frame.total_laps}}` : String(frame.lap)],
-        ['Position', frame.position ?? '-'],
-        ['Speed', `${{Number(frame.speed || 0).toFixed(0)}} km/h`],
+    function renderModelSignals(frame) {
+      const modelDebug = frame.stage_two_model_debug || {};
+      const resource = modelDebug.resource_models || {};
+      const pressure = modelDebug.rival_pressure_models || {};
+      const quality = modelDebug.driving_quality_models || {};
+      const tyreTrend = modelDebug.tyre_degradation_trend_models || {};
+      const defence = modelDebug.defence_cost_model || {};
+      const rows = [
+        ['Fuel Risk', num(resource.fuel_risk?.score, 1), '参与 LOW_FUEL 偏置'],
+        ['Dynamics Risk', num(resource.dynamics_risk?.score, 1), '参与 DYNAMICS_UNSTABLE 偏置'],
+        ['Rear Pressure', num(pressure.rear_pressure?.score, 1), '参与 DEFEND_WINDOW 偏置'],
+        ['Defence Cost', num(defence.score, 1), '防守代价侧信号'],
+        ['Entry / Apex / Exit', `${num(quality.entry_quality?.score, 1)} / ${num(quality.apex_quality?.score, 1)} / ${num(quality.exit_traction?.score, 1)}`, '驾驶质量分数'],
+        ['Tyre / Grip Trend', `${num(tyreTrend.future_tyre_wear_delta?.score, 1)} / ${num(tyreTrend.future_grip_drop_score?.score, 1)}`, '轮胎趋势分数'],
+        ['Strategy Candidates', String((modelDebug.strategy_action_model?.model_candidates || []).length), listCodes(modelDebug.strategy_action_model?.model_candidates || []).join(' / ')],
       ];
-      frameDetail.innerHTML = detail.map(([k, v]) => `<div class="item"><span class="pill">${{k}}</span>${{v}}</div>`).join('');
-    }}
+      modelSignals.innerHTML = rows.map(([label, value, detail]) => `
+        <div class="signal-row">
+          <header><strong>${label}</strong><span>${value}</span></header>
+          <p>${detail}</p>
+        </div>
+      `).join('');
+    }
 
-    function loadCardLayout() {{
-      try {{
-        return JSON.parse(localStorage.getItem(layoutStorageKey) || '{{}}');
-      }} catch (_) {{
-        return {{}};
-      }}
-    }}
+    function renderNeighbors(index) {
+      const rows = [
+        ['上一帧', filteredFrames[index - 1]],
+        ['当前帧', filteredFrames[index]],
+        ['下一帧', filteredFrames[index + 1]],
+      ];
+      neighborRows.innerHTML = rows.map(([label, item]) => {
+        if (!item) {
+          return `<tr><td>${label}</td><td colspan="5" class="tone-warn">无数据</td></tr>`;
+        }
+        return `
+          <tr>
+            <td>${label}</td>
+            <td>${item.frame}</td>
+            <td>${num(item.session_time_s, 3)}s</td>
+            <td>${item.top_message || 'NONE'}</td>
+            <td>${num(item.speed, 1)} km/h</td>
+            <td>${gap(item.gap_behind_s)}</td>
+          </tr>
+        `;
+      }).join('');
+    }
 
-    function saveCardLayout(layout) {{
-      localStorage.setItem(layoutStorageKey, JSON.stringify(layout));
-    }}
+    function segmentColor(zoneType) {
+      if ((zoneType || '').includes('braking')) return '#b33d3f';
+      if ((zoneType || '').includes('corner')) return '#a45a00';
+      if ((zoneType || '').includes('deployment')) return '#117a5a';
+      return '#0b63ce';
+    }
 
-    function updateBoardHeight() {{
-      const cards = Array.from(board.querySelectorAll('.dashboard-card'));
-      const bottoms = cards.map((card) => {{
-        const top = Number(card.style.top.replace('px', '') || 0);
-        const height = Number(card.style.height.replace('px', '') || card.offsetHeight || 0);
-        return top + height;
-      }});
-      const maxBottom = bottoms.length ? Math.max(...bottoms) : 0;
-      board.style.height = `${{maxBottom + 24}}px`;
-    }}
-
-    function applyCardLayout() {{
-      const stored = loadCardLayout();
-      Array.from(board.querySelectorAll('.dashboard-card')).forEach((card) => {{
-        const cardId = card.dataset.cardId;
-        const cfg = stored[cardId] || defaultCardLayout[cardId] || {{ x: 0, y: 0, w: 400, h: 240 }};
-        card.style.left = `${{cfg.x}}px`;
-        card.style.top = `${{cfg.y}}px`;
-        card.style.width = `${{cfg.w}}px`;
-        card.style.height = `${{cfg.h}}px`;
-      }});
-      updateBoardHeight();
-    }}
-
-    function bindCardInteractions() {{
-      Array.from(board.querySelectorAll('.dashboard-card')).forEach((card) => {{
-        const head = card.querySelector('.card-head');
-        if (head) {{
-          head.addEventListener('mousedown', (event) => {{
-            if (window.innerWidth <= 980) return;
-            if (event.target && event.target.classList && event.target.classList.contains('resize-handle')) return;
-            event.preventDefault();
-            const rect = card.getBoundingClientRect();
-            draggingCard = card;
-            draggedCardId = card.dataset.cardId;
-            dragOffsetX = event.clientX - rect.left;
-            dragOffsetY = event.clientY - rect.top;
-            card.classList.add('dragging');
-            document.body.style.cursor = 'grabbing';
-            document.body.style.userSelect = 'none';
-          }});
-        }}
-
-        const handle = card.querySelector('.resize-handle');
-        if (!handle) return;
-        handle.addEventListener('mousedown', (event) => {{
-          event.preventDefault();
-          event.stopPropagation();
-          const stored = loadCardLayout();
-          const cardId = card.dataset.cardId;
-          const current = stored[cardId] || defaultCardLayout[cardId] || {{ x: 0, y: 0, w: 400, h: 240 }};
-          resizingCard = card;
-          resizeStartX = event.clientX;
-          resizeStartY = event.clientY;
-          resizeStartW = current.w;
-          resizeStartH = current.h;
-          document.body.style.cursor = 'nwse-resize';
-          document.body.style.userSelect = 'none';
-        }});
-      }});
-    }}
-
-    function onResizeMove(event) {{
-      if (draggingCard) {{
-        const card = draggingCard;
-        const cardId = card.dataset.cardId;
-        const layout = loadCardLayout();
-        const width = Number(card.style.width.replace('px', '') || card.offsetWidth || 400);
-        const height = Number(card.style.height.replace('px', '') || card.offsetHeight || 240);
-        const boardRect = board.getBoundingClientRect();
-        const maxX = Math.max(0, board.clientWidth - width);
-        const nextX = Math.max(0, Math.min(maxX, event.clientX - boardRect.left - dragOffsetX));
-        const nextY = Math.max(0, event.clientY - boardRect.top - dragOffsetY);
-        card.style.left = `${{nextX}}px`;
-        card.style.top = `${{nextY}}px`;
-        layout[cardId] = {{
-          ...(layout[cardId] || defaultCardLayout[cardId] || {{ w: width, h: height }}),
-          x: nextX,
-          y: nextY,
-          w: width,
-          h: height,
-        }};
-        saveCardLayout(layout);
-        updateBoardHeight();
+    function renderTrackContext(frame) {
+      const lapLength = Number(trackProfile.lap_length_m || 0);
+      const segments = Array.isArray(trackProfile.semantic_segments) ? trackProfile.semantic_segments : [];
+      const lapDistance = Number(frame.lap_distance_m);
+      if (!lapLength || Number.isNaN(lapDistance) || !segments.length || !trackSegments || !trackMarker) {
+        trajectoryMeta.textContent = '当前样本没有可用的赛道语义分段。';
+        if (trackSegments) trackSegments.innerHTML = '';
+        if (trackContextGrid) trackContextGrid.innerHTML = '';
         return;
-      }}
-      if (!resizingCard) return;
-      const dx = event.clientX - resizeStartX;
-      const dy = event.clientY - resizeStartY;
-      const cardId = resizingCard.dataset.cardId;
-      const layout = loadCardLayout();
-      const nextW = Math.max(260, resizeStartW + dx);
-      const nextH = Math.max(160, resizeStartH + dy);
-      resizingCard.style.width = `${{nextW}}px`;
-      resizingCard.style.height = `${{nextH}}px`;
-      layout[cardId] = {{
-        ...(layout[cardId] || defaultCardLayout[cardId] || {{ x: 0, y: 0 }}),
-        x: Number(resizingCard.style.left.replace('px', '') || 0),
-        y: Number(resizingCard.style.top.replace('px', '') || 0),
-        w: nextW,
-        h: nextH,
-      }};
-      saveCardLayout(layout);
-      updateBoardHeight();
-    }}
+      }
 
-    function onResizeEnd(event) {{
-      if (draggingCard) {{
-        draggingCard.classList.remove('dragging');
-        draggingCard = null;
-        draggedCardId = null;
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        return;
-      }}
-      if (!resizingCard) return;
-      resizingCard = null;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }}
+      const currentSegment = segments.find((segment) => lapDistance >= Number(segment.start_m || 0) && lapDistance <= Number(segment.end_m || 0));
+      const currentIndex = currentSegment ? segments.findIndex((segment) => segment.name === currentSegment.name) : -1;
+      const previousSegment = currentIndex > 0 ? segments[currentIndex - 1] : null;
+      const nextSegment = currentIndex >= 0 && currentIndex < segments.length - 1 ? segments[currentIndex + 1] : null;
+      const nearestApexes = (Array.isArray(trackProfile.corner_apexes) ? trackProfile.corner_apexes : [])
+        .map((apex) => ({ ...apex, delta: Math.abs(Number(apex.distance_m || 0) - lapDistance) }))
+        .sort((a, b) => a.delta - b.delta);
+      const nearestApex = nearestApexes[0] || null;
+      const activeBrakingZone = (Array.isArray(trackProfile.braking_zones) ? trackProfile.braking_zones : []).find((zone) => {
+        const start = Number(zone.start_m || 0);
+        const end = Number(zone.end_m || 0);
+        return lapDistance >= start && lapDistance <= end;
+      });
 
-    function clearPlaybackTimer() {{
-      if (playbackTimer !== null) {{
+      trackSegments.innerHTML = segments.map((segment) => {
+        const start = Number(segment.start_m || 0);
+        const end = Number(segment.end_m || 0);
+        const left = (start / lapLength) * 100;
+        const width = Math.max(((end - start) / lapLength) * 100, 0.35);
+        const active = currentSegment && currentSegment.name === segment.name;
+        return `<div class="track-segment" style="left:${left}%;width:${width}%;background:${segmentColor(segment.zone_type)};opacity:${active ? '1' : '0.72'}"></div>`;
+      }).join('');
+
+      const playerLeft = (Math.max(Math.min(lapDistance, lapLength), 0) / lapLength) * 100;
+      trackMarker.style.left = `${playerLeft}%`;
+
+      trajectoryMeta.innerHTML = [
+        `当前落点 ${lapDistance.toFixed(0)}m / ${lapLength.toFixed(0)}m`,
+        `Lap ${frame.lap || '-'} / ${frame.total_laps || '-'}`,
+        `当前位置 ${currentSegment ? currentSegment.name : '-'}`,
+        `Usage ${currentSegment?.usage || frame.track_usage || '-'}`,
+        `P${frame.position || '-'} · ${num(frame.speed, 1)} km/h`,
+      ].map((item) => `<span>${item}</span>`).join('');
+
+      trackContextGrid.innerHTML = [
+        ['当前赛段', currentSegment?.name || '-', currentSegment?.zone_type || '-'],
+        ['上一赛段', previousSegment?.name || '-', previousSegment?.usage || '-'],
+        ['下一赛段', nextSegment?.name || '-', nextSegment?.usage || '-'],
+        ['最近 Apex', nearestApex?.name || '-', nearestApex ? `距离 ${nearestApex.delta.toFixed(0)}m` : '-'],
+        ['Braking Zone', activeBrakingZone?.name || '当前不在制动区', activeBrakingZone ? `${activeBrakingZone.start_m.toFixed(0)}m - ${activeBrakingZone.end_m.toFixed(0)}m` : '-'],
+        ['前后车判断', `前车 ${gap(frame.gap_ahead_s)} / 后车 ${gap(frame.gap_behind_s)}`, '这里统一用时间差，不再显示圈内米数'],
+      ].map(([label, value, detail]) => `
+        <div class="track-context-card">
+          <small>${label}</small>
+          <strong>${value}</strong>
+          <div class="subtext">${detail}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderDebug(frame) {
+      debugJson.textContent = JSON.stringify({
+        frame: frame.frame,
+        lap: frame.lap,
+        messages: frame.messages,
+        runtime_timing: frame.runtime_timing,
+        stage_two_model_debug: frame.stage_two_model_debug,
+      }, null, 2);
+    }
+
+    function renderFrame(index) {
+      if (!filteredFrames.length) return;
+      playbackIndex = Math.min(Math.max(index, 0), filteredFrames.length - 1);
+      const frame = filteredFrames[playbackIndex];
+      frameIndex.textContent = `${playbackIndex + 1} / ${filteredFrames.length}`;
+      timelineFrame.textContent = `#${frame.frame}`;
+      timelineTime.textContent = `Lap ${frame.lap || '-'} · ${num(frame.session_time_s, 3)}s`;
+      timelineTrack.textContent = frame.track_segment || '-';
+      timelineUsage.textContent = `${frame.track_usage || '-'} / ${frame.track_zone || '-'}`;
+      timelineMessage.innerHTML = `<span class="${toneClassForAction(frame.top_message)}">${frame.top_message || 'NONE'}</span>`;
+      timelinePriority.textContent = `priority=${frame.top_priority || 0}`;
+      slider.value = String(playbackIndex);
+      renderCurrentFrame(frame);
+      renderRivals(frame);
+      renderDecisionTrace(frame);
+      renderModelSignals(frame);
+      renderNeighbors(playbackIndex);
+      renderTrackContext(frame);
+      renderDebug(frame);
+    }
+
+    function clearPlayback() {
+      if (playbackTimer !== null) {
         clearInterval(playbackTimer);
         playbackTimer = null;
-      }}
-    }}
+      }
+    }
 
-    function updatePlayToggle() {{
+    function updatePlayLabel() {
       playToggle.textContent = isPlaying ? '暂停' : '播放';
-    }}
+    }
 
-    function schedulePlaybackStep() {{
-      clearPlaybackTimer();
-      if (!isPlaying || !filteredFrames.length) return;
-      playbackTimer = setInterval(() => {{
-        if (!isPlaying || !filteredFrames.length) {{
-          clearPlaybackTimer();
-          return;
-        }}
-        if (playbackIndex >= filteredFrames.length - 1) {{
-          isPlaying = false;
-          updatePlayToggle();
-          clearPlaybackTimer();
-          return;
-        }}
-        playbackIndex += 1;
-        slider.value = String(playbackIndex);
-        renderFrame(playbackIndex);
-      }}, 120);
-    }}
-
-    function applyLapFilter() {{
-      clearPlaybackTimer();
+    function applyLapFilter() {
+      clearPlayback();
       isPlaying = false;
-      updatePlayToggle();
+      updatePlayLabel();
       const selectedLap = lapFilter.value;
-      filteredFrames = selectedLap === 'all' ? frames.slice() : frames.filter((item) => String(item.lap) === selectedLap);
+      filteredFrames = selectedLap === 'all' ? frames.slice() : frames.filter((frame) => String(frame.lap) === selectedLap);
       slider.min = 0;
-      slider.max = Math.max(filteredFrames.length - 1, 0);
+      slider.max = String(Math.max(filteredFrames.length - 1, 0));
       playbackIndex = Math.max(filteredFrames.length - 1, 0);
-      slider.value = playbackIndex;
       renderFrame(playbackIndex);
-    }}
+    }
+
+    function step(delta) {
+      if (!filteredFrames.length) return;
+      clearPlayback();
+      isPlaying = false;
+      updatePlayLabel();
+      renderFrame(Math.min(Math.max(playbackIndex + delta, 0), filteredFrames.length - 1));
+    }
 
     lapFilter.addEventListener('change', applyLapFilter);
-    slider.addEventListener('input', () => {{
-      clearPlaybackTimer();
+    slider.addEventListener('input', () => {
+      clearPlayback();
       isPlaying = false;
-      updatePlayToggle();
-      playbackIndex = Number(slider.value || 0);
-      renderFrame(playbackIndex);
-    }});
-    playToggle.addEventListener('click', () => {{
+      updatePlayLabel();
+      renderFrame(Number(slider.value || 0));
+    });
+    prevFrameButton.addEventListener('click', () => step(-1));
+    nextFrameButton.addEventListener('click', () => step(1));
+    playToggle.addEventListener('click', () => {
       isPlaying = !isPlaying;
-      updatePlayToggle();
-      if (isPlaying) {{
-        if (filteredFrames.length && playbackIndex >= filteredFrames.length - 1) {{
-          playbackIndex = 0;
-          slider.value = '0';
-          renderFrame(playbackIndex);
-        }}
-        schedulePlaybackStep();
-      }} else {{
-        clearPlaybackTimer();
-      }}
-    }});
-    document.addEventListener('mousemove', onResizeMove);
-    document.addEventListener('mouseup', onResizeEnd);
-    applyCardLayout();
-    bindCardInteractions();
-    updatePlayToggle();
+      updatePlayLabel();
+      clearPlayback();
+      if (!isPlaying) return;
+      playbackTimer = setInterval(() => {
+        if (playbackIndex >= filteredFrames.length - 1) {
+          clearPlayback();
+          isPlaying = false;
+          updatePlayLabel();
+          return;
+        }
+        renderFrame(playbackIndex + 1);
+      }, 120);
+    });
+
+    renderMeta();
+    updatePlayLabel();
     applyLapFilter();
   </script>
 </body>
 </html>
 """
+        return template.replace("__EMBEDDED_PAYLOAD__", embedded)

@@ -6,12 +6,11 @@ from pathlib import Path
 import time
 from typing import Callable
 
-from .decode import decode_snapshot
 from .capture_ingest import CaptureJsonlSource
 from .output import ConsoleVoiceOutput
-from .packet_snapshot import CaptureSnapshotAssembler
-from .pdu_decoder import F125PacketDecoder, PacketDecodeError
+from .pdu_decoder import PacketDecodeError
 from .replay import ReplayLogger
+from .runtime_pipeline import StrategyRuntimePipeline
 from .state import UnifiedStateStore
 from .strategy import StrategyEngine
 
@@ -38,8 +37,6 @@ class CaptureReplayRuntime:
     ) -> None:
         self.capture_path = capture_path
         self.source = CaptureJsonlSource(capture_path)
-        self.decoder = F125PacketDecoder()
-        self.assembler = CaptureSnapshotAssembler()
         self.state_store = state_store
         self.strategy = strategy
         self.voice_output = voice_output
@@ -47,6 +44,12 @@ class CaptureReplayRuntime:
         self.dashboard_refresh = dashboard_refresh
         self.session_paced = session_paced
         self.pace_multiplier = max(pace_multiplier, 0.1)
+        self.pipeline = StrategyRuntimePipeline(
+            state_store=state_store,
+            strategy=strategy,
+            voice_output=voice_output,
+            logger=logger,
+        )
 
     def run(self) -> None:
         # 备注:
@@ -64,10 +67,11 @@ class CaptureReplayRuntime:
 
         for index, packet in enumerate(self.source, start=1):
             try:
-                envelope = self.decoder.decode_raw(packet)
+                result = self.pipeline.ingest_packet(packet)
             except PacketDecodeError as exc:
                 print(f"[ASURADA][CAPTURE] decode failed at packet {index}: {exc}")
                 continue
+            envelope = result.envelope
 
             counter[envelope.kind] += 1
             if envelope.session_uid not in (None, "0", 0):
@@ -79,7 +83,7 @@ class CaptureReplayRuntime:
                     f"{index}. {envelope.kind} frame={envelope.frame_identifier} bytes={header.get('byte_length')}"
                 )
 
-            normalized_snapshot = self.assembler.push(envelope)
+            normalized_snapshot = result.normalized_snapshot
             if normalized_snapshot is None:
                 continue
 
@@ -91,15 +95,8 @@ class CaptureReplayRuntime:
                     if delta_s > 0:
                         time.sleep(delta_s / self.pace_multiplier)
                 previous_session_time_s = current_session_time_s
-            state = decode_snapshot(normalized_snapshot)
-            self.state_store.update(state)
-            decision = self.strategy.evaluate(state, self.state_store.recent(12))
-            render_output = bool(decision.messages and decision.messages[0].priority >= 70)
-            lifecycle = self.voice_output.emit(decision, render=render_output)
-            event = (lifecycle or {}).get("event", {})
-            if event.get("event_type") in {"start", "interrupt"}:
+            if result.emitted:
                 emitted_count += 1
-            self.logger.append(state, decision)
             if self.dashboard_refresh is not None and snapshot_count % 500 == 0:
                 # 备注:
                 # dashboard 重建频率控制在 500 帧一次，避免回放期间
