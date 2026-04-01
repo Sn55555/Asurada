@@ -79,7 +79,7 @@ class StrategyRuntimePipeline:
         self.logger.append(state, decision)
 
         event = (lifecycle or {}).get("event", {})
-        emitted = event.get("event_type") in {"start", "interrupt"}
+        emitted = event.get("event_type") == "start"
         return PipelineStepResult(
             envelope=envelope,
             normalized_snapshot=normalized_snapshot,

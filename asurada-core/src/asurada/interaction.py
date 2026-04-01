@@ -66,6 +66,26 @@ class OutputLifecycleEvent:
 
 
 @dataclass
+class SpeechJob:
+    """Unified speech job shared by proactive strategy broadcasts and query responses."""
+
+    output_event_id: str
+    interaction_session_id: str
+    turn_id: str
+    request_id: str
+    snapshot_binding_id: str
+    source_kind: str
+    action_code: str
+    priority: int
+    speak_text: str
+    cancelable: bool
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
 class AsrStageEvent:
     """ASR stage envelope. Current system strategy flow marks this as not applicable."""
 
@@ -258,16 +278,12 @@ def build_system_strategy_input_event(
     source_timestamp_ms = _optional_int(state.raw.get("source_timestamp_ms"))
     created_at_ms = source_timestamp_ms or 0
 
-    snapshot_binding = SnapshotBinding(
+    snapshot_binding = _build_snapshot_binding(
+        state=state,
         snapshot_binding_id=snapshot_binding_id,
-        session_uid=session_uid,
         frame_identifier=frame_identifier,
         overall_frame_identifier=overall_frame_identifier,
         session_time_s=session_time_s,
-        lap_number=state.lap_number,
-        total_laps=state.total_laps,
-        player_position=state.player.position,
-        track=state.track,
     )
     return InteractionInputEvent(
         interaction_session_id=interaction_session_id,
@@ -287,6 +303,57 @@ def build_system_strategy_input_event(
             "session_mode": session_mode,
             "timing_mode": state.raw.get("timing_mode"),
             "timing_support_level": state.raw.get("timing_support_level"),
+        },
+    )
+
+
+def build_snapshot_query_input_event(
+    *,
+    state: SessionState,
+    query_kind: str,
+    primary_message: StrategyMessage | None = None,
+) -> InteractionInputEvent:
+    """Build a structured snapshot-query interaction envelope for internal voice tests."""
+
+    raw = state.raw
+    frame_identifier = _optional_int(raw.get("frame_identifier"))
+    overall_frame_identifier = _optional_int(raw.get("overall_frame_identifier"))
+    frame_token = (
+        overall_frame_identifier
+        if overall_frame_identifier is not None
+        else frame_identifier
+    )
+    frame_suffix = str(frame_token if frame_token is not None else "unknown")
+    session_uid = str(state.session_uid)
+    snapshot_binding_id = f"snap:{session_uid}:{frame_suffix}"
+    interaction_session_id = f"runtime:{session_uid}"
+    turn_id = f"turn:query:{query_kind}:{frame_suffix}"
+    request_id = f"req:query:{query_kind}:{session_uid}:{frame_suffix}"
+    session_time_s = _optional_float(raw.get("session_time_s"))
+    created_at_ms = _optional_int(raw.get("source_timestamp_ms")) or 0
+    snapshot_binding = _build_snapshot_binding(
+        state=state,
+        snapshot_binding_id=snapshot_binding_id,
+        frame_identifier=frame_identifier,
+        overall_frame_identifier=overall_frame_identifier,
+        session_time_s=session_time_s,
+    )
+    return InteractionInputEvent(
+        interaction_session_id=interaction_session_id,
+        turn_id=turn_id,
+        request_id=request_id,
+        input_type="structured_query_stub",
+        intent_type="status_query",
+        source="output_coordinator",
+        created_at_ms=created_at_ms,
+        priority=95,
+        cancelable=True,
+        snapshot_binding_id=snapshot_binding_id,
+        query_text=_query_prompt(query_kind),
+        snapshot_binding=snapshot_binding,
+        metadata={
+            "query_kind": query_kind,
+            "primary_action_code": primary_message.code if primary_message is not None else None,
         },
     )
 
@@ -336,13 +403,14 @@ def build_structured_query_schema(input_event: InteractionInputEvent) -> Structu
     """Build the minimal structured query schema from one normalized interaction."""
 
     intent_type = str(input_event.intent_type or "unknown")
-    query_kind = "strategy_broadcast" if intent_type == "strategy_broadcast" else "status_query"
-    target_scope = "strategy" if intent_type == "strategy_broadcast" else "state_snapshot"
-    requested_fields = (
-        ["messages", "risk_profile", "session_route"]
-        if intent_type == "strategy_broadcast"
-        else ["player", "rivals", "raw"]
-    )
+    if intent_type == "strategy_broadcast":
+        query_kind = "strategy_broadcast"
+        target_scope = "strategy"
+        requested_fields = ["messages", "risk_profile", "session_route"]
+    else:
+        query_kind = str(input_event.metadata.get("query_kind") or "status_query")
+        target_scope = "strategy" if query_kind == "current_strategy" else "state_snapshot"
+        requested_fields = _requested_fields_for_query_kind(query_kind)
     return StructuredQuerySchema(
         schema_version="v1",
         query_kind=query_kind,
@@ -374,9 +442,19 @@ def route_structured_query(schema: StructuredQuerySchema) -> QueryRoute:
                 "requested_fields": schema.requested_fields,
             },
         )
+    if schema.query_kind == "fuel_status":
+        handler = "fuel_snapshot_handler"
+    elif schema.query_kind == "rear_gap":
+        handler = "rear_gap_snapshot_handler"
+    elif schema.query_kind == "tyre_status":
+        handler = "tyre_snapshot_handler"
+    elif schema.query_kind == "current_strategy":
+        handler = "strategy_snapshot_handler"
+    else:
+        handler = "strategy_snapshot_handler"
     return QueryRoute(
         route_type="snapshot_answer",
-        handler="strategy_snapshot_handler",
+        handler=handler,
         response_channel="voice",
         can_answer_from_snapshot=True,
         requires_confirmation=schema.requires_confirmation,
@@ -527,6 +605,12 @@ def build_tts_stage_event(
     """Build the TTS/output stage envelope from lifecycle events."""
 
     event_type = str(output_lifecycle_event.get("event_type") or "idle")
+    if event_type in {"enqueue", "replace_pending"}:
+        stage_status = "queued"
+    elif event_type == "idle":
+        stage_status = "not_applicable"
+    else:
+        stage_status = "completed"
     return TtsStageEvent(
         output_session_id=str(output_lifecycle_event.get("output_session_id") or "voice-output:unknown"),
         output_event_id=str(output_lifecycle_event.get("output_event_id") or "out:unknown"),
@@ -534,7 +618,7 @@ def build_tts_stage_event(
         turn_id=str(interaction_input_event.get("turn_id") or "turn:unknown"),
         request_id=str(interaction_input_event.get("request_id") or "req:unknown"),
         snapshot_binding_id=str(interaction_input_event.get("snapshot_binding_id") or "snap:unknown"),
-        stage_status="completed" if event_type not in {"idle"} else "not_applicable",
+        stage_status=stage_status,
         event_type=event_type,
         channel=str(output_lifecycle_event.get("channel") or "voice"),
         speak_text=str(output_lifecycle_event.get("speak_text") or ""),
@@ -543,8 +627,40 @@ def build_tts_stage_event(
         metadata={
             "priority": output_lifecycle_event.get("priority"),
             "interrupted_output_event_id": output_lifecycle_event.get("interrupted_output_event_id"),
+            "source_kind": output_lifecycle_event.get("metadata", {}).get("source_kind"),
         },
     )
+
+
+def render_structured_query_response(
+    *,
+    state: SessionState,
+    schema: StructuredQuerySchema,
+    primary_message: StrategyMessage | None = None,
+) -> tuple[str, str]:
+    """Render the first-wave templated snapshot query response text."""
+
+    if schema.query_kind == "fuel_status":
+        return (
+            f"当前燃油预计还可支撑 {state.player.fuel_laps_remaining:.1f} 圈，总圈数 {state.total_laps} 圈。",
+            "QUERY_FUEL_STATUS",
+        )
+    if schema.query_kind == "rear_gap":
+        if state.player.gap_behind_s is None:
+            return ("当前后车时差缺失。", "QUERY_REAR_GAP")
+        rear_name = state.rivals[0].name if state.rivals else "后车"
+        return (f"后车 {rear_name} 在 {state.player.gap_behind_s:.3f} 秒之后。", "QUERY_REAR_GAP")
+    if schema.query_kind == "tyre_status":
+        tyre = state.player.tyre
+        return (
+            f"当前轮胎 {tyre.compound}，磨损 {tyre.wear_pct:.1f}%，胎龄 {tyre.age_laps} 圈。",
+            "QUERY_TYRE_STATUS",
+        )
+    if schema.query_kind == "current_strategy":
+        if primary_message is None:
+            return ("当前没有高优先级主策略。", "QUERY_CURRENT_STRATEGY")
+        return (f"当前主策略是 {primary_message.title}。{primary_message.detail}", "QUERY_CURRENT_STRATEGY")
+    return ("当前查询类型还未接入模板回答。", "QUERY_SNAPSHOT_STATUS")
 
 
 def _optional_int(value: Any) -> int | None:
@@ -563,3 +679,46 @@ def _optional_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _build_snapshot_binding(
+    *,
+    state: SessionState,
+    snapshot_binding_id: str,
+    frame_identifier: int | None,
+    overall_frame_identifier: int | None,
+    session_time_s: float | None,
+) -> SnapshotBinding:
+    return SnapshotBinding(
+        snapshot_binding_id=snapshot_binding_id,
+        session_uid=str(state.session_uid),
+        frame_identifier=frame_identifier,
+        overall_frame_identifier=overall_frame_identifier,
+        session_time_s=session_time_s,
+        lap_number=state.lap_number,
+        total_laps=state.total_laps,
+        player_position=state.player.position,
+        track=state.track,
+    )
+
+
+def _query_prompt(query_kind: str) -> str:
+    prompts = {
+        "fuel_status": "当前燃油情况怎么样",
+        "rear_gap": "后车距离多少",
+        "tyre_status": "当前轮胎状态怎么样",
+        "current_strategy": "当前主策略是什么",
+    }
+    return prompts.get(query_kind, "当前状态怎么样")
+
+
+def _requested_fields_for_query_kind(query_kind: str) -> list[str]:
+    if query_kind == "fuel_status":
+        return ["player.fuel_laps_remaining", "total_laps", "raw.fuel_in_tank"]
+    if query_kind == "rear_gap":
+        return ["player.gap_behind_s", "rivals"]
+    if query_kind == "tyre_status":
+        return ["player.tyre"]
+    if query_kind == "current_strategy":
+        return ["messages", "session_route"]
+    return ["player", "rivals", "raw"]
