@@ -20,7 +20,7 @@
 
 - 阶段一总体进度：`98%`
 - 阶段一排除实时闭环后的进度：`98%+`
-- 阶段二准备工作进度：`66%`
+- 阶段二准备工作进度：`67%`
 - 阶段三产品化进度：`0%`
 
 当前结论：
@@ -28,6 +28,7 @@
 - 离线真实抓包策略主链已经打通
 - 调试面板已经具备工程级检查能力
 - 阶段二已从“数据准备”推进到“baseline + 控制层 + runtime sidecar + 扩展样本接入”并行阶段
+- 本地扩展数据集整理工作流已落地，当前已具备本机复现 split -> metadata -> config -> export -> validation 的统一入口
 - 当前最大未完成项是稀有事件样本验证和少量协议精修
 
 ## 阶段总览
@@ -64,7 +65,7 @@
 
 当前完成度：
 
-- `66%`
+- `67%`
 
 当前已启动工作：
 
@@ -258,6 +259,14 @@
   - 当前结论：
     - 新样本已拆分为单 session `.jsonl`
     - smoke export 已通过
+    - 本地扩展工作流已补齐：
+      - `scripts/prepare_local_extended_dataset.py`
+      - `scripts/validate_local_extended_dataset.py`
+      - 本地交接文档：`/Users/sn5/Asurada/tmp/local_extended_dataset_workflow.md`
+    - 当前口径：
+      - 仅服务本机
+      - 保持绝对路径
+      - 不纳入仓库公开默认入口
     - 已可进入现有阶段二训练链
 - `strategy_action_model` 扩展数据集 split 已修复
   - 当前结论：exported `val` 已稳定包含 `DEFEND_WINDOW`

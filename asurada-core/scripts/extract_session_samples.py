@@ -5,7 +5,9 @@ import base64
 import json
 import sys
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
@@ -49,6 +51,27 @@ SESSION_CLASSIFICATIONS = {
 }
 
 
+@dataclass(frozen=True)
+class SessionClassification:
+    session_uid: str
+    sample_name: str
+    session_type_code: int
+    session_label: str
+    confidence: str
+    reason: str
+
+    @classmethod
+    def from_mapping(cls, session_uid: str, payload: dict[str, Any]) -> "SessionClassification":
+        return cls(
+            session_uid=str(session_uid),
+            sample_name=str(payload["sample_name"]),
+            session_type_code=int(payload["session_type_code"]),
+            session_label=str(payload["session_label"]),
+            confidence=str(payload["confidence"]),
+            reason=str(payload["reason"]),
+        )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Extract reusable per-session samples from one raw capture JSONL.")
     parser.add_argument(
@@ -69,15 +92,36 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    records = _extract_samples(args.capture_jsonl, args.output_dir)
+    records = extract_samples(
+        capture_path=args.capture_jsonl,
+        output_dir=args.output_dir,
+        classifications=load_classifications(SESSION_CLASSIFICATIONS),
+    )
     metadata_path = args.output_dir / "metadata.json"
-    metadata_path.write_text(json.dumps({"samples": records}, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_metadata(records, metadata_path)
     print(metadata_path)
     print(json.dumps({"samples": records}, ensure_ascii=False, indent=2))
     return 0
 
 
-def _extract_samples(capture_path: Path, output_dir: Path) -> list[dict]:
+def load_classifications(raw_mapping: dict[str, dict[str, Any]]) -> dict[str, SessionClassification]:
+    return {
+        str(session_uid): SessionClassification.from_mapping(session_uid, payload)
+        for session_uid, payload in raw_mapping.items()
+    }
+
+
+def write_metadata(records: list[dict[str, Any]], metadata_path: Path) -> None:
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(json.dumps({"samples": records}, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def extract_samples(
+    *,
+    capture_path: Path,
+    output_dir: Path,
+    classifications: dict[str, SessionClassification],
+) -> list[dict[str, Any]]:
     """Split one raw capture into reusable per-session sample files.
 
     备注:
@@ -85,7 +129,7 @@ def _extract_samples(capture_path: Path, output_dir: Path) -> list[dict]:
     这里保留原始 packet 行，只做 session 维度切片和 metadata 汇总。
     """
     decoder = F125PacketDecoder()
-    target_uids = set(SESSION_CLASSIFICATIONS)
+    target_uids = set(classifications)
     handles: dict[str, object] = {}
     packet_counts = defaultdict(Counter)
     event_counts = defaultdict(Counter)
@@ -121,7 +165,7 @@ def _extract_samples(capture_path: Path, output_dir: Path) -> list[dict]:
                     continue
 
                 if uid not in handles:
-                    sample_name = SESSION_CLASSIFICATIONS[uid]["sample_name"]
+                    sample_name = classifications[uid].sample_name
                     handles[uid] = (output_dir / f"{sample_name}.jsonl").open("w", encoding="utf-8")
 
                 handles[uid].write(line)
@@ -155,17 +199,17 @@ def _extract_samples(capture_path: Path, output_dir: Path) -> list[dict]:
             file_handle.close()
 
     results = []
-    for uid, config in SESSION_CLASSIFICATIONS.items():
-        sample_path = output_dir / f"{config['sample_name']}.jsonl"
+    for uid, config in classifications.items():
+        sample_path = output_dir / f"{config.sample_name}.jsonl"
         results.append(
             {
                 "session_uid": uid,
-                "sample_name": config["sample_name"],
+                "sample_name": config.sample_name,
                 "file_path": str(sample_path),
-                "session_type_code": config["session_type_code"],
-                "session_label": config["session_label"],
-                "confidence": config["confidence"],
-                "reason": config["reason"],
+                "session_type_code": config.session_type_code,
+                "session_label": config.session_label,
+                "confidence": config.confidence,
+                "reason": config.reason,
                 "wall_seconds": round((last_ms[uid] - first_ms[uid]) / 1000.0, 3) if uid in first_ms else 0.0,
                 "session": session_meta.get(uid, {}),
                 "final": final_meta.get(uid, {}),

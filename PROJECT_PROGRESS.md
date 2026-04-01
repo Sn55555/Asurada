@@ -6,7 +6,7 @@
 ## 总览
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-98%25-2ea44f?style=for-the-badge)
-![Phase 2](https://img.shields.io/badge/Phase%202-66%25-f59e0b?style=for-the-badge)
+![Phase 2](https://img.shields.io/badge/Phase%202-67%25-f59e0b?style=for-the-badge)
 ![Phase 3](https://img.shields.io/badge/Phase%203-0%25-9ca3af?style=for-the-badge)
 
 ```mermaid
@@ -14,7 +14,7 @@ xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [98, 66, 0]
+    bar [98, 67, 0]
 ```
 
 ## 阶段一：核心开发闭环
@@ -54,9 +54,9 @@ xychart-beta
 ## 阶段二：模型与边缘化准备
 
 ![Status](https://img.shields.io/badge/Status-In%20Progress-f59e0b?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-66%25-f59e0b?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-67%25-f59e0b?style=flat-square)
 
-进度条：`███████░░░ 66%`
+进度条：`███████░░░ 67%`
 
 ### 已完成项
 
@@ -90,6 +90,10 @@ xychart-beta
 - `track_id 13 -> Suzuka` 赛道映射已补齐
 - `Suzuka` 赛道语义模型已接入 `track_profile` 加载链
 - `phase2_dataset_v2_extended` 扩展数据集配置与合并 metadata 已建立
+- 本地扩展数据集整理工作流已落地：
+  - `prepare_local_extended_dataset.py`
+  - `validate_local_extended_dataset.py`
+  - 本地交接文档已写入 `tmp/local_extended_dataset_workflow.md`
 - `strategy_action_model` 在扩展数据集下的 exported `val` 切分已修复，`DEFEND_WINDOW` 已稳定进入 `val`
 - `attack_opportunity_model` 已按扩展数据集重做 exported `val`、收紧伪标签并改成保守阈值选择，当前误报已显著压低
 
@@ -115,6 +119,7 @@ xychart-beta
 - 资源/压力/趋势 sidecar 分数有限度接入仲裁
 - 攻防链 DRS / closing-rate 信号进一步增强
 - 扩展数据集下 `rear_threat / front_attack_commit / strategy_action` 全链复核
+- 本地扩展数据集工作流的 full export 长跑验收
 
 ### 当前新增控制层进展
 
