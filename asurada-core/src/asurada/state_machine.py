@@ -44,7 +44,7 @@ class TacticalStateMachine:
 
         if previous_tactical_state in {"defence_prepare", "defence_active"} and tactical_state == "neutral":
             gap_behind = state.player.gap_behind_s
-            if gap_behind is not None and gap_behind <= 1.2:
+            if gap_behind is not None and gap_behind <= 0.95:
                 tactical_state = "defence_prepare"
                 history_hold_applied = True
         if previous_tactical_state in {"counterattack_prepare", "counterattack_active"} and tactical_state == "neutral":
@@ -156,7 +156,7 @@ class TacticalStateMachine:
     ) -> str:
         if last_output_action == "DEFEND_WINDOW":
             gap_behind = state.player.gap_behind_s
-            if gap_behind is not None and gap_behind <= 1.5:
+            if gap_behind is not None and gap_behind <= 1.05:
                 return "defence_prepare" if previous_tactical_state == "defence_prepare" else "defence_active"
         if last_output_action == "ATTACK_WINDOW":
             gap_ahead = state.player.gap_ahead_s

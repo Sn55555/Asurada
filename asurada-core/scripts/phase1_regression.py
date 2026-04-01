@@ -777,7 +777,7 @@ def analyze_tactical_state_machine_contract() -> dict[str, Any]:
     )
 
     history_previous = _make_session_state(position=2, gap_ahead_s=0.8, gap_behind_s=0.9, drs_available=False)
-    history_current = _make_session_state(position=2, gap_ahead_s=1.0, gap_behind_s=1.35, drs_available=False)
+    history_current = _make_session_state(position=2, gap_ahead_s=1.0, gap_behind_s=1.0, drs_available=False)
     history_previous_resolution = TacticalStateResolution(
         previous_tactical_state="neutral",
         tactical_state="defence_prepare",

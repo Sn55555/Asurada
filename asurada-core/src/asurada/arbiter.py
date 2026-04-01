@@ -325,7 +325,10 @@ class StrategyArbiterV2:
         if preferred_code:
             for item in ranked:
                 if item.code == preferred_code:
-                    bonus = 15.0 if tactical_context.state_lock else 8.0
+                    if preferred_code == "DEFEND_WINDOW":
+                        bonus = 12.0 if tactical_context.state_lock else 4.0
+                    else:
+                        bonus = 15.0 if tactical_context.state_lock else 8.0
                     item.score += bonus
                     item.output_priority += int(round(bonus))
 
@@ -400,14 +403,16 @@ class StrategyArbiterV2:
                 elif strong_corner_quality >= 72.0 and exit_traction >= 72.0:
                     bonus -= 5.0
             elif item.code == "DEFEND_WINDOW":
-                if rear_pressure >= 55.0:
-                    bonus += 8.0
+                if rear_pressure >= 62.0:
+                    bonus += 4.0
+                elif rear_pressure <= 30.0 and not tactical_context.state_lock:
+                    bonus -= 3.0
                 if defence_cost >= 65.0 and tactical_context.tactical_state not in {"defence_active", "defence_prepare"}:
                     bonus -= 6.0
                 if poor_corner_quality and poor_corner_quality <= 32.0 and not tactical_context.state_lock:
-                    bonus -= 4.0
-                elif exit_traction >= 75.0 and rear_pressure >= 45.0:
-                    bonus += 3.0
+                    bonus -= 5.0
+                elif exit_traction >= 80.0 and rear_pressure >= 55.0:
+                    bonus += 2.0
             elif item.code == "ATTACK_WINDOW":
                 if rear_pressure <= 20.0:
                     bonus += 4.0
