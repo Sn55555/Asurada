@@ -395,6 +395,8 @@ class StrategyArbiterV2:
         strategy_confidence = self._extract_scalar(long_horizon_strategy, "strategy_confidence")
         remaining_required_stops = self._extract_scalar(long_horizon_strategy, "remaining_required_stops")
         long_horizon_enabled = bool(long_horizon_strategy.get("enabled", False)) if isinstance(long_horizon_strategy, dict) else False
+        recommended_compound = str(long_horizon_strategy.get("recommended_compound") or "") if isinstance(long_horizon_strategy, dict) else ""
+        recommended_set_available = bool(long_horizon_strategy.get("recommended_set_available")) if recommended_compound else True
         pit_window_pressure_bonus = (
             (pit_window_open_prob * 10.0)
             + (max(0.0, stint_risk_score - 45.0) * 0.06)
@@ -472,6 +474,10 @@ class StrategyArbiterV2:
                     if aggression_bias <= -0.25:
                         bonus += min(5.0, abs(aggression_bias) * 6.0)
                     bonus += pit_window_pressure_bonus + pit_window_execution_bonus
+                    if recommended_compound and not recommended_set_available:
+                        bonus -= 3.0
+                        if pit_window_open_prob >= 0.15:
+                            bonus -= 1.0
                     if strategy_confidence >= 0.65 and pit_window_open_prob >= 0.20:
                         bonus += 2.0
                     elif pit_window_open_prob <= 0.08 and stint_risk_score <= 35.0:

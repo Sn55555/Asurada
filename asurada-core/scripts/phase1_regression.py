@@ -900,6 +900,11 @@ def analyze_long_horizon_contract() -> dict[str, Any]:
             (race_plan.get("recommended_set_index") is None and isinstance(race_plan.get("recommended_set_available"), bool))
             or (race_plan.get("recommended_set_index") is not None and race_plan.get("recommended_set_available") is True)
         ),
+        "unavailable_set_caps_confidence": (
+            race_plan.get("recommended_compound") is None
+            or race_plan.get("recommended_set_available") is True
+            or float(race_plan.get("strategy_confidence", 1.0)) <= 0.55
+        ),
         "recommended_pit_lap_within_window": (
             race_recommended_lap is None
             or (

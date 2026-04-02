@@ -53,6 +53,22 @@ _TRACK_COMPOUND_BIAS: dict[str, dict[str, float]] = {
 }
 
 
+def _used_completed_dry_compounds(*, state: SessionState, current_compound: str) -> set[str]:
+    used_dry_compounds = {current_compound} if current_compound in _DRY_COMPOUND_ORDER else set()
+    session_history = state.raw.get("session_history") or {}
+    for stint in session_history.get("tyre_stints_history_data") or []:
+        end_lap = int(stint.get("end_lap", 0) or 0)
+        if end_lap <= 0 or end_lap >= 255:
+            continue
+        code = stint.get("tyre_visual_compound")
+        if not isinstance(code, int):
+            continue
+        compound_name = _TYRE_VISUAL_COMPOUND_NAMES.get(code)
+        if compound_name in _DRY_COMPOUND_ORDER:
+            used_dry_compounds.add(compound_name)
+    return used_dry_compounds
+
+
 @dataclass
 class PitWindowSupportState:
     enabled: bool
@@ -358,16 +374,7 @@ class PitWindowSupport:
         return _clamp(base, 0.30, 1.0)
 
     def _used_dry_compounds(self, *, state: SessionState, current_compound: str) -> set[str]:
-        used_dry_compounds = {current_compound} if current_compound in _DRY_COMPOUND_ORDER else set()
-        session_history = state.raw.get("session_history") or {}
-        for stint in session_history.get("tyre_stints_history_data") or []:
-            code = stint.get("tyre_visual_compound")
-            if not isinstance(code, int):
-                continue
-            compound_name = _TYRE_VISUAL_COMPOUND_NAMES.get(code)
-            if compound_name in _DRY_COMPOUND_ORDER:
-                used_dry_compounds.add(compound_name)
-        return used_dry_compounds
+        return _used_completed_dry_compounds(state=state, current_compound=current_compound)
 
     def _compound_rule_state(
         self,
@@ -591,6 +598,8 @@ class LongHorizonStrategyBaseline:
             )
         else:
             confidence = _clamp01(confidence + (support.pit_window_open_prob * 0.18))
+        if recommended_compound is not None and not recommended_set_available:
+            confidence = min(_clamp01(confidence - 0.18), 0.55)
         aggression_bias = _clamp(
             0.0
             + (0.18 if rear_pressure <= 25.0 else -0.22 if rear_pressure >= 60.0 else 0.0)
@@ -608,6 +617,7 @@ class LongHorizonStrategyBaseline:
             rationale.append(f"推荐轮胎组 #{recommended_set_index}")
         elif recommended_compound is not None and not recommended_set_available:
             rationale.append("当前无可用轮胎组，暂按理论胎种规划")
+            rationale.append("当前推荐可执行性不足，下调策略置信度")
         if support.rationale:
             rationale.extend(support.rationale[:2])
 
@@ -827,16 +837,7 @@ class LongHorizonStrategyBaseline:
         return 0.0
 
     def _used_dry_compounds(self, *, state: SessionState, current_compound: str) -> set[str]:
-        used_dry_compounds = {current_compound} if current_compound in _DRY_COMPOUND_ORDER else set()
-        session_history = state.raw.get("session_history") or {}
-        for stint in session_history.get("tyre_stints_history_data") or []:
-            code = stint.get("tyre_visual_compound")
-            if not isinstance(code, int):
-                continue
-            compound_name = _TYRE_VISUAL_COMPOUND_NAMES.get(code)
-            if compound_name in _DRY_COMPOUND_ORDER:
-                used_dry_compounds.add(compound_name)
-        return used_dry_compounds
+        return _used_completed_dry_compounds(state=state, current_compound=current_compound)
 
     def _available_dry_compound_quality(self, set_options: dict[str, list[dict[str, Any]]]) -> dict[str, float]:
         quality_by_compound: dict[str, float] = {}
