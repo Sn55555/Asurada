@@ -6,7 +6,7 @@
 ## 总览
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-98%25-2ea44f?style=for-the-badge)
-![Phase 2](https://img.shields.io/badge/Phase%202-67%25-f59e0b?style=for-the-badge)
+![Phase 2](https://img.shields.io/badge/Phase%202-70%25-f59e0b?style=for-the-badge)
 ![Phase 3](https://img.shields.io/badge/Phase%203-10%25-2563eb?style=for-the-badge)
 
 ```mermaid
@@ -14,7 +14,7 @@ xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [98, 67, 10]
+    bar [98, 70, 10]
 ```
 
 ## 阶段一：核心开发闭环
@@ -54,9 +54,9 @@ xychart-beta
 ## 阶段二：模型与边缘化准备
 
 ![Status](https://img.shields.io/badge/Status-In%20Progress-f59e0b?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-67%25-f59e0b?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-70%25-f59e0b?style=flat-square)
 
-进度条：`███████░░░ 67%`
+进度条：`███████░░░ 70%`
 
 ### 已完成项
 
@@ -94,6 +94,14 @@ xychart-beta
   - `prepare_local_extended_dataset.py`
   - `validate_local_extended_dataset.py`
   - 本地交接文档已写入 `tmp/local_extended_dataset_workflow.md`
+- `pit_window_support_model` 第一版已实现
+  - 已输出 `lap_life_remaining_est / pit_window_open_prob / compound_risk_score / rejoin_traffic_penalty / estimated_rejoin_position_loss / undercut_defence_score`
+  - 已写入 `decision.debug` 与 `arbiter_v2.input`
+- `long_horizon_strategy_baseline` 第一版已实现
+  - 已输出 `recommended_pit_lap / pit_window_start_lap / pit_window_end_lap / recommended_compound / recommended_set_index / recommended_set_available / strategy_confidence / aggression_bias`
+  - 已轻度接入 `arbiter_v2`
+- 长周期回归断言已补齐
+  - `analyze_long_horizon_contract()` 已覆盖结构合法性与 `recommended_set_index / recommended_set_available` 一致性
 - `strategy_action_model` 在扩展数据集下的 exported `val` 切分已修复，`DEFEND_WINDOW` 已稳定进入 `val`
 - `attack_opportunity_model` 已按扩展数据集重做 exported `val`、收紧伪标签并改成保守阈值选择，当前误报已显著压低
 
@@ -114,12 +122,10 @@ xychart-beta
 
 ### 待开发项
 
-- `pit_window_support_model`
-  - 目标：补齐 `lap_life_remaining_est / pit_window_open_prob / compound_risk_score / rejoin_traffic_penalty`
-  - 当前口径：先做 deterministic scorer sidecar，不直接接最终动作
-- `long_horizon_strategy_baseline`
-  - 目标：补齐 `recommended_pit_lap / recommended_compound / stint_risk_score / strategy_confidence`
-  - 当前口径：先枚举 `stay_out / pit_now / pit_in_1..5`，只进入 debug 与仲裁上下文
+- 长周期策略回放复核与口径标定
+  - 重点：`recommended_compound / recommended_set_index / recommended_set_available` 在多赛道样本上的稳定性
+- 长周期约束继续增强
+  - 重点：`recommended_set_available = false` 时的更强仲裁约束、湿地 `TyreSets` set 级选择
 - `yield_vs_defend_model` 重启前的数据/标签收口
 - `event_impact_model` 事件样本补强
 - 资源/压力/趋势 sidecar 分数有限度接入仲裁

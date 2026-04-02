@@ -21,6 +21,7 @@ from .interaction import (
     build_system_strategy_input_event,
     route_structured_query,
 )
+from .long_horizon import LongHorizonStrategyBaseline, PitWindowSupport
 from .models import (
     ContextProfile,
     RiskProfile,
@@ -56,6 +57,8 @@ class StrategyEngine:
         self.rival_pressure_runtime = RivalPressureRuntimeSet()
         self.driving_quality_runtime = DrivingQualityRuntimeSet()
         self.tyre_degradation_trend_runtime = TyreDegradationTrendRuntimeSet()
+        self.pit_window_support = PitWindowSupport()
+        self.long_horizon_strategy = LongHorizonStrategyBaseline()
         self.defence_cost_runtime = ResourceRiskModelRuntime(
             name="defence_cost",
             report_path=DEFAULT_DEFENCE_COST_REPORT,
@@ -90,6 +93,7 @@ class StrategyEngine:
             assessment,
             session_route,
         )
+        self._attach_long_horizon_debug_text(arbiter_sidecar)
         messages = self._resolve_final_messages(legacy_messages, arbiter_sidecar)
         session_key = str(state.session_uid)
         tactical_machine_debug = ((arbiter_sidecar.get("input", {}) or {}).get("tactical_state_machine", {}) or {})
@@ -146,6 +150,8 @@ class StrategyEngine:
                 "risk_profile": risk_profile.__dict__,
                 "risk_explain": risk_explain,
                 "usage_bias": usage_bias,
+                "pit_window_support": ((arbiter_sidecar.get("input", {}) or {}).get("pit_window_support") or {}),
+                "long_horizon_strategy": ((arbiter_sidecar.get("input", {}) or {}).get("long_horizon_strategy") or {}),
                 "session_route": {
                     "session_mode": session_route.session_mode,
                     "allowed_action_codes": sorted(session_route.allowed_action_codes),
@@ -163,6 +169,91 @@ class StrategyEngine:
                 "voice_pipeline_log": pipeline_log,
             },
         )
+
+    def _attach_long_horizon_debug_text(self, arbiter_sidecar: dict) -> None:
+        input_payload = (arbiter_sidecar.get("input", {}) or {}) if isinstance(arbiter_sidecar, dict) else {}
+        sidecar_scores = (input_payload.get("sidecar_scores", {}) or {}) if isinstance(input_payload, dict) else {}
+        pit_window_support = dict((input_payload.get("pit_window_support", {}) or {}))
+        long_horizon_strategy = dict((input_payload.get("long_horizon_strategy", {}) or {}))
+
+        pit_window_support["summary"] = self._format_pit_window_support_summary(pit_window_support)
+        long_horizon_strategy["summary"] = self._format_long_horizon_summary(long_horizon_strategy)
+
+        if isinstance(input_payload, dict):
+            input_payload["pit_window_support"] = pit_window_support
+            input_payload["long_horizon_strategy"] = long_horizon_strategy
+        if isinstance(sidecar_scores, dict):
+            sidecar_scores["pit_window_support"] = pit_window_support
+            sidecar_scores["long_horizon_strategy"] = long_horizon_strategy
+
+    def _format_pit_window_support_summary(self, payload: dict) -> str:
+        if not payload or not payload.get("enabled", False):
+            return "当前 session route 不启用进站窗口支持"
+
+        parts: list[str] = []
+        pit_window_open_prob = payload.get("pit_window_open_prob")
+        if isinstance(pit_window_open_prob, (int, float)):
+            parts.append(f"进站开窗概率 {float(pit_window_open_prob):.2f}")
+
+        lap_life_remaining_est = payload.get("lap_life_remaining_est")
+        if isinstance(lap_life_remaining_est, (int, float)):
+            parts.append(f"预计当前胎还可支撑 {float(lap_life_remaining_est):.1f} 圈")
+
+        compound_rule_state = payload.get("compound_rule_state")
+        if compound_rule_state:
+            parts.append(f"干胎规则状态 {compound_rule_state}")
+
+        remaining_required_stops = payload.get("remaining_required_stops")
+        if isinstance(remaining_required_stops, (int, float)):
+            parts.append(f"剩余必要进站 {int(remaining_required_stops)} 次")
+
+        rejoin_traffic_penalty = payload.get("rejoin_traffic_penalty")
+        if isinstance(rejoin_traffic_penalty, (int, float)):
+            parts.append(f"回场交通代价 {float(rejoin_traffic_penalty):.1f}")
+
+        return "；".join(parts) if parts else "进站窗口支持已启用"
+
+    def _format_long_horizon_summary(self, payload: dict) -> str:
+        if not payload or not payload.get("enabled", False):
+            rationale = payload.get("rationale") or []
+            if rationale:
+                return str(rationale[0])
+            return "当前 session route 不启用长周期进站规划"
+
+        parts: list[str] = []
+        recommended_pit_lap = payload.get("recommended_pit_lap")
+        if isinstance(recommended_pit_lap, (int, float)):
+            parts.append(f"推荐进站圈 {int(recommended_pit_lap)}")
+
+        pit_window_start_lap = payload.get("pit_window_start_lap")
+        pit_window_end_lap = payload.get("pit_window_end_lap")
+        if isinstance(pit_window_start_lap, (int, float)) and isinstance(pit_window_end_lap, (int, float)):
+            parts.append(f"窗口 {int(pit_window_start_lap)}-{int(pit_window_end_lap)}")
+
+        recommended_compound = payload.get("recommended_compound")
+        if recommended_compound:
+            parts.append(f"推荐换胎 {recommended_compound}")
+
+        recommended_set_index = payload.get("recommended_set_index")
+        recommended_set_available = payload.get("recommended_set_available")
+        if isinstance(recommended_set_index, (int, float)):
+            parts.append(f"推荐轮胎组 #{int(recommended_set_index)}")
+        elif recommended_compound and recommended_set_available is False:
+            parts.append("当前无可用轮胎组")
+
+        strategy_confidence = payload.get("strategy_confidence")
+        if isinstance(strategy_confidence, (int, float)):
+            parts.append(f"置信度 {float(strategy_confidence):.2f}")
+
+        aggression_bias = payload.get("aggression_bias")
+        if isinstance(aggression_bias, (int, float)):
+            parts.append(f"攻击倾向 {float(aggression_bias):+.2f}")
+
+        rationale = payload.get("rationale") or []
+        if rationale:
+            parts.append(str(rationale[0]))
+
+        return "；".join(parts) if parts else "长周期规划已启用"
 
     def _build_context(self, state: SessionState, history: list[SessionState]) -> ContextProfile:
         """Derive short-window context features from recent frames and track metadata."""
@@ -615,6 +706,20 @@ class StrategyEngine:
         driving_quality_models = self.driving_quality_runtime.predict_all(state=state, context=context)
         tyre_degradation_trend_models = self.tyre_degradation_trend_runtime.predict_all(state=state, context=context)
         defence_cost_model = self.defence_cost_runtime.predict_score(state=state, context=context)
+        pit_window_support = self.pit_window_support.evaluate(
+            state=state,
+            context=context,
+            resource_models=resource_models,
+            rival_pressure_models=rival_pressure_models,
+            tyre_degradation_trend_models=tyre_degradation_trend_models,
+        )
+        long_horizon_strategy = self.long_horizon_strategy.plan(
+            state=state,
+            session_route=session_route,
+            support=pit_window_support,
+            resource_models=resource_models,
+            rival_pressure_models=rival_pressure_models,
+        )
         tactical_context = TacticalContext(
             tactical_state=tactical_resolution.tactical_state,
             state_priority_hint=tactical_resolution.state_priority_hint,
@@ -644,6 +749,8 @@ class StrategyEngine:
                 "driving_quality_models": driving_quality_models,
                 "tyre_degradation_trend_models": tyre_degradation_trend_models,
                 "defence_cost_model": defence_cost_model,
+                "pit_window_support": pit_window_support.to_dict(),
+                "long_horizon_strategy": long_horizon_strategy.to_dict(),
             },
         )
         result = self.arbiter_v2.arbitrate(payload)
@@ -680,6 +787,8 @@ class StrategyEngine:
                 "driving_quality_models": driving_quality_models,
                 "tyre_degradation_trend_models": tyre_degradation_trend_models,
                 "defence_cost_model": defence_cost_model,
+                "pit_window_support": pit_window_support.to_dict(),
+                "long_horizon_strategy": long_horizon_strategy.to_dict(),
                 "session_route": {
                     "session_mode": session_route.session_mode,
                     "allowed_action_codes": sorted(session_route.allowed_action_codes),

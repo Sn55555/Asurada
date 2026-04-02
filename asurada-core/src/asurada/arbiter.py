@@ -372,6 +372,8 @@ class StrategyArbiterV2:
         defence_cost_model = sidecar_scores.get("defence_cost_model") or {}
         driving_quality_models = sidecar_scores.get("driving_quality_models") or {}
         tyre_trend_models = sidecar_scores.get("tyre_degradation_trend_models") or {}
+        pit_window_support = sidecar_scores.get("pit_window_support") or {}
+        long_horizon_strategy = sidecar_scores.get("long_horizon_strategy") or {}
 
         fuel_risk = self._extract_score(resource_models, "fuel_risk")
         dynamics_risk = self._extract_score(resource_models, "dynamics_risk")
@@ -385,6 +387,23 @@ class StrategyArbiterV2:
 
         poor_corner_quality = min(entry_quality, apex_quality) if entry_quality and apex_quality else 0.0
         strong_corner_quality = min(entry_quality, apex_quality) if entry_quality and apex_quality else 0.0
+        pit_window_open_prob = self._extract_scalar(pit_window_support, "pit_window_open_prob")
+        rejoin_traffic_penalty = self._extract_scalar(pit_window_support, "rejoin_traffic_penalty")
+        pit_loss_now_score = self._extract_scalar(pit_window_support, "pit_loss_now_score")
+        aggression_bias = self._extract_scalar(long_horizon_strategy, "aggression_bias")
+        stint_risk_score = self._extract_scalar(long_horizon_strategy, "stint_risk_score")
+        strategy_confidence = self._extract_scalar(long_horizon_strategy, "strategy_confidence")
+        remaining_required_stops = self._extract_scalar(long_horizon_strategy, "remaining_required_stops")
+        long_horizon_enabled = bool(long_horizon_strategy.get("enabled", False)) if isinstance(long_horizon_strategy, dict) else False
+        pit_window_pressure_bonus = (
+            (pit_window_open_prob * 10.0)
+            + (max(0.0, stint_risk_score - 45.0) * 0.06)
+            + min(4.0, remaining_required_stops * 2.0)
+        )
+        pit_window_execution_bonus = (
+            max(0.0, 40.0 - rejoin_traffic_penalty) * 0.10
+            + max(0.0, pit_loss_now_score - 45.0) * 0.08
+        )
 
         for item in ranked:
             bonus = 0.0
@@ -413,6 +432,8 @@ class StrategyArbiterV2:
                     bonus -= 5.0
                 elif exit_traction >= 80.0 and rear_pressure >= 55.0:
                     bonus += 2.0
+                if long_horizon_enabled:
+                    bonus -= aggression_bias * 6.0
             elif item.code == "ATTACK_WINDOW":
                 if rear_pressure <= 20.0:
                     bonus += 4.0
@@ -426,11 +447,37 @@ class StrategyArbiterV2:
                     bonus -= 6.0
                 if exit_traction <= 42.0:
                     bonus -= 5.0
+                if long_horizon_enabled:
+                    bonus += aggression_bias * 8.0
+                    if pit_window_open_prob >= 0.18:
+                        bonus -= (pit_window_open_prob * 5.0) + (max(0.0, stint_risk_score - 55.0) * 0.05)
+                    if remaining_required_stops > 0 and strategy_confidence >= 0.5 and pit_window_open_prob >= 0.10:
+                        bonus -= 2.0
             elif item.code == "FRONT_LOAD":
                 if poor_corner_quality and poor_corner_quality <= 30.0:
                     bonus += 7.0
                 elif strong_corner_quality >= 70.0 and exit_traction >= 68.0:
                     bonus -= 4.0
+            elif item.code == "TYRE_MANAGE":
+                if long_horizon_enabled and aggression_bias <= -0.15:
+                    bonus += min(4.0, abs(aggression_bias) * 5.0)
+                if long_horizon_enabled:
+                    bonus += (pit_window_open_prob * 4.0) + (max(0.0, stint_risk_score - 50.0) * 0.05)
+                    if remaining_required_stops > 0 and pit_window_open_prob < 0.25:
+                        bonus += 2.0
+                    elif pit_window_open_prob <= 0.08 and stint_risk_score <= 35.0 and aggression_bias >= 0.10:
+                        bonus -= 2.0
+            elif item.code == "BOX_WINDOW":
+                if long_horizon_enabled:
+                    if aggression_bias <= -0.25:
+                        bonus += min(5.0, abs(aggression_bias) * 6.0)
+                    bonus += pit_window_pressure_bonus + pit_window_execution_bonus
+                    if strategy_confidence >= 0.65 and pit_window_open_prob >= 0.20:
+                        bonus += 2.0
+                    elif pit_window_open_prob <= 0.08 and stint_risk_score <= 35.0:
+                        bonus -= 4.0
+                    elif pit_window_open_prob <= 0.12 and strategy_confidence < 0.60:
+                        bonus -= 2.0
 
             if bonus:
                 item.score += bonus
@@ -442,5 +489,13 @@ class StrategyArbiterV2:
             return 0.0
         try:
             return float(item.get("score") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _extract_scalar(self, payload: dict[str, object], key: str) -> float:
+        if not isinstance(payload, dict):
+            return 0.0
+        try:
+            return float(payload.get(key) or 0.0)
         except (TypeError, ValueError):
             return 0.0

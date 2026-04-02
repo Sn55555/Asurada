@@ -46,6 +46,8 @@
 | `exit_traction_model` | 已完成第一版 baseline | 已旁路接入 runtime debug；当前适合作为趋势/观察分数 |
 | `counterattack_window_model` | 已完成训练入口与可训练性检查 | 当前阻塞：专题样本正类不足，不能继续训练 |
 | `tyre_degradation_trend_model` | 已完成第一版 baseline | 当前可用，已旁路接入 runtime debug |
+| `pit_window_support_model` | 已完成第一版 baseline | 已接入 `decision.debug` 与 `arbiter_v2` 上下文，当前作为 deterministic sidecar |
+| `long_horizon_strategy_baseline` | 已完成第一版 baseline | 已接入 `decision.debug` 与 `arbiter_v2` 上下文，当前作为长周期 sidecar planner |
 | `short_horizon_risk_forecast_model` | 已完成 baseline 试跑 | 当前暂不推进：未来风险标签定义和时序特征都不成立 |
 | `driver_style_model` | 已完成 baseline 试跑 | 当前暂不推进：长窗口样本过少，风格标签塌缩 |
 | `pit_rejoin_traffic_model` | 已完成可训练性检查 | 当前阻塞：`pit_status` 与状态转移字段已补齐，但 `pit_exit + rejoin_window` 候选样本仅 `11` 条，仍不够训练 |
@@ -246,13 +248,17 @@
    `fuel_risk_model`、`ers_risk_model`、`tyre_risk_model`、`dynamics_risk_model` 是上游模型。  
    攻防和动作决策模型会直接引用它们的输出，因此实现时必须早于相关攻防模型。
 
-3. 再完成威胁、机会与代价模型  
+3. 再完成长周期进站支持与规划层  
+   `pit_window_support_model`、`long_horizon_strategy_baseline` 负责补齐 `pit / compound / stint / SC-VSC-aware` 的长周期输出。  
+   这层不直接替代短时仲裁，但会成为后续主链解释、进站建议和长周期偏置的统一来源。
+
+4. 再完成威胁、机会与代价模型  
    `rear_threat_model`、`attack_opportunity_model`、`defence_cost_model` 提供战术动作判断所需的中间评分。
 
-4. 再完成动作决策模型  
+5. 再完成动作决策模型  
    `yield_vs_defend_model`、`front_attack_commit_model`、`counterattack_window_model` 基于上游风险、机会和代价结果做动作选择。
 
-5. 最后接入状态机、仲裁与回退  
+6. 最后接入状态机、仲裁与回退  
    `tactical_state_machine`、`strategy_arbiter_v2`、`confidence_model / uncertainty_layer`、`fallback_policy` 负责把前面所有输出变成稳定可执行的主链动作。
 
 ### 关键依赖关系
@@ -260,6 +266,8 @@
 | 下游模型/模块 | 关键前置依赖 | 说明 |
 | --- | --- | --- |
 | `rear_threat_model` | `position_change_event_detector`, 攻防专题样本, `gap_closing_rate` 特征 | 没有事件与 closing-rate，后车威胁只能停留在单帧 gap 提醒 |
+| `pit_window_support_model` | `tyre_degradation_trend_model`, `fuel_risk_model`, `pit_status / pit_rejoin_phase`, `safety_car` | 长周期进站支持必须同时看轮胎衰减、燃油边际、回场状态和赛道管制状态 |
+| `long_horizon_strategy_baseline` | `pit_window_support_model`, `fuel_risk_model`, `session_mode_router`, `weather / safety_car` | 长周期规划层要输出 pit lap / compound / stint risk，但第一版不应直接拍板短时动作 |
 | `attack_opportunity_model` | `ers_risk_model`, `tyre_risk_model` | 攻击机会不只看 gap，还要看资源与轮胎承受能力 |
 | `defence_cost_model` | `ers_risk_model`, `tyre_risk_model`, `dynamics_risk_model` | 防守代价必须引用资源、轮胎和姿态风险 |
 | `front_attack_commit_model` | `attack_opportunity_model`, `ers_risk_model`, `tyre_risk_model`, `dynamics_risk_model` | 判断是否真投入进攻，必须基于机会和资源状态 |
@@ -272,7 +280,7 @@
 
 ### 实现时序总结
 
-阶段二实现顺序压缩为以下 5 层：
+阶段二实现顺序压缩为以下 6 层：
 
 1. 数据与控制前置层  
    攻防专题样本集、`closing_rate / next_segment / tactical_context` 特征、`session_mode_router`、`model_output_contract`、`position_change_event_detector`
@@ -280,13 +288,16 @@
 2. 基础资源与状态模型层  
    `fuel_risk_model`、`ers_risk_model`、`tyre_risk_model`、`dynamics_risk_model`
 
-3. 威胁、机会与代价模型层  
+3. 长周期进站支持与规划层  
+   `pit_window_support_model`、`long_horizon_strategy_baseline`
+
+4. 威胁、机会与代价模型层  
    `rear_threat_model`、`attack_opportunity_model`、`defence_cost_model`、`event_impact_model`
 
-4. 动作决策模型层  
+5. 动作决策模型层  
    `front_attack_commit_model`、`yield_vs_defend_model`、`counterattack_window_model`、`strategy_action_model`
 
-5. 主链控制与回退层  
+6. 主链控制与回退层  
    `confidence_model / uncertainty_layer`、`tactical_state_machine`、`strategy_arbiter_v2`、`fallback_policy`
 
 后续增强继续放在上述 5 层之后：
@@ -1497,13 +1508,149 @@
 是否进入实时主链：
 - 后续再定
 
+### `pit_window_support_model`
+
+主要功能：
+- 作为长周期策略层的中间评分器，补齐当前 stint 是否还能继续、何时开窗、当前进站回场代价是否可接受
+
+输入字段：
+- `lap_number`
+- `total_laps`
+- `session_time_s`
+- `fuel_laps_remaining`
+- `derived_fuel_laps_remaining`
+- `fuel_margin_laps`
+- `tyre_compound`
+- `tyre_age_laps`
+- `tyre_wear_pct`
+- `future_tyre_wear_delta`
+- `future_grip_drop_score`
+- `pit_status`
+- `pit_rejoin_phase`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
+- `safety_car`
+- `weather`
+- `track_segment`
+- `track_usage`
+
+输出字段：
+- `lap_life_remaining_est`
+- `pit_window_open_prob`
+- `compound_risk_score`
+- `rejoin_traffic_penalty`
+- `estimated_rejoin_position_loss`
+- `undercut_defence_score`
+
+推荐算法：
+- 第一版：`deterministic scorer + calibrated heuristics`
+- 第二版：`LightGBM / ranking model`
+
+标签来源：
+- 第一版不依赖监督标签
+- 后续可结合：
+  - 真实进站圈后验
+  - 回场流量后验
+  - stint 末段性能衰减后验
+
+评估指标：
+- `pit_window_hit_rate`
+- `lap_life_remaining_mae`
+- `rejoin_band_accuracy`
+- `compound_risk_calibration`
+
+是否进入实时主链：
+- 是，但第一版仅作为 sidecar 和仲裁上下文，不直接输出最终动作
+
 当前状态：
-- 已完成 baseline 试跑
-- 当前指标：
-  - `risk_forecast_3s`：`mae=25.14`、`rmse=26.94`、`r2=-3.16`
-  - `risk_forecast_next_zone`：`mae=16.21`、`rmse=17.16`、`r2=-0.81`
+- 已完成第一版 baseline
 - 当前结论：
-  - 目标定义和时序特征都不成立，暂不推进
+  - 这是阶段二后半最缺的中间层，当前已按 deterministic scorer 先落地
+  - 当前依赖已接入：
+    - `tyre_degradation_trend_model`
+    - `fuel_risk_model`
+    - `pit_status / pit_rejoin_phase`
+  - 当前已进入 `decision.debug` 与 `arbiter_v2.input`
+
+### `long_horizon_strategy_baseline`
+
+主要功能：
+- 生成长周期 `pit / compound / stint` 规划，不替代短时战术链，而是给主链提供长周期上下文与建议
+
+输入字段：
+- `lap_number`
+- `total_laps`
+- `session_time_s`
+- `fuel_laps_remaining`
+- `fuel_margin_laps`
+- `tyre_compound`
+- `tyre_age_laps`
+- `tyre_wear_pct`
+- `pit_status`
+- `safety_car`
+- `weather`
+- `official_gap_ahead_s`
+- `official_gap_behind_s`
+- `pit_window_support_model` 输出
+- `fuel_risk_model` 输出
+- `rear_pressure_model` 输出
+
+输出字段：
+- `recommended_pit_lap`
+- `pit_window_start_lap`
+- `pit_window_end_lap`
+- `recommended_compound`
+- `recommended_set_index`
+- `recommended_set_available`
+- `lap_life_remaining_est`
+- `pit_window_open_prob`
+- `stint_risk_score`
+- `compound_risk_score`
+- `strategy_confidence`
+- `aggression_bias`
+- `rationale`
+
+推荐算法：
+- 第一版：候选窗口枚举 + 规则/评分型 baseline
+- 第二版：在 baseline 上做 distillation 或 ranking
+
+标签来源：
+- 第一版不做监督学习
+- 后续可使用：
+  - 真实进站圈分布
+  - 赛后收益对比
+  - `base_strategy / real_strategy` 类型离线参考策略
+
+评估指标：
+- `recommended_pit_lap` 与真实进站圈的 `±2 laps hit rate`
+- `false_open_pit_window_rate`
+- `safety_car_response_correctness`
+- `compound_plausibility`
+- `stint_survival_error`
+
+是否进入实时主链：
+- 是，但第一版只进入 `debug` 和 `arbiter_v2` 上下文
+- 第一版不直接生成最终动作码
+
+当前状态：
+- 已完成第一版 baseline
+- 当前结论：
+  - 当前仓库最明显的结构缺口就是长周期 `pit / compound / stint` planner
+  - 第一版建议只枚举：
+    - `stay_out`
+    - `pit_now`
+    - `pit_in_1`
+    - `pit_in_2`
+    - `pit_in_3`
+    - `pit_in_4`
+    - `pit_in_5`
+  - 当前已实现：
+    - `stay_out / pit_now / pit_in_1..5` 候选枚举
+    - `recommended_compound` 评分式选择
+    - `TyreSets` 可用 dry set 选择
+    - `recommended_set_index / recommended_set_available`
+    - `decision.debug` 说明文本
+    - `arbiter_v2` 对 `aggression_bias / pit_window_open_prob / stint_risk_score` 的轻度消费
 
 ### `short_horizon_risk_forecast_model`
 
@@ -1661,35 +1808,40 @@
 8. 训练 `tyre_risk_model`
 9. 训练 `dynamics_risk_model`
 
-### 第 2 层：威胁、机会与代价模型
+### 第 2 层：长周期进站支持与规划
 
-10. 训练 `rear_threat_model`
-11. 训练 `attack_opportunity_model`
-12. 训练 `defence_cost_model`
-13. 实现 / 训练 `event_impact_model`
+10. 继续验证并标定 `pit_window_support_model`
+11. 继续验证并标定 `long_horizon_strategy_baseline`
 
-### 第 3 层：动作决策模型
+### 第 3 层：威胁、机会与代价模型
 
-14. 训练 `front_attack_commit_model`
-15. 训练 `yield_vs_defend_model`
-16. 训练 `counterattack_window_model`
-17. 训练 `strategy_action_model`
+12. 训练 `rear_threat_model`
+13. 训练 `attack_opportunity_model`
+14. 训练 `defence_cost_model`
+15. 实现 / 训练 `event_impact_model`
 
-### 第 4 层：主链控制与回退
+### 第 4 层：动作决策模型
 
-18. 完成 `confidence_model / uncertainty_layer` 最小规则版
-19. 实现 `tactical_state_machine`
-20. 接入 `strategy_arbiter_v2`
-21. 接入完整 `fallback_policy`
-22. 完成 dashboard 模型对比与回归
+16. 训练 `front_attack_commit_model`
+17. 训练 `yield_vs_defend_model`
+18. 训练 `counterattack_window_model`
+19. 训练 `strategy_action_model`
 
-### 第 5 层：阶段三防返工接口预埋
+### 第 5 层：主链控制与回退
 
-23. 定义统一 `InteractionInput / UserTurn` 输入结构
-24. 增加 `turn_id / interaction_session_id / request_id`
-25. 定义策略查询与状态快照绑定协议
-26. 为输出层增加 `pending / committed / cancelled / interrupted` 生命周期
-27. 为工具与长任务增加取消接口
-28. 定义结构化语音查询 schema 与指令路由接口
-29. 建立 `ASR -> query normalization -> strategy -> TTS` 分层日志骨架
-30. 定义语音确认 / 权限分级最小规则版
+20. 完成 `confidence_model / uncertainty_layer` 最小规则版
+21. 实现 `tactical_state_machine`
+22. 接入 `strategy_arbiter_v2`
+23. 接入完整 `fallback_policy`
+24. 完成 dashboard 模型对比与回归
+
+### 第 6 层：阶段三防返工接口预埋
+
+25. 定义统一 `InteractionInput / UserTurn` 输入结构
+26. 增加 `turn_id / interaction_session_id / request_id`
+27. 定义策略查询与状态快照绑定协议
+28. 为输出层增加 `pending / committed / cancelled / interrupted` 生命周期
+29. 为工具与长任务增加取消接口
+30. 定义结构化语音查询 schema 与指令路由接口
+31. 建立 `ASR -> query normalization -> strategy -> TTS` 分层日志骨架
+32. 定义语音确认 / 权限分级最小规则版

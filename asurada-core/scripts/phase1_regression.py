@@ -134,6 +134,7 @@ def run_regression(
     ]
     arbiter_contract = analyze_arbiter_contract()
     tactical_state_machine_contract = analyze_tactical_state_machine_contract()
+    long_horizon_contract = analyze_long_horizon_contract()
 
     checks = {
         "full_capture_passed": full_capture["passed"],
@@ -142,6 +143,7 @@ def run_regression(
         "all_session_samples_passed": all(item["passed"] for item in session_samples),
         "arbiter_contract_passed": arbiter_contract["passed"],
         "tactical_state_machine_contract_passed": tactical_state_machine_contract["passed"],
+        "long_horizon_contract_passed": long_horizon_contract["passed"],
     }
     return {
         "passed": all(checks.values()),
@@ -150,6 +152,7 @@ def run_regression(
         "session_samples": session_samples,
         "arbiter_contract": arbiter_contract,
         "tactical_state_machine_contract": tactical_state_machine_contract,
+        "long_horizon_contract": long_horizon_contract,
     }
 
 
@@ -830,18 +833,110 @@ def analyze_tactical_state_machine_contract() -> dict[str, Any]:
     }
 
 
+def analyze_long_horizon_contract() -> dict[str, Any]:
+    """Run synthetic regression checks against long-horizon sidecar output."""
+
+    strategy = StrategyEngine(AppConfig().thresholds)
+
+    race_state = _make_session_state(
+        position=4,
+        gap_ahead_s=1.4,
+        gap_behind_s=0.9,
+        drs_available=True,
+        lap_number=10,
+        total_laps=20,
+        weather="LightCloud",
+        raw={
+            "session_type": "FeatureRaceLike(16)",
+            "timing_mode": "race_like",
+            "timing_support_level": "official_preferred",
+            "official_gap_ahead_s": 1.4,
+            "official_gap_behind_s": 0.9,
+            "estimated_gap_ahead_s": None,
+            "estimated_gap_behind_s": None,
+            "fuel_in_tank": 18.0,
+            "fuel_capacity": 110.0,
+            "derived_fuel_laps_remaining": 12.5,
+            "raw_fuel_laps_remaining": 8.0,
+            "fuel_laps_remaining_source": "derived_from_sample_consumption",
+            "pit_status": "NONE",
+            "throttle": 0.88,
+            "brake": 0.02,
+            "steer": 0.06,
+            "g_force_lateral": 1.4,
+            "g_force_longitudinal": 0.2,
+        },
+    )
+    race_decision = strategy.evaluate(race_state, [race_state])
+    race_support = race_decision.debug.get("pit_window_support") or {}
+    race_plan = race_decision.debug.get("long_horizon_strategy") or {}
+    race_window_start = race_plan.get("pit_window_start_lap")
+    race_window_end = race_plan.get("pit_window_end_lap")
+    race_recommended_lap = race_plan.get("recommended_pit_lap")
+
+    non_race_state = _make_session_state(
+        position=1,
+        gap_ahead_s=None,
+        gap_behind_s=None,
+        drs_available=False,
+        lap_number=2,
+        total_laps=3,
+        weather="Clear",
+        raw={
+            "session_type": "Time Trial",
+            "timing_mode": "unknown",
+            "timing_support_level": "unknown",
+            "pit_status": "TIME_TRIAL",
+        },
+    )
+    non_race_decision = strategy.evaluate(non_race_state, [non_race_state])
+    non_race_plan = non_race_decision.debug.get("long_horizon_strategy") or {}
+
+    checks = {
+        "race_sidecar_present": bool(race_support) and bool(race_plan) and race_plan.get("enabled") is True,
+        "pit_window_probability_bounded": 0.0 <= float(race_support.get("pit_window_open_prob", -1.0)) <= 1.0,
+        "aggression_bias_bounded": -1.0 <= float(race_plan.get("aggression_bias", -2.0)) <= 1.0,
+        "recommended_set_consistency": (
+            (race_plan.get("recommended_set_index") is None and isinstance(race_plan.get("recommended_set_available"), bool))
+            or (race_plan.get("recommended_set_index") is not None and race_plan.get("recommended_set_available") is True)
+        ),
+        "recommended_pit_lap_within_window": (
+            race_recommended_lap is None
+            or (
+                isinstance(race_window_start, int)
+                and isinstance(race_window_end, int)
+                and race_window_start <= int(race_recommended_lap) <= race_window_end
+            )
+        ),
+        "non_race_route_disables_long_horizon": non_race_plan.get("enabled") is False,
+    }
+    return {
+        "passed": all(checks.values()),
+        "checks": checks,
+        "analysis": {
+            "race_pit_window_support": race_support,
+            "race_long_horizon_strategy": race_plan,
+            "non_race_long_horizon_strategy": non_race_plan,
+        },
+    }
+
+
 def _make_session_state(
     *,
     position: int,
     gap_ahead_s: float | None,
     gap_behind_s: float | None,
     drs_available: bool,
+    lap_number: int = 3,
+    total_laps: int = 5,
+    weather: str = "Clear",
+    raw: dict[str, Any] | None = None,
 ) -> SessionState:
     player = DriverState(
         car_index=0,
         name="player",
         position=position,
-        lap=3,
+        lap=lap_number,
         gap_ahead_s=gap_ahead_s,
         gap_behind_s=gap_behind_s,
         fuel_laps_remaining=4.0,
@@ -854,14 +949,14 @@ def _make_session_state(
     return SessionState(
         session_uid="synthetic-session",
         track="Shanghai",
-        lap_number=3,
-        total_laps=5,
-        weather="Clear",
+        lap_number=lap_number,
+        total_laps=total_laps,
+        weather=weather,
         safety_car="NONE",
         player=player,
         rivals=[],
         source_timestamp_ms=0,
-        raw={},
+        raw=dict(raw or {}),
     )
 
 
