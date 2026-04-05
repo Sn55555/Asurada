@@ -58,16 +58,32 @@ class SemanticNormalizer:
             primary_message=primary_message,
         )
         if semantic_query_kind is None:
+            fallback_text = transcript_text or normalized_text
+            if not fallback_text:
+                return SemanticIntentResult(
+                    status="fallback",
+                    query_kind=None,
+                    normalized_query_text="",
+                    response_style="fallback",
+                    confidence=fast_intent.confidence,
+                    reason="semantic_unmatched",
+                    metadata={
+                        "lane": fast_intent.lane,
+                        "source_query_kind": fast_intent.query_kind,
+                        "context": conversation_context.snapshot(),
+                    },
+                )
             return SemanticIntentResult(
-                status="fallback",
-                query_kind=None,
-                normalized_query_text=transcript_text or normalized_text,
+                status="matched",
+                query_kind="open_fallback",
+                normalized_query_text=fallback_text,
                 response_style="fallback",
-                confidence=fast_intent.confidence,
-                reason="semantic_unmatched",
+                confidence=max(fast_intent.confidence, 0.55),
+                reason="open_fallback",
                 metadata={
                     "lane": fast_intent.lane,
                     "source_query_kind": fast_intent.query_kind,
+                    "domain_hint": self._infer_domain_hint(normalized_text),
                     "context": conversation_context.snapshot(),
                 },
             )
@@ -99,6 +115,8 @@ class SemanticNormalizer:
         if self._contains_any(normalized_text, ("为什么", "为啥", "怎么会", "怎么不", "为何")):
             if self._contains_any(normalized_text, ("不进攻", "不让我进攻", "没让我进攻", "不攻击", "没攻击")):
                 return "why_not_attack"
+            if self._contains_any(normalized_text, ("进站", "pit", "box", "维修区")):
+                return "why_not_pit"
             if self._contains_any(normalized_text, ("防守", "防住")):
                 return "why_defend"
             if self._contains_unhandled_topic(normalized_text):
@@ -113,7 +131,7 @@ class SemanticNormalizer:
                 return "why_current_strategy"
 
         if self._contains_any(normalized_text, ("现在呢", "现在还", "现在怎么样", "还一样吗", "那现在呢")):
-            last_query_kind = conversation_context.last_query_kind()
+            last_query_kind = conversation_context.last_non_control_query_kind()
             if last_query_kind is not None:
                 return last_query_kind
 
@@ -135,6 +153,15 @@ class SemanticNormalizer:
         ):
             return "tyre_status"
 
+        if self._contains_any(normalized_text, ("天气", "下雨", "雨", "路面", "赛道温度", "路况")):
+            return "weather_status"
+
+        if self._contains_any(normalized_text, ("处罚", "罚时", "警告", "stop go", "stop-go", "drive through", "穿越维修区")):
+            return "penalty_status"
+
+        if self._contains_any(normalized_text, ("进站", "pit", "box", "维修区")):
+            return "pit_status"
+
         if self._contains_any(normalized_text, ("策略", "战术", "现在该", "现在怎么跑")):
             return "current_strategy"
 
@@ -147,17 +174,18 @@ class SemanticNormalizer:
         return self._contains_any(
             normalized_text,
             (
-                "进站",
-                "pit",
                 "安全车",
                 "红旗",
-                "处罚",
-                "罚时",
-                "天气",
-                "下雨",
-                "轮胎",
-                "胎",
-                "燃油",
-                "油量",
             ),
         )
+
+    def _infer_domain_hint(self, normalized_text: str) -> str:
+        if self._contains_any(normalized_text, ("进站", "pit", "box", "维修区")):
+            return "pit"
+        if self._contains_any(normalized_text, ("天气", "下雨", "雨", "路面", "路况")):
+            return "weather"
+        if self._contains_any(normalized_text, ("处罚", "罚时", "警告", "stop go", "drive through")):
+            return "penalty"
+        if self._contains_any(normalized_text, ("策略", "战术")):
+            return "strategy"
+        return "general"

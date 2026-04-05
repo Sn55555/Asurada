@@ -115,6 +115,7 @@ def build_voice_query_input_event(
     normalized_query_text = (
         semantic_intent.normalized_query_text if semantic_intent is not None else fast_intent.transcript_text
     )
+    request_id = f"req:voice:{resolved_query_kind}:{session_uid}:{voice_turn.turn_id}"
     return InteractionInputEvent(
         interaction_session_id=interaction_session_id,
         turn_id=turn_id,

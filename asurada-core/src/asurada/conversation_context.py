@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -23,10 +24,13 @@ class ConversationRecord:
 class ConversationContext:
     """Short-horizon conversational memory for follow-up and explanation queries."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, max_history: int = 6) -> None:
         self._last_strategy_message: dict[str, Any] | None = None
         self._last_user_query: ConversationRecord | None = None
         self._last_response: ConversationRecord | None = None
+        self._strategy_history: deque[dict[str, Any]] = deque(maxlen=max_history)
+        self._user_query_history: deque[ConversationRecord] = deque(maxlen=max_history)
+        self._response_history: deque[ConversationRecord] = deque(maxlen=max_history)
 
     def observe_strategy_message(self, primary_message: StrategyMessage | None, *, state: SessionState) -> None:
         if primary_message is None:
@@ -41,6 +45,7 @@ class ConversationContext:
             "session_uid": state.session_uid,
             "timestamp_ms": state.source_timestamp_ms,
         }
+        self._strategy_history.append(self._last_strategy_message)
 
     def observe_user_query(
         self,
@@ -60,6 +65,7 @@ class ConversationContext:
             timestamp_ms=timestamp_ms,
             metadata=metadata or {},
         )
+        self._user_query_history.append(self._last_user_query)
 
     def observe_response(
         self,
@@ -80,16 +86,26 @@ class ConversationContext:
             timestamp_ms=timestamp_ms,
             metadata=metadata or {},
         )
+        self._response_history.append(self._last_response)
 
     def snapshot(self) -> dict[str, Any]:
         return {
             "last_strategy_message": self._last_strategy_message,
             "last_user_query": self._last_user_query.to_dict() if self._last_user_query is not None else None,
             "last_response": self._last_response.to_dict() if self._last_response is not None else None,
+            "recent_strategy_messages": [item for item in self._strategy_history],
+            "recent_user_queries": [item.to_dict() for item in self._user_query_history],
+            "recent_responses": [item.to_dict() for item in self._response_history],
         }
 
     def last_query_kind(self) -> str | None:
         return None if self._last_user_query is None else self._last_user_query.query_kind
+
+    def last_non_control_query_kind(self) -> str | None:
+        for record in reversed(self._user_query_history):
+            if record.query_kind not in {None, "repeat_last", "stop", "cancel", "open_fallback"}:
+                return record.query_kind
+        return None
 
     def last_strategy_code(self) -> str | None:
         if self._last_strategy_message is None:

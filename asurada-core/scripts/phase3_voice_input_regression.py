@@ -54,6 +54,13 @@ def _make_state() -> SessionState:
             "overall_frame_identifier": 1188,
             "session_time_s": 588.204,
             "source_timestamp_ms": 1_777_100_000_000,
+            "pit_status": "NONE",
+            "num_pit_stops": 1,
+            "total_warnings": 2,
+            "corner_cutting_warnings": 1,
+            "num_unserved_drive_through_pens": 0,
+            "num_unserved_stop_go_pens": 0,
+            "pit_stop_should_serve_pen": False,
         },
     )
 
@@ -99,7 +106,7 @@ def run_phase3_voice_input_regression() -> dict[str, Any]:
     )
     fallback_result = coordinator.process_completed_turn(
         state=state,
-        turn=_make_turn("帮我解释一下刚才为什么没有进站"),
+        turn=_make_turn("整体形势怎么样"),
         voice_output=voice_output,
         primary_message=primary_message,
         render=False,
@@ -117,7 +124,9 @@ def run_phase3_voice_input_regression() -> dict[str, Any]:
         "query_route_voice": (rear_gap_debug.get("query_route") or {}).get("response_channel") == "voice",
         "control_query_executed": cancel_result.status == "control_executed"
         and ((cancel_result.output_debug or {}).get("output_lifecycle") or {}).get("event", {}).get("event_type") == "cancel",
-        "fallback_unmatched": fallback_result.status == "fallback",
+        "open_fallback_spoken": fallback_result.status == "spoken"
+        and (((fallback_result.bundle or {}).get("structured_query") or {}).get("query_kind") == "open_fallback")
+        and ((((fallback_result.output_debug or {}).get("output_lifecycle") or {}).get("event") or {}).get("action_code") == "QUERY_OPEN_FALLBACK"),
     }
 
     return {

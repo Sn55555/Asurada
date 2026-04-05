@@ -56,6 +56,15 @@ def _make_state() -> SessionState:
             "overall_frame_identifier": 1312,
             "session_time_s": 812.12,
             "source_timestamp_ms": 1_777_300_000_000,
+            "pit_status": "NONE",
+            "num_pit_stops": 1,
+            "pit_lane_timer_active": False,
+            "pit_stop_timer_ms": 0,
+            "total_warnings": 3,
+            "corner_cutting_warnings": 1,
+            "num_unserved_drive_through_pens": 0,
+            "num_unserved_stop_go_pens": 1,
+            "pit_stop_should_serve_pen": True,
         },
     )
 
@@ -110,9 +119,37 @@ def run_phase3_semantic_voice_regression() -> dict[str, Any]:
         primary_message=primary_message,
         render=False,
     )
+    pit_result = coordinator.process_completed_turn(
+        state=state,
+        turn=_make_turn("voice-turn:pit", "现在进站情况怎么样"),
+        voice_output=voice_output,
+        primary_message=primary_message,
+        render=False,
+    )
+    why_not_pit_result = coordinator.process_completed_turn(
+        state=state,
+        turn=_make_turn("voice-turn:why-pit", "为什么现在没有进站"),
+        voice_output=voice_output,
+        primary_message=primary_message,
+        render=False,
+    )
+    weather_result = coordinator.process_completed_turn(
+        state=state,
+        turn=_make_turn("voice-turn:weather", "现在天气怎么样"),
+        voice_output=voice_output,
+        primary_message=primary_message,
+        render=False,
+    )
+    penalty_result = coordinator.process_completed_turn(
+        state=state,
+        turn=_make_turn("voice-turn:penalty", "现在有处罚吗"),
+        voice_output=voice_output,
+        primary_message=primary_message,
+        render=False,
+    )
     unsupported_result = coordinator.process_completed_turn(
         state=state,
-        turn=_make_turn("voice-turn:unsupported", "帮我解释一下刚才为什么没有进站"),
+        turn=_make_turn("voice-turn:unsupported", "整体形势怎么样"),
         voice_output=voice_output,
         primary_message=primary_message,
         render=False,
@@ -133,7 +170,16 @@ def run_phase3_semantic_voice_regression() -> dict[str, Any]:
         "natural_response_is_conclusion_first": "后车已经进直接防守窗口" in str(natural_event.get("speak_text") or "")
         or "后车正在逼近" in str(natural_event.get("speak_text") or "")
         or "后车暂时还没进直接防守窗口" in str(natural_event.get("speak_text") or ""),
-        "unsupported_topic_falls_back": unsupported_result.status == "fallback",
+        "pit_status_maps": pit_result.status == "spoken"
+        and (pit_result.bundle or {}).get("structured_query", {}).get("query_kind") == "pit_status",
+        "why_not_pit_maps": why_not_pit_result.status == "spoken"
+        and (why_not_pit_result.bundle or {}).get("structured_query", {}).get("query_kind") == "why_not_pit",
+        "weather_status_maps": weather_result.status == "spoken"
+        and (weather_result.bundle or {}).get("structured_query", {}).get("query_kind") == "weather_status",
+        "penalty_status_maps": penalty_result.status == "spoken"
+        and (penalty_result.bundle or {}).get("structured_query", {}).get("query_kind") == "penalty_status",
+        "unsupported_topic_uses_open_fallback": unsupported_result.status == "spoken"
+        and (unsupported_result.bundle or {}).get("structured_query", {}).get("query_kind") == "open_fallback",
     }
 
     return {
@@ -143,6 +189,10 @@ def run_phase3_semantic_voice_regression() -> dict[str, Any]:
             "natural_result": natural_result.to_dict(),
             "followup_result": followup_result.to_dict(),
             "explain_result": explain_result.to_dict(),
+            "pit_result": pit_result.to_dict(),
+            "why_not_pit_result": why_not_pit_result.to_dict(),
+            "weather_result": weather_result.to_dict(),
+            "penalty_result": penalty_result.to_dict(),
             "unsupported_result": unsupported_result.to_dict(),
         },
     }

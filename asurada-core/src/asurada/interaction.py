@@ -431,6 +431,9 @@ def build_structured_query_schema(input_event: InteractionInputEvent) -> Structu
             "input_type": input_event.input_type,
             "intent_type": intent_type,
             "source": input_event.source,
+            "query_text": input_event.query_text,
+            "input_metadata": input_event.metadata,
+            "semantic_metadata": input_event.metadata.get("semantic_metadata", {}),
         },
     )
 
@@ -456,10 +459,18 @@ def route_structured_query(schema: StructuredQuerySchema) -> QueryRoute:
         handler = "rear_gap_snapshot_handler"
     elif schema.query_kind == "tyre_status":
         handler = "tyre_snapshot_handler"
+    elif schema.query_kind == "weather_status":
+        handler = "weather_snapshot_handler"
+    elif schema.query_kind == "penalty_status":
+        handler = "penalty_snapshot_handler"
+    elif schema.query_kind == "pit_status":
+        handler = "pit_snapshot_handler"
     elif schema.query_kind == "current_strategy":
         handler = "strategy_snapshot_handler"
-    elif schema.query_kind in {"why_defend", "why_not_attack", "why_current_strategy"}:
+    elif schema.query_kind in {"why_defend", "why_not_attack", "why_current_strategy", "why_not_pit"}:
         handler = "strategy_explanation_handler"
+    elif schema.query_kind == "open_fallback":
+        handler = "open_fallback_handler"
     elif schema.query_kind == "repeat_last":
         handler = "repeat_last_output_handler"
     elif schema.query_kind in {"stop", "cancel"}:
@@ -658,6 +669,7 @@ def render_structured_query_response(
         state=state,
         query_kind=schema.query_kind,
         primary_message=primary_message,
+        schema_metadata=schema.metadata,
     )
 
 
@@ -705,10 +717,15 @@ def _query_prompt(query_kind: str) -> str:
         "fuel_status": "当前燃油情况怎么样",
         "rear_gap": "后车距离多少",
         "tyre_status": "当前轮胎状态怎么样",
+        "weather_status": "当前天气和赛道状态怎么样",
+        "penalty_status": "当前处罚和警告情况怎么样",
+        "pit_status": "当前进站状态怎么样",
         "current_strategy": "当前主策略是什么",
         "why_defend": "为什么现在偏向防守",
         "why_not_attack": "为什么现在不进攻",
+        "why_not_pit": "为什么现在没有进站",
         "why_current_strategy": "为什么当前策略是这样",
+        "open_fallback": "当前这类问题怎么理解",
         "repeat_last": "请重复上一条播报",
         "stop": "停止当前播报",
         "cancel": "取消当前操作",
@@ -723,10 +740,41 @@ def _requested_fields_for_query_kind(query_kind: str) -> list[str]:
         return ["player.gap_behind_s", "rivals"]
     if query_kind == "tyre_status":
         return ["player.tyre"]
+    if query_kind == "weather_status":
+        return ["weather", "safety_car"]
+    if query_kind == "penalty_status":
+        return [
+            "raw.total_warnings",
+            "raw.corner_cutting_warnings",
+            "raw.num_unserved_drive_through_pens",
+            "raw.num_unserved_stop_go_pens",
+            "raw.pit_stop_should_serve_pen",
+        ]
+    if query_kind == "pit_status":
+        return [
+            "raw.pit_status",
+            "raw.num_pit_stops",
+            "raw.pit_lane_timer_active",
+            "raw.pit_stop_should_serve_pen",
+            "raw.pit_stop_timer_ms",
+        ]
     if query_kind == "current_strategy":
         return ["messages", "session_route"]
     if query_kind in {"why_defend", "why_not_attack", "why_current_strategy"}:
         return ["messages", "player.gap_ahead_s", "player.gap_behind_s", "player.drs_available", "session_route"]
+    if query_kind == "why_not_pit":
+        return [
+            "raw.pit_status",
+            "raw.num_pit_stops",
+            "raw.num_unserved_drive_through_pens",
+            "raw.num_unserved_stop_go_pens",
+            "raw.pit_stop_should_serve_pen",
+            "player.tyre",
+            "weather",
+            "safety_car",
+        ]
+    if query_kind == "open_fallback":
+        return ["messages", "weather", "safety_car", "player", "rivals", "raw"]
     if query_kind in {"repeat_last", "stop", "cancel"}:
         return ["messages", "output_lifecycle", "task_lifecycle"]
     return ["player", "rivals", "raw"]
