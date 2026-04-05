@@ -365,6 +365,11 @@ def build_asr_stage_event(input_event: InteractionInputEvent) -> AsrStageEvent:
     """
 
     is_asr_input = str(input_event.input_type).startswith("asr")
+    confidence = input_event.metadata.get("fast_intent_confidence")
+    try:
+        confidence = None if confidence is None else float(confidence)
+    except (TypeError, ValueError):
+        confidence = None
     return AsrStageEvent(
         interaction_session_id=input_event.interaction_session_id,
         turn_id=input_event.turn_id,
@@ -372,9 +377,11 @@ def build_asr_stage_event(input_event: InteractionInputEvent) -> AsrStageEvent:
         input_type=input_event.input_type,
         stage_status="completed" if is_asr_input else "not_applicable",
         transcript_text=input_event.query_text,
-        confidence=None,
+        confidence=confidence,
         metadata={
             "source": input_event.source,
+            "lane": input_event.metadata.get("lane"),
+            "matched_phrase": input_event.metadata.get("matched_phrase"),
         },
     )
 
@@ -450,6 +457,10 @@ def route_structured_query(schema: StructuredQuerySchema) -> QueryRoute:
         handler = "tyre_snapshot_handler"
     elif schema.query_kind == "current_strategy":
         handler = "strategy_snapshot_handler"
+    elif schema.query_kind == "repeat_last":
+        handler = "repeat_last_output_handler"
+    elif schema.query_kind in {"stop", "cancel"}:
+        handler = "output_control_handler"
     else:
         handler = "strategy_snapshot_handler"
     return QueryRoute(
@@ -708,6 +719,9 @@ def _query_prompt(query_kind: str) -> str:
         "rear_gap": "后车距离多少",
         "tyre_status": "当前轮胎状态怎么样",
         "current_strategy": "当前主策略是什么",
+        "repeat_last": "请重复上一条播报",
+        "stop": "停止当前播报",
+        "cancel": "取消当前操作",
     }
     return prompts.get(query_kind, "当前状态怎么样")
 
@@ -721,4 +735,6 @@ def _requested_fields_for_query_kind(query_kind: str) -> list[str]:
         return ["player.tyre"]
     if query_kind == "current_strategy":
         return ["messages", "session_route"]
+    if query_kind in {"repeat_last", "stop", "cancel"}:
+        return ["messages", "output_lifecycle", "task_lifecycle"]
     return ["player", "rivals", "raw"]

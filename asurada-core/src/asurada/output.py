@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import shutil
-import subprocess
-import sys
 from dataclasses import asdict, dataclass
 from typing import Any
 
 from .analysis import LapAnalysisSummary, SegmentAnalysis
 from .interaction import (
+    InteractionInputEvent,
     OutputLifecycleEvent,
     SpeechJob,
+    StructuredQuerySchema,
     build_asr_stage_event,
     build_confirmation_policy,
     build_query_normalization_event,
@@ -22,55 +21,14 @@ from .interaction import (
     route_structured_query,
 )
 from .models import SessionState, StrategyDecision, StrategyMessage
-
-
-class SpeechBackend:
-    """Abstract speech backend used by the unified output coordinator."""
-
-    def start(self, job: SpeechJob) -> Any:
-        raise NotImplementedError
-
-    def is_active(self, handle: Any) -> bool:
-        raise NotImplementedError
-
-    def stop(self, handle: Any) -> None:
-        raise NotImplementedError
-
-
-class NullSpeechBackend(SpeechBackend):
-    """Fallback backend used when real TTS is unavailable."""
-
-    def start(self, job: SpeechJob) -> Any:
-        return None
-
-    def is_active(self, handle: Any) -> bool:
-        return False
-
-    def stop(self, handle: Any) -> None:
-        return None
-
-
-class MacOSSayBackend(SpeechBackend):
-    """macOS `say` backend for first-wave real downlink speech."""
-
-    def __init__(self, say_binary: str | None = None) -> None:
-        self.say_binary = say_binary or shutil.which("say") or "/usr/bin/say"
-
-    def start(self, job: SpeechJob) -> subprocess.Popen[str]:
-        return subprocess.Popen(
-            [self.say_binary, job.speak_text],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-
-    def is_active(self, handle: subprocess.Popen[str] | None) -> bool:
-        return handle is not None and handle.poll() is None
-
-    def stop(self, handle: subprocess.Popen[str] | None) -> None:
-        if handle is None or handle.poll() is not None:
-            return
-        handle.terminate()
+from .tts_backends import (
+    MacOSSayBackend,
+    NullSpeechBackend,
+    PiperBackend,
+    PiperBackendConfig,
+    SpeechBackend,
+    resolve_default_speech_backend,
+)
 
 
 @dataclass
@@ -193,36 +151,99 @@ class ConsoleVoiceOutput:
             route=query_route,
             confirmation_policy=confirmation_policy,
         )
+        return self._emit_prepared_query(
+            state=state,
+            input_event=input_event.to_dict(),
+            structured_query=structured_query.to_dict(),
+            query_route=query_route.to_dict(),
+            confirmation_policy=confirmation_policy.to_dict(),
+            task_handle=task_handle.to_dict(),
+            normalization_event=build_query_normalization_event(input_event).to_dict(),
+            primary_message=primary_message,
+            render=render,
+        )
+
+    def emit_voice_query_bundle(
+        self,
+        *,
+        state: SessionState,
+        bundle: Any,
+        primary_message: StrategyMessage | None = None,
+        render: bool = True,
+    ) -> dict[str, Any]:
+        """Emit one pre-normalized voice query bundle through the unified queue."""
+
+        bundle_dict = bundle.to_dict() if hasattr(bundle, "to_dict") else dict(bundle)
+        input_event = dict(bundle_dict.get("input_event") or {})
+        structured_query = dict(bundle_dict.get("structured_query") or {})
+        query_route = dict(bundle_dict.get("query_route") or {})
+        confirmation_policy = dict(bundle_dict.get("confirmation_policy") or {})
+        task_handle = dict(bundle_dict.get("task_handle") or {})
+        normalization_event = dict(bundle_dict.get("normalization_event") or {})
+        extra_debug = {
+            "fast_intent": bundle_dict.get("fast_intent"),
+            "voice_turn": bundle_dict.get("voice_turn"),
+        }
+        return self._emit_prepared_query(
+            state=state,
+            input_event=input_event,
+            structured_query=structured_query,
+            query_route=query_route,
+            confirmation_policy=confirmation_policy,
+            task_handle=task_handle,
+            normalization_event=normalization_event,
+            primary_message=primary_message,
+            render=render,
+            extra_debug=extra_debug,
+        )
+
+    def _emit_prepared_query(
+        self,
+        *,
+        state: SessionState,
+        input_event: dict[str, Any],
+        structured_query: dict[str, Any],
+        query_route: dict[str, Any],
+        confirmation_policy: dict[str, Any],
+        task_handle: dict[str, Any],
+        normalization_event: dict[str, Any],
+        primary_message: StrategyMessage | None,
+        render: bool,
+        extra_debug: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        schema = StructuredQuerySchema(**structured_query)
         speak_text, action_code = render_structured_query_response(
             state=state,
-            schema=structured_query,
+            schema=schema,
             primary_message=primary_message,
         )
         envelope = self._build_query_envelope(
-            input_event=input_event.to_dict(),
-            task_handle=task_handle.to_dict(),
-            schema=structured_query.to_dict(),
+            input_event=input_event,
+            task_handle=task_handle,
+            schema=structured_query,
             speak_text=speak_text,
             action_code=action_code,
         )
         result = self._process_submission(
             submitted_envelope=envelope,
-            fallback_input_event=input_event.to_dict(),
-            fallback_task_handle=task_handle.to_dict(),
+            fallback_input_event=input_event,
+            fallback_task_handle=task_handle,
         )
         debug: dict[str, Any] = {
-            "interaction_input_event": input_event.to_dict(),
-            "structured_query": structured_query.to_dict(),
-            "query_route": query_route.to_dict(),
-            "confirmation_policy": confirmation_policy.to_dict(),
-            "task_handle": task_handle.to_dict(),
+            "interaction_input_event": input_event,
+            "structured_query": structured_query,
+            "query_route": query_route,
+            "confirmation_policy": confirmation_policy,
+            "task_handle": task_handle,
             "voice_pipeline_log": {
-                "asr": build_asr_stage_event(input_event).to_dict(),
-                "query_normalization": build_query_normalization_event(input_event).to_dict(),
-                "query_route": query_route.to_dict(),
-                "confirmation_policy": confirmation_policy.to_dict(),
+                "asr": build_asr_stage_event(InteractionInputEvent(**input_event)).to_dict(),
+                "query_normalization": normalization_event,
+                "query_route": query_route,
+                "confirmation_policy": confirmation_policy,
             },
         }
+        if extra_debug:
+            debug.update(extra_debug)
         self._write_debug_payload(debug=debug, result=result)
         if render:
             event = result.lifecycle_event
@@ -237,9 +258,7 @@ class ConsoleVoiceOutput:
         return debug
 
     def _default_backend(self) -> SpeechBackend:
-        if sys.platform == "darwin" and shutil.which("say") is not None:
-            return MacOSSayBackend()
-        return NullSpeechBackend()
+        return resolve_default_speech_backend()
 
     def _build_strategy_envelope(
         self,
