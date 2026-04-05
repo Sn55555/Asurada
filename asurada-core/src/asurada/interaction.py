@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .models import SessionState, StrategyMessage
+from .response_composer import compose_structured_query_response
 
 
 @dataclass
@@ -457,6 +458,8 @@ def route_structured_query(schema: StructuredQuerySchema) -> QueryRoute:
         handler = "tyre_snapshot_handler"
     elif schema.query_kind == "current_strategy":
         handler = "strategy_snapshot_handler"
+    elif schema.query_kind in {"why_defend", "why_not_attack", "why_current_strategy"}:
+        handler = "strategy_explanation_handler"
     elif schema.query_kind == "repeat_last":
         handler = "repeat_last_output_handler"
     elif schema.query_kind in {"stop", "cancel"}:
@@ -649,29 +652,13 @@ def render_structured_query_response(
     schema: StructuredQuerySchema,
     primary_message: StrategyMessage | None = None,
 ) -> tuple[str, str]:
-    """Render the first-wave templated snapshot query response text."""
+    """Render natural structured snapshot answers and first-wave explanations."""
 
-    if schema.query_kind == "fuel_status":
-        return (
-            f"当前燃油预计还可支撑 {state.player.fuel_laps_remaining:.1f} 圈，总圈数 {state.total_laps} 圈。",
-            "QUERY_FUEL_STATUS",
-        )
-    if schema.query_kind == "rear_gap":
-        if state.player.gap_behind_s is None:
-            return ("当前后车时差缺失。", "QUERY_REAR_GAP")
-        rear_name = state.rivals[0].name if state.rivals else "后车"
-        return (f"后车 {rear_name} 在 {state.player.gap_behind_s:.3f} 秒之后。", "QUERY_REAR_GAP")
-    if schema.query_kind == "tyre_status":
-        tyre = state.player.tyre
-        return (
-            f"当前轮胎 {tyre.compound}，磨损 {tyre.wear_pct:.1f}%，胎龄 {tyre.age_laps} 圈。",
-            "QUERY_TYRE_STATUS",
-        )
-    if schema.query_kind == "current_strategy":
-        if primary_message is None:
-            return ("当前没有高优先级主策略。", "QUERY_CURRENT_STRATEGY")
-        return (f"当前主策略是 {primary_message.title}。{primary_message.detail}", "QUERY_CURRENT_STRATEGY")
-    return ("当前查询类型还未接入模板回答。", "QUERY_SNAPSHOT_STATUS")
+    return compose_structured_query_response(
+        state=state,
+        query_kind=schema.query_kind,
+        primary_message=primary_message,
+    )
 
 
 def _optional_int(value: Any) -> int | None:
@@ -719,6 +706,9 @@ def _query_prompt(query_kind: str) -> str:
         "rear_gap": "后车距离多少",
         "tyre_status": "当前轮胎状态怎么样",
         "current_strategy": "当前主策略是什么",
+        "why_defend": "为什么现在偏向防守",
+        "why_not_attack": "为什么现在不进攻",
+        "why_current_strategy": "为什么当前策略是这样",
         "repeat_last": "请重复上一条播报",
         "stop": "停止当前播报",
         "cancel": "取消当前操作",
@@ -735,6 +725,8 @@ def _requested_fields_for_query_kind(query_kind: str) -> list[str]:
         return ["player.tyre"]
     if query_kind == "current_strategy":
         return ["messages", "session_route"]
+    if query_kind in {"why_defend", "why_not_attack", "why_current_strategy"}:
+        return ["messages", "player.gap_ahead_s", "player.gap_behind_s", "player.drs_available", "session_route"]
     if query_kind in {"repeat_last", "stop", "cancel"}:
         return ["messages", "output_lifecycle", "task_lifecycle"]
     return ["player", "rivals", "raw"]

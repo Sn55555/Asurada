@@ -115,8 +115,8 @@ def run_phase3_voice_input_regression() -> dict[str, Any]:
         "rear_gap_start_event": output_event.get("event_type") == "start" and output_event.get("action_code") == "QUERY_REAR_GAP",
         "asr_stage_completed": asr_stage.get("stage_status") == "completed",
         "query_route_voice": (rear_gap_debug.get("query_route") or {}).get("response_channel") == "voice",
-        "control_query_recognized": cancel_result.status == "control_unwired"
-        and (cancel_result.bundle or {}).get("structured_query", {}).get("query_kind") == "cancel",
+        "control_query_executed": cancel_result.status == "control_executed"
+        and ((cancel_result.output_debug or {}).get("output_lifecycle") or {}).get("event", {}).get("event_type") == "cancel",
         "fallback_unmatched": fallback_result.status == "fallback",
     }
 
