@@ -1,0 +1,426 @@
+{
+  "track": "Austria",
+  "track_id": 17,
+  "category": "overtake",
+  "count": 8,
+  "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+  "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+  "weather_segments": [
+    {
+      "weather": "Clear",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 0.0,
+      "start_lap": 1,
+      "end_lap": 1,
+      "duration_s": 0
+    },
+    {
+      "weather": "Overcast",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 1512.568115,
+      "start_lap": 1,
+      "end_lap": 21,
+      "duration_s": 1512.568
+    },
+    {
+      "weather": "LightCloud",
+      "start_session_time_s": 1512.671021,
+      "end_session_time_s": 2612.225098,
+      "start_lap": 21,
+      "end_lap": 36,
+      "duration_s": 1099.554
+    }
+  ],
+  "items": [
+    {
+      "sample_id": "overtake:20260407_025455:006",
+      "kind": "event_window",
+      "category": "overtake",
+      "annotation_goal": "标注超车窗口与前后赛段语义",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "OVTK",
+      "event_detail": {
+        "overtaking_vehicle_idx": 13,
+        "being_overtaken_vehicle_idx": 8
+      },
+      "lap": 1,
+      "event_session_time_s": 4.116119,
+      "window_start_session_time_s": 1.107847,
+      "window_end_session_time_s": 7.116793,
+      "track_segment": "T1 Attack Build",
+      "segments_seen": [
+        "Start Straight",
+        "T1 Attack Build",
+        "T1 Braking",
+        "T1 Apex"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry",
+        "apex_rotation"
+      ],
+      "usages_seen": [
+        "lap_restart_accel",
+        "overtake_setup",
+        "maximum_brake_pressure",
+        "slow_corner_rotation"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "DYNAMICS_UNSTABLE",
+        "NONE",
+        "DEFEND_WINDOW"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        26.0,
+        240.0
+      ]
+    },
+    {
+      "sample_id": "overtake:20260407_025455:007",
+      "kind": "event_window",
+      "category": "overtake",
+      "annotation_goal": "标注超车窗口与前后赛段语义",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "OVTK",
+      "event_detail": {
+        "overtaking_vehicle_idx": 11,
+        "being_overtaken_vehicle_idx": 15
+      },
+      "lap": 1,
+      "event_session_time_s": 5.620581,
+      "window_start_session_time_s": 2.605595,
+      "window_end_session_time_s": 8.627219,
+      "track_segment": "T1 Braking",
+      "segments_seen": [
+        "T1 Attack Build",
+        "T1 Braking",
+        "T1 Apex"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry",
+        "apex_rotation"
+      ],
+      "usages_seen": [
+        "overtake_setup",
+        "maximum_brake_pressure",
+        "slow_corner_rotation"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "NONE",
+        "DEFEND_WINDOW"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        83.0,
+        240.0
+      ]
+    },
+    {
+      "sample_id": "overtake:20260407_025455:008",
+      "kind": "event_window",
+      "category": "overtake",
+      "annotation_goal": "标注超车窗口与前后赛段语义",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "OVTK",
+      "event_detail": {
+        "overtaking_vehicle_idx": 0,
+        "being_overtaken_vehicle_idx": 7
+      },
+      "lap": 1,
+      "event_session_time_s": 7.219535,
+      "window_start_session_time_s": 4.211941,
+      "window_end_session_time_s": 10.227526,
+      "track_segment": "T1 Apex",
+      "segments_seen": [
+        "T1 Attack Build",
+        "T1 Braking",
+        "T1 Apex",
+        "T1 Exit Launch"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry",
+        "apex_rotation",
+        "exit_traction"
+      ],
+      "usages_seen": [
+        "overtake_setup",
+        "maximum_brake_pressure",
+        "slow_corner_rotation",
+        "straight_launch_prep"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "NONE",
+        "DEFEND_WINDOW"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        126.0,
+        240.0
+      ]
+    },
+    {
+      "sample_id": "overtake:20260407_025455:009",
+      "kind": "event_window",
+      "category": "overtake",
+      "annotation_goal": "标注超车窗口与前后赛段语义",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "OVTK",
+      "event_detail": {
+        "overtaking_vehicle_idx": 18,
+        "being_overtaken_vehicle_idx": 5
+      },
+      "lap": 1,
+      "event_session_time_s": 8.81543,
+      "window_start_session_time_s": 5.810762,
+      "window_end_session_time_s": 11.807137,
+      "track_segment": "T1 Exit Launch",
+      "segments_seen": [
+        "T1 Braking",
+        "T1 Apex",
+        "T1 Exit Launch"
+      ],
+      "zone_types_seen": [
+        "braking_entry",
+        "apex_rotation",
+        "exit_traction"
+      ],
+      "usages_seen": [
+        "maximum_brake_pressure",
+        "slow_corner_rotation",
+        "straight_launch_prep"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "DEFEND_WINDOW"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        126.0,
+        240.0
+      ]
+    },
+    {
+      "sample_id": "overtake:20260407_025455:010",
+      "kind": "event_window",
+      "category": "overtake",
+      "annotation_goal": "标注超车窗口与前后赛段语义",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "OVTK",
+      "event_detail": {
+        "overtaking_vehicle_idx": 15,
+        "being_overtaken_vehicle_idx": 11
+      },
+      "lap": 1,
+      "event_session_time_s": 10.315763,
+      "window_start_session_time_s": 7.32225,
+      "window_end_session_time_s": 13.30709,
+      "track_segment": "T1 Exit Launch",
+      "segments_seen": [
+        "T1 Apex",
+        "T1 Exit Launch",
+        "Hill Straight"
+      ],
+      "zone_types_seen": [
+        "apex_rotation",
+        "exit_traction",
+        "deployment_straight"
+      ],
+      "usages_seen": [
+        "slow_corner_rotation",
+        "straight_launch_prep",
+        "primary_overtake_deploy"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "DEFEND_WINDOW",
+        "NONE"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        126.0,
+        256.0
+      ]
+    },
+    {
+      "sample_id": "overtake:20260407_025455:011",
+      "kind": "event_window",
+      "category": "overtake",
+      "annotation_goal": "标注超车窗口与前后赛段语义",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "OVTK",
+      "event_detail": {
+        "overtaking_vehicle_idx": 5,
+        "being_overtaken_vehicle_idx": 18
+      },
+      "lap": 1,
+      "event_session_time_s": 11.922411,
+      "window_start_session_time_s": 8.917012,
+      "window_end_session_time_s": 14.916303,
+      "track_segment": "T1 Exit Launch",
+      "segments_seen": [
+        "T1 Exit Launch",
+        "Hill Straight"
+      ],
+      "zone_types_seen": [
+        "exit_traction",
+        "deployment_straight"
+      ],
+      "usages_seen": [
+        "straight_launch_prep",
+        "primary_overtake_deploy"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "DEFEND_WINDOW",
+        "NONE"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        126.0,
+        286.0
+      ]
+    },
+    {
+      "sample_id": "overtake:20260407_025455:012",
+      "kind": "event_window",
+      "category": "overtake",
+      "annotation_goal": "标注超车窗口与前后赛段语义",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "OVTK",
+      "event_detail": {
+        "overtaking_vehicle_idx": 19,
+        "being_overtaken_vehicle_idx": 9
+      },
+      "lap": 1,
+      "event_session_time_s": 13.423246,
+      "window_start_session_time_s": 10.426292,
+      "window_end_session_time_s": 16.412008,
+      "track_segment": "Hill Straight",
+      "segments_seen": [
+        "T1 Exit Launch",
+        "Hill Straight"
+      ],
+      "zone_types_seen": [
+        "exit_traction",
+        "deployment_straight"
+      ],
+      "usages_seen": [
+        "straight_launch_prep",
+        "primary_overtake_deploy"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "DEFEND_WINDOW",
+        "NONE"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        160.0,
+        305.0
+      ]
+    },
+    {
+      "sample_id": "overtake:20260407_025455:013",
+      "kind": "event_window",
+      "category": "overtake",
+      "annotation_goal": "标注超车窗口与前后赛段语义",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "OVTK",
+      "event_detail": {
+        "overtaking_vehicle_idx": 19,
+        "being_overtaken_vehicle_idx": 9
+      },
+      "lap": 1,
+      "event_session_time_s": 15.010559,
+      "window_start_session_time_s": 12.014696,
+      "window_end_session_time_s": 18.020248,
+      "track_segment": "Hill Straight",
+      "segments_seen": [
+        "T1 Exit Launch",
+        "Hill Straight",
+        "T3 Hairpin Commit"
+      ],
+      "zone_types_seen": [
+        "exit_traction",
+        "deployment_straight"
+      ],
+      "usages_seen": [
+        "straight_launch_prep",
+        "primary_overtake_deploy",
+        "brake_marker_commit"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "DEFEND_WINDOW",
+        "NONE"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        218.0,
+        315.0
+      ]
+    }
+  ]
+}

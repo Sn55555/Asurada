@@ -1,0 +1,251 @@
+{
+  "track": "Austria",
+  "track_id": 17,
+  "category": "penalty",
+  "count": 4,
+  "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+  "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+  "weather_segments": [
+    {
+      "weather": "Clear",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 0.0,
+      "start_lap": 1,
+      "end_lap": 1,
+      "duration_s": 0
+    },
+    {
+      "weather": "Overcast",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 1512.568115,
+      "start_lap": 1,
+      "end_lap": 21,
+      "duration_s": 1512.568
+    },
+    {
+      "weather": "LightCloud",
+      "start_session_time_s": 1512.671021,
+      "end_session_time_s": 2612.225098,
+      "start_lap": 21,
+      "end_lap": 36,
+      "duration_s": 1099.554
+    }
+  ],
+  "items": [
+    {
+      "sample_id": "penalty:20260407_025455:033",
+      "kind": "event_window",
+      "category": "penalty",
+      "annotation_goal": "标注处罚事件与触发赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "PENA",
+      "event_detail": {
+        "penalty_type": 16,
+        "infringement_type": 41,
+        "vehicle_idx": 9,
+        "other_vehicle_idx": 255,
+        "time_s": 255,
+        "lap_num": 21,
+        "places_gained": 255
+      },
+      "lap": 22,
+      "event_session_time_s": 1582.085449,
+      "window_start_session_time_s": 1579.089478,
+      "window_end_session_time_s": 1585.083862,
+      "track_segment": "T6 Exit",
+      "segments_seen": [
+        "T6 Braking",
+        "T6 Apex",
+        "T6 Exit",
+        "T7-T8 Flow"
+      ],
+      "zone_types_seen": [
+        "braking_entry",
+        "apex_rotation",
+        "exit_traction",
+        "high_load_management"
+      ],
+      "usages_seen": [
+        "late_brake_control",
+        "yaw_balance",
+        "traction_release",
+        "lateral_load_management"
+      ],
+      "weather_seen": [
+        "LightCloud"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        217.0,
+        294.0
+      ]
+    },
+    {
+      "sample_id": "penalty:20260407_025455:037",
+      "kind": "event_window",
+      "category": "penalty",
+      "annotation_goal": "标注处罚事件与触发赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "PENA",
+      "event_detail": {
+        "penalty_type": 16,
+        "infringement_type": 41,
+        "vehicle_idx": 15,
+        "other_vehicle_idx": 255,
+        "time_s": 255,
+        "lap_num": 25,
+        "places_gained": 255
+      },
+      "lap": 27,
+      "event_session_time_s": 1947.459595,
+      "window_start_session_time_s": 1944.46167,
+      "window_end_session_time_s": 1950.450684,
+      "track_segment": "T6 Approach",
+      "segments_seen": [
+        "Middle Sector Sweep",
+        "T6 Approach"
+      ],
+      "zone_types_seen": [
+        "high_load_management",
+        "deployment_straight"
+      ],
+      "usages_seen": [
+        "lateral_load_management",
+        "brake_setup"
+      ],
+      "weather_seen": [
+        "LightCloud"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        162.0,
+        242.0
+      ]
+    },
+    {
+      "sample_id": "penalty:20260407_025455:038",
+      "kind": "event_window",
+      "category": "penalty",
+      "annotation_goal": "标注处罚事件与触发赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "PENA",
+      "event_detail": {
+        "penalty_type": 16,
+        "infringement_type": 41,
+        "vehicle_idx": 15,
+        "other_vehicle_idx": 255,
+        "time_s": 255,
+        "lap_num": 25,
+        "places_gained": 255
+      },
+      "lap": 27,
+      "event_session_time_s": 1949.462769,
+      "window_start_session_time_s": 1946.466675,
+      "window_end_session_time_s": 1952.463989,
+      "track_segment": "T6 Approach",
+      "segments_seen": [
+        "Middle Sector Sweep",
+        "T6 Approach",
+        "T6 Braking"
+      ],
+      "zone_types_seen": [
+        "high_load_management",
+        "deployment_straight",
+        "braking_entry"
+      ],
+      "usages_seen": [
+        "lateral_load_management",
+        "brake_setup",
+        "late_brake_control"
+      ],
+      "weather_seen": [
+        "LightCloud"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        182.0,
+        242.0
+      ]
+    },
+    {
+      "sample_id": "penalty:20260407_025455:039",
+      "kind": "event_window",
+      "category": "penalty",
+      "annotation_goal": "标注处罚事件与触发赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "PENA",
+      "event_detail": {
+        "penalty_type": 16,
+        "infringement_type": 41,
+        "vehicle_idx": 15,
+        "other_vehicle_idx": 255,
+        "time_s": 255,
+        "lap_num": 25,
+        "places_gained": 255
+      },
+      "lap": 27,
+      "event_session_time_s": 1951.569824,
+      "window_start_session_time_s": 1948.567383,
+      "window_end_session_time_s": 1954.570312,
+      "track_segment": "T6 Braking",
+      "segments_seen": [
+        "T6 Approach",
+        "T6 Braking",
+        "T6 Apex",
+        "T6 Exit"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry",
+        "apex_rotation",
+        "exit_traction"
+      ],
+      "usages_seen": [
+        "brake_setup",
+        "late_brake_control",
+        "yaw_balance",
+        "traction_release"
+      ],
+      "weather_seen": [
+        "LightCloud"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        182.0,
+        245.0
+      ]
+    }
+  ]
+}

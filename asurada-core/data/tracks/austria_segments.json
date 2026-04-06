@@ -1,0 +1,234 @@
+{
+  "track": "Austria",
+  "lap_length_m": 4323.0,
+  "source": "Inferred from F1 25 capture track_id=17 with lap_length_m=4323; semantic layout based on Red Bull Ring race layout.",
+  "braking_zones": [
+    {
+      "name": "T1 Braking",
+      "start_m": 220.0,
+      "end_m": 340.0
+    },
+    {
+      "name": "T3 Hairpin Braking",
+      "start_m": 1110.0,
+      "end_m": 1235.0
+    },
+    {
+      "name": "T4 Braking",
+      "start_m": 2050.0,
+      "end_m": 2140.0
+    },
+    {
+      "name": "T6 Braking",
+      "start_m": 3090.0,
+      "end_m": 3180.0
+    },
+    {
+      "name": "Final Corner Braking",
+      "start_m": 3910.0,
+      "end_m": 4010.0
+    }
+  ],
+  "corner_apexes": [
+    {
+      "name": "T1 Apex",
+      "distance_m": 390.0,
+      "window_m": 40.0
+    },
+    {
+      "name": "T3 Apex",
+      "distance_m": 1285.0,
+      "window_m": 45.0
+    },
+    {
+      "name": "T4 Apex",
+      "distance_m": 2200.0,
+      "window_m": 40.0
+    },
+    {
+      "name": "T6 Apex",
+      "distance_m": 3220.0,
+      "window_m": 40.0
+    },
+    {
+      "name": "T8 Flow Apex",
+      "distance_m": 3640.0,
+      "window_m": 55.0
+    },
+    {
+      "name": "T10 Apex",
+      "distance_m": 4055.0,
+      "window_m": 45.0
+    }
+  ],
+  "semantic_segments": [
+    {
+      "name": "Start Straight",
+      "zone_type": "deployment_straight",
+      "start_m": 0.0,
+      "end_m": 140.0,
+      "usage": "lap_restart_accel"
+    },
+    {
+      "name": "T1 Attack Build",
+      "zone_type": "deployment_straight",
+      "start_m": 140.0,
+      "end_m": 220.0,
+      "usage": "overtake_setup"
+    },
+    {
+      "name": "T1 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 220.0,
+      "end_m": 340.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "T1 Apex",
+      "zone_type": "apex_rotation",
+      "start_m": 340.0,
+      "end_m": 450.0,
+      "usage": "slow_corner_rotation"
+    },
+    {
+      "name": "T1 Exit Launch",
+      "zone_type": "exit_traction",
+      "start_m": 450.0,
+      "end_m": 620.0,
+      "usage": "straight_launch_prep"
+    },
+    {
+      "name": "Hill Straight",
+      "zone_type": "deployment_straight",
+      "start_m": 620.0,
+      "end_m": 1030.0,
+      "usage": "primary_overtake_deploy"
+    },
+    {
+      "name": "T3 Hairpin Commit",
+      "zone_type": "deployment_straight",
+      "start_m": 1030.0,
+      "end_m": 1110.0,
+      "usage": "brake_marker_commit"
+    },
+    {
+      "name": "T3 Hairpin Braking",
+      "zone_type": "braking_entry",
+      "start_m": 1110.0,
+      "end_m": 1235.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "T3 Hairpin Apex",
+      "zone_type": "apex_rotation",
+      "start_m": 1235.0,
+      "end_m": 1335.0,
+      "usage": "exit_line_commit"
+    },
+    {
+      "name": "T3 Exit Traction",
+      "zone_type": "exit_traction",
+      "start_m": 1335.0,
+      "end_m": 1520.0,
+      "usage": "traction_release"
+    },
+    {
+      "name": "Back Straight",
+      "zone_type": "deployment_straight",
+      "start_m": 1520.0,
+      "end_m": 2050.0,
+      "usage": "primary_overtake_deploy"
+    },
+    {
+      "name": "T4 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 2050.0,
+      "end_m": 2140.0,
+      "usage": "defensive_braking"
+    },
+    {
+      "name": "T4 Apex",
+      "zone_type": "apex_rotation",
+      "start_m": 2140.0,
+      "end_m": 2260.0,
+      "usage": "yaw_balance"
+    },
+    {
+      "name": "T4 Exit",
+      "zone_type": "exit_traction",
+      "start_m": 2260.0,
+      "end_m": 2450.0,
+      "usage": "traction_rebuild"
+    },
+    {
+      "name": "Middle Sector Sweep",
+      "zone_type": "high_load_management",
+      "start_m": 2450.0,
+      "end_m": 2880.0,
+      "usage": "lateral_load_management"
+    },
+    {
+      "name": "T6 Approach",
+      "zone_type": "deployment_straight",
+      "start_m": 2880.0,
+      "end_m": 3090.0,
+      "usage": "brake_setup"
+    },
+    {
+      "name": "T6 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 3090.0,
+      "end_m": 3180.0,
+      "usage": "late_brake_control"
+    },
+    {
+      "name": "T6 Apex",
+      "zone_type": "apex_rotation",
+      "start_m": 3180.0,
+      "end_m": 3270.0,
+      "usage": "yaw_balance"
+    },
+    {
+      "name": "T6 Exit",
+      "zone_type": "exit_traction",
+      "start_m": 3270.0,
+      "end_m": 3430.0,
+      "usage": "traction_release"
+    },
+    {
+      "name": "T7-T8 Flow",
+      "zone_type": "high_load_management",
+      "start_m": 3430.0,
+      "end_m": 3740.0,
+      "usage": "lateral_load_management"
+    },
+    {
+      "name": "Final Sector Prep",
+      "zone_type": "deployment_straight",
+      "start_m": 3740.0,
+      "end_m": 3910.0,
+      "usage": "ers_prepare"
+    },
+    {
+      "name": "T10 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 3910.0,
+      "end_m": 4010.0,
+      "usage": "final_brake_set"
+    },
+    {
+      "name": "T10 Apex",
+      "zone_type": "apex_rotation",
+      "start_m": 4010.0,
+      "end_m": 4110.0,
+      "usage": "exit_line_commit"
+    },
+    {
+      "name": "Final Straight",
+      "zone_type": "deployment_straight",
+      "start_m": 4110.0,
+      "end_m": 4323.0,
+      "usage": "lap_restart_accel"
+    }
+  ]
+}

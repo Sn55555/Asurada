@@ -1,0 +1,44 @@
+{
+  "track": "Austria",
+  "track_id": 17,
+  "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+  "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+  "subset_files": [
+    {
+      "category": "pit",
+      "path": "/Users/sn5/Asurada/asurada-core/runtime_logs/reports/race_annotation_pit_austria_20260407_025455.json"
+    },
+    {
+      "category": "overtake",
+      "path": "/Users/sn5/Asurada/asurada-core/runtime_logs/reports/race_annotation_overtake_austria_20260407_025455.json"
+    },
+    {
+      "category": "collision",
+      "path": "/Users/sn5/Asurada/asurada-core/runtime_logs/reports/race_annotation_collision_austria_20260407_025455.json"
+    },
+    {
+      "category": "penalty",
+      "path": "/Users/sn5/Asurada/asurada-core/runtime_logs/reports/race_annotation_penalty_austria_20260407_025455.json"
+    },
+    {
+      "category": "retirement",
+      "path": "/Users/sn5/Asurada/asurada-core/runtime_logs/reports/race_annotation_retirement_austria_20260407_025455.json"
+    },
+    {
+      "category": "fastest_lap",
+      "path": "/Users/sn5/Asurada/asurada-core/runtime_logs/reports/race_annotation_fastest_lap_austria_20260407_025455.json"
+    }
+  ],
+  "counts_by_subset": {
+    "pit": 2,
+    "overtake": 8,
+    "collision": 8,
+    "penalty": 4,
+    "retirement": 2,
+    "fastest_lap": 8
+  },
+  "notes": [
+    "Subset files are extracted from race_annotation_groups_austria_20260407_025455.json.",
+    "Canonical source remains session_log_full_race_20260407_025455.jsonl with Austria semantics applied offline."
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "track": "Austria",
+  "track_id": 17,
+  "track_length_m": 4323,
+  "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+  "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+  "weather_segments": [
+    {
+      "weather": "Clear",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 0.0,
+      "start_lap": 1,
+      "end_lap": 1,
+      "duration_s": 0
+    },
+    {
+      "weather": "Overcast",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 1512.568115,
+      "start_lap": 1,
+      "end_lap": 21,
+      "duration_s": 1512.568
+    },
+    {
+      "weather": "LightCloud",
+      "start_session_time_s": 1512.671021,
+      "end_session_time_s": 2612.225098,
+      "start_lap": 21,
+      "end_lap": 36,
+      "duration_s": 1099.554
+    }
+  ],
+  "counts_by_category": {
+    "collision": 8,
+    "drs_event": 3,
+    "fastest_lap": 8,
+    "lap_segment": 868,
+    "overtake": 8,
+    "penalty": 4,
+    "pit": 2,
+    "race_finish": 1,
+    "race_start": 5,
+    "retirement": 2,
+    "team_mate_pits": 2
+  },
+  "event_counts_by_code": {
+    "SSTA": 1,
+    "STLG": 1,
+    "LGOT": 3,
+    "OVTK": 8,
+    "DRSE": 3,
+    "FTLP": 8,
+    "COLL": 8,
+    "TMPT": 2,
+    "RTMT": 2,
+    "PENA": 4,
+    "CHQF": 1
+  },
+  "total_manifest_items": 911,
+  "notes": [
+    "Canonical full-coverage source remains session_log_full_race_20260407_025455.jsonl",
+    "Austria track semantics are applied offline via track_id 17 mapping and austria_segments.json",
+    "Replay-generated Austria-named full log exists but is incomplete for laps 29-35, so it is not used as canonical source"
+  ]
+}

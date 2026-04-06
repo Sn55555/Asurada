@@ -1,0 +1,116 @@
+{
+  "track": "Austria",
+  "track_id": 17,
+  "category": "pit",
+  "count": 2,
+  "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+  "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+  "weather_segments": [
+    {
+      "weather": "Clear",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 0.0,
+      "start_lap": 1,
+      "end_lap": 1,
+      "duration_s": 0
+    },
+    {
+      "weather": "Overcast",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 1512.568115,
+      "start_lap": 1,
+      "end_lap": 21,
+      "duration_s": 1512.568
+    },
+    {
+      "weather": "LightCloud",
+      "start_session_time_s": 1512.671021,
+      "end_session_time_s": 2612.225098,
+      "start_lap": 21,
+      "end_lap": 36,
+      "duration_s": 1099.554
+    }
+  ],
+  "items": [
+    {
+      "sample_id": "pit:20260407_025455:001",
+      "kind": "pit_window",
+      "category": "pit",
+      "annotation_goal": "标注进站完整流程与进站前后赛段语义",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "lap_start": 13,
+      "lap_end": 14,
+      "window_start_session_time_s": 937.531677,
+      "window_end_session_time_s": 956.594727,
+      "duration_s": null,
+      "max_pit_stop_timer_ms": 2421,
+      "max_time_in_lane_ms": 19085,
+      "segments_seen": [
+        "Final Straight",
+        "Start Straight",
+        "T1 Attack Build",
+        "T1 Braking"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry"
+      ],
+      "usages_seen": [
+        "lap_restart_accel",
+        "overtake_setup",
+        "maximum_brake_pressure"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL",
+        "DYNAMICS_UNSTABLE",
+        "FRONT_LOAD"
+      ],
+      "start_segment": "Final Straight",
+      "end_segment": "T1 Braking"
+    },
+    {
+      "sample_id": "pit:20260407_025455:002",
+      "kind": "pit_window",
+      "category": "pit",
+      "annotation_goal": "标注进站完整流程与进站前后赛段语义",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "lap_start": 24,
+      "lap_end": 25,
+      "window_start_session_time_s": 1742.292236,
+      "window_end_session_time_s": 1761.257935,
+      "duration_s": null,
+      "max_pit_stop_timer_ms": 2413,
+      "max_time_in_lane_ms": 19028,
+      "segments_seen": [
+        "Final Straight",
+        "Start Straight",
+        "T1 Attack Build",
+        "T1 Braking"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry"
+      ],
+      "usages_seen": [
+        "lap_restart_accel",
+        "overtake_setup",
+        "maximum_brake_pressure"
+      ],
+      "weather_seen": [
+        "LightCloud"
+      ],
+      "messages_seen": [
+        "LOW_FUEL",
+        "DYNAMICS_UNSTABLE",
+        "FRONT_LOAD"
+      ],
+      "start_segment": "Final Straight",
+      "end_segment": "T1 Braking"
+    }
+  ]
+}

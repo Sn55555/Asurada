@@ -1,0 +1,130 @@
+{
+  "track": "Austria",
+  "track_id": 17,
+  "category": "retirement",
+  "count": 2,
+  "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+  "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+  "weather_segments": [
+    {
+      "weather": "Clear",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 0.0,
+      "start_lap": 1,
+      "end_lap": 1,
+      "duration_s": 0
+    },
+    {
+      "weather": "Overcast",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 1512.568115,
+      "start_lap": 1,
+      "end_lap": 21,
+      "duration_s": 1512.568
+    },
+    {
+      "weather": "LightCloud",
+      "start_session_time_s": 1512.671021,
+      "end_session_time_s": 2612.225098,
+      "start_lap": 21,
+      "end_lap": 36,
+      "duration_s": 1099.554
+    }
+  ],
+  "items": [
+    {
+      "sample_id": "retirement:20260407_025455:032",
+      "kind": "event_window",
+      "category": "retirement",
+      "annotation_goal": "标注退赛触发窗口",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "RTMT",
+      "event_detail": {
+        "vehicle_idx": 9
+      },
+      "lap": 22,
+      "event_session_time_s": 1581.084717,
+      "window_start_session_time_s": 1578.08606,
+      "window_end_session_time_s": 1584.077026,
+      "track_segment": "T6 Exit",
+      "segments_seen": [
+        "T6 Braking",
+        "T6 Apex",
+        "T6 Exit",
+        "T7-T8 Flow"
+      ],
+      "zone_types_seen": [
+        "braking_entry",
+        "apex_rotation",
+        "exit_traction",
+        "high_load_management"
+      ],
+      "usages_seen": [
+        "late_brake_control",
+        "yaw_balance",
+        "traction_release",
+        "lateral_load_management"
+      ],
+      "weather_seen": [
+        "LightCloud"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        190.0,
+        285.0
+      ]
+    },
+    {
+      "sample_id": "retirement:20260407_025455:036",
+      "kind": "event_window",
+      "category": "retirement",
+      "annotation_goal": "标注退赛触发窗口",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "RTMT",
+      "event_detail": {
+        "vehicle_idx": 15
+      },
+      "lap": 27,
+      "event_session_time_s": 1946.366211,
+      "window_start_session_time_s": 1943.356567,
+      "window_end_session_time_s": 1949.366333,
+      "track_segment": "Middle Sector Sweep",
+      "segments_seen": [
+        "Middle Sector Sweep",
+        "T6 Approach"
+      ],
+      "zone_types_seen": [
+        "high_load_management",
+        "deployment_straight"
+      ],
+      "usages_seen": [
+        "lateral_load_management",
+        "brake_setup"
+      ],
+      "weather_seen": [
+        "LightCloud"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        161.0,
+        242.0
+      ]
+    }
+  ]
+}

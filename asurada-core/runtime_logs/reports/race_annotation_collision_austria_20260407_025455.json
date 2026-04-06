@@ -1,0 +1,406 @@
+{
+  "track": "Austria",
+  "track_id": 17,
+  "category": "collision",
+  "count": 8,
+  "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+  "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+  "weather_segments": [
+    {
+      "weather": "Clear",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 0.0,
+      "start_lap": 1,
+      "end_lap": 1,
+      "duration_s": 0
+    },
+    {
+      "weather": "Overcast",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 1512.568115,
+      "start_lap": 1,
+      "end_lap": 21,
+      "duration_s": 1512.568
+    },
+    {
+      "weather": "LightCloud",
+      "start_session_time_s": 1512.671021,
+      "end_session_time_s": 2612.225098,
+      "start_lap": 21,
+      "end_lap": 36,
+      "duration_s": 1099.554
+    }
+  ],
+  "items": [
+    {
+      "sample_id": "collision:20260407_025455:021",
+      "kind": "event_window",
+      "category": "collision",
+      "annotation_goal": "标注碰撞上下文与风险赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "COLL",
+      "event_detail": {
+        "vehicle_1_idx": 14,
+        "vehicle_2_idx": 10
+      },
+      "lap": 3,
+      "event_session_time_s": 187.653137,
+      "window_start_session_time_s": 184.655289,
+      "window_end_session_time_s": 190.642395,
+      "track_segment": "Middle Sector Sweep",
+      "segments_seen": [
+        "T4 Exit",
+        "Middle Sector Sweep"
+      ],
+      "zone_types_seen": [
+        "exit_traction",
+        "high_load_management"
+      ],
+      "usages_seen": [
+        "traction_rebuild",
+        "lateral_load_management"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        159.0,
+        273.0
+      ]
+    },
+    {
+      "sample_id": "collision:20260407_025455:022",
+      "kind": "event_window",
+      "category": "collision",
+      "annotation_goal": "标注碰撞上下文与风险赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "COLL",
+      "event_detail": {
+        "vehicle_1_idx": 19,
+        "vehicle_2_idx": 18
+      },
+      "lap": 5,
+      "event_session_time_s": 323.228027,
+      "window_start_session_time_s": 320.23175,
+      "window_end_session_time_s": 326.241455,
+      "track_segment": "T4 Apex",
+      "segments_seen": [
+        "T4 Braking",
+        "T4 Apex",
+        "T4 Exit"
+      ],
+      "zone_types_seen": [
+        "braking_entry",
+        "apex_rotation",
+        "exit_traction"
+      ],
+      "usages_seen": [
+        "defensive_braking",
+        "yaw_balance",
+        "traction_rebuild"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        103.0,
+        281.0
+      ]
+    },
+    {
+      "sample_id": "collision:20260407_025455:023",
+      "kind": "event_window",
+      "category": "collision",
+      "annotation_goal": "标注碰撞上下文与风险赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "COLL",
+      "event_detail": {
+        "vehicle_1_idx": 10,
+        "vehicle_2_idx": 14
+      },
+      "lap": 5,
+      "event_session_time_s": 326.822571,
+      "window_start_session_time_s": 323.818634,
+      "window_end_session_time_s": 329.829468,
+      "track_segment": "T4 Exit",
+      "segments_seen": [
+        "T4 Apex",
+        "T4 Exit",
+        "Middle Sector Sweep"
+      ],
+      "zone_types_seen": [
+        "apex_rotation",
+        "exit_traction",
+        "high_load_management"
+      ],
+      "usages_seen": [
+        "yaw_balance",
+        "traction_rebuild",
+        "lateral_load_management"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        105.0,
+        261.0
+      ]
+    },
+    {
+      "sample_id": "collision:20260407_025455:024",
+      "kind": "event_window",
+      "category": "collision",
+      "annotation_goal": "标注碰撞上下文与风险赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "COLL",
+      "event_detail": {
+        "vehicle_1_idx": 10,
+        "vehicle_2_idx": 14
+      },
+      "lap": 5,
+      "event_session_time_s": 328.340424,
+      "window_start_session_time_s": 325.340271,
+      "window_end_session_time_s": 331.332794,
+      "track_segment": "Middle Sector Sweep",
+      "segments_seen": [
+        "T4 Exit",
+        "Middle Sector Sweep"
+      ],
+      "zone_types_seen": [
+        "exit_traction",
+        "high_load_management"
+      ],
+      "usages_seen": [
+        "traction_rebuild",
+        "lateral_load_management"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        140.0,
+        271.0
+      ]
+    },
+    {
+      "sample_id": "collision:20260407_025455:025",
+      "kind": "event_window",
+      "category": "collision",
+      "annotation_goal": "标注碰撞上下文与风险赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "COLL",
+      "event_detail": {
+        "vehicle_1_idx": 5,
+        "vehicle_2_idx": 7
+      },
+      "lap": 5,
+      "event_session_time_s": 337.627899,
+      "window_start_session_time_s": 334.624634,
+      "window_end_session_time_s": 340.624634,
+      "track_segment": "T6 Approach",
+      "segments_seen": [
+        "Middle Sector Sweep",
+        "T6 Approach",
+        "T6 Braking"
+      ],
+      "zone_types_seen": [
+        "high_load_management",
+        "deployment_straight",
+        "braking_entry"
+      ],
+      "usages_seen": [
+        "lateral_load_management",
+        "brake_setup",
+        "late_brake_control"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        175.0,
+        235.0
+      ]
+    },
+    {
+      "sample_id": "collision:20260407_025455:026",
+      "kind": "event_window",
+      "category": "collision",
+      "annotation_goal": "标注碰撞上下文与风险赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "COLL",
+      "event_detail": {
+        "vehicle_1_idx": 0,
+        "vehicle_2_idx": 3
+      },
+      "lap": 8,
+      "event_session_time_s": 548.999146,
+      "window_start_session_time_s": 545.987976,
+      "window_end_session_time_s": 551.992249,
+      "track_segment": "Middle Sector Sweep",
+      "segments_seen": [
+        "Middle Sector Sweep",
+        "T6 Approach"
+      ],
+      "zone_types_seen": [
+        "high_load_management",
+        "deployment_straight"
+      ],
+      "usages_seen": [
+        "lateral_load_management",
+        "brake_setup"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        155.0,
+        272.0
+      ]
+    },
+    {
+      "sample_id": "collision:20260407_025455:027",
+      "kind": "event_window",
+      "category": "collision",
+      "annotation_goal": "标注碰撞上下文与风险赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "COLL",
+      "event_detail": {
+        "vehicle_1_idx": 0,
+        "vehicle_2_idx": 3
+      },
+      "lap": 8,
+      "event_session_time_s": 550.50592,
+      "window_start_session_time_s": 547.498962,
+      "window_end_session_time_s": 553.506104,
+      "track_segment": "Middle Sector Sweep",
+      "segments_seen": [
+        "Middle Sector Sweep",
+        "T6 Approach"
+      ],
+      "zone_types_seen": [
+        "high_load_management",
+        "deployment_straight"
+      ],
+      "usages_seen": [
+        "lateral_load_management",
+        "brake_setup"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        155.0,
+        238.0
+      ]
+    },
+    {
+      "sample_id": "collision:20260407_025455:028",
+      "kind": "event_window",
+      "category": "collision",
+      "annotation_goal": "标注碰撞上下文与风险赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "COLL",
+      "event_detail": {
+        "vehicle_1_idx": 17,
+        "vehicle_2_idx": 2
+      },
+      "lap": 14,
+      "event_session_time_s": 979.706238,
+      "window_start_session_time_s": 976.705688,
+      "window_end_session_time_s": 982.699341,
+      "track_segment": "T3 Exit Traction",
+      "segments_seen": [
+        "T3 Exit Traction",
+        "Back Straight"
+      ],
+      "zone_types_seen": [
+        "exit_traction",
+        "deployment_straight"
+      ],
+      "usages_seen": [
+        "traction_release",
+        "primary_overtake_deploy"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL",
+        "DYNAMICS_UNSTABLE"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        57.0,
+        214.0
+      ]
+    }
+  ]
+}

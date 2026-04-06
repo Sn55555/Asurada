@@ -1,0 +1,422 @@
+{
+  "track": "Austria",
+  "track_id": 17,
+  "category": "fastest_lap",
+  "count": 8,
+  "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+  "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+  "weather_segments": [
+    {
+      "weather": "Clear",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 0.0,
+      "start_lap": 1,
+      "end_lap": 1,
+      "duration_s": 0
+    },
+    {
+      "weather": "Overcast",
+      "start_session_time_s": 0.0,
+      "end_session_time_s": 1512.568115,
+      "start_lap": 1,
+      "end_lap": 21,
+      "duration_s": 1512.568
+    },
+    {
+      "weather": "LightCloud",
+      "start_session_time_s": 1512.671021,
+      "end_session_time_s": 2612.225098,
+      "start_lap": 21,
+      "end_lap": 36,
+      "duration_s": 1099.554
+    }
+  ],
+  "items": [
+    {
+      "sample_id": "fastest_lap:20260407_025455:017",
+      "kind": "event_window",
+      "category": "fastest_lap",
+      "annotation_goal": "标注最快圈事件及高性能赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "FTLP",
+      "event_detail": {
+        "vehicle_idx": 2,
+        "lap_time_s": 71.095001
+      },
+      "lap": 3,
+      "event_session_time_s": 144.553452,
+      "window_start_session_time_s": 141.557785,
+      "window_end_session_time_s": 147.547745,
+      "track_segment": "Start Straight",
+      "segments_seen": [
+        "Final Straight",
+        "Start Straight",
+        "T1 Attack Build",
+        "T1 Braking"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry"
+      ],
+      "usages_seen": [
+        "lap_restart_accel",
+        "overtake_setup",
+        "maximum_brake_pressure"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        214.0,
+        304.0
+      ]
+    },
+    {
+      "sample_id": "fastest_lap:20260407_025455:018",
+      "kind": "event_window",
+      "category": "fastest_lap",
+      "annotation_goal": "标注最快圈事件及高性能赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "FTLP",
+      "event_detail": {
+        "vehicle_idx": 2,
+        "lap_time_s": 71.095001
+      },
+      "lap": 3,
+      "event_session_time_s": 149.648422,
+      "window_start_session_time_s": 146.637039,
+      "window_end_session_time_s": 152.642838,
+      "track_segment": "T1 Apex",
+      "segments_seen": [
+        "T1 Attack Build",
+        "T1 Braking",
+        "T1 Apex",
+        "T1 Exit Launch"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry",
+        "apex_rotation",
+        "exit_traction"
+      ],
+      "usages_seen": [
+        "overtake_setup",
+        "maximum_brake_pressure",
+        "slow_corner_rotation",
+        "straight_launch_prep"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        124.0,
+        308.0
+      ]
+    },
+    {
+      "sample_id": "fastest_lap:20260407_025455:019",
+      "kind": "event_window",
+      "category": "fastest_lap",
+      "annotation_goal": "标注最快圈事件及高性能赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "FTLP",
+      "event_detail": {
+        "vehicle_idx": 2,
+        "lap_time_s": 71.095001
+      },
+      "lap": 3,
+      "event_session_time_s": 154.74025,
+      "window_start_session_time_s": 151.739014,
+      "window_end_session_time_s": 157.740036,
+      "track_segment": "Hill Straight",
+      "segments_seen": [
+        "T1 Exit Launch",
+        "Hill Straight"
+      ],
+      "zone_types_seen": [
+        "exit_traction",
+        "deployment_straight"
+      ],
+      "usages_seen": [
+        "straight_launch_prep",
+        "primary_overtake_deploy"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        132.0,
+        288.0
+      ]
+    },
+    {
+      "sample_id": "fastest_lap:20260407_025455:020",
+      "kind": "event_window",
+      "category": "fastest_lap",
+      "annotation_goal": "标注最快圈事件及高性能赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "FTLP",
+      "event_detail": {
+        "vehicle_idx": 2,
+        "lap_time_s": 71.095001
+      },
+      "lap": 3,
+      "event_session_time_s": 159.755295,
+      "window_start_session_time_s": 156.751251,
+      "window_end_session_time_s": 162.756073,
+      "track_segment": "T3 Hairpin Commit",
+      "segments_seen": [
+        "Hill Straight",
+        "T3 Hairpin Commit",
+        "T3 Hairpin Braking",
+        "T3 Hairpin Apex"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry",
+        "apex_rotation"
+      ],
+      "usages_seen": [
+        "primary_overtake_deploy",
+        "brake_marker_commit",
+        "maximum_brake_pressure",
+        "exit_line_commit"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        266.0,
+        304.0
+      ]
+    },
+    {
+      "sample_id": "fastest_lap:20260407_025455:030",
+      "kind": "event_window",
+      "category": "fastest_lap",
+      "annotation_goal": "标注最快圈事件及高性能赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "FTLP",
+      "event_detail": {
+        "vehicle_idx": 2,
+        "lap_time_s": 71.0
+      },
+      "lap": 16,
+      "event_session_time_s": 1098.087402,
+      "window_start_session_time_s": 1095.099854,
+      "window_end_session_time_s": 1101.101562,
+      "track_segment": "Start Straight",
+      "segments_seen": [
+        "Final Straight",
+        "Start Straight",
+        "T1 Attack Build",
+        "T1 Braking"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry"
+      ],
+      "usages_seen": [
+        "lap_restart_accel",
+        "overtake_setup",
+        "maximum_brake_pressure"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        212.0,
+        305.0
+      ]
+    },
+    {
+      "sample_id": "fastest_lap:20260407_025455:031",
+      "kind": "event_window",
+      "category": "fastest_lap",
+      "annotation_goal": "标注最快圈事件及高性能赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "FTLP",
+      "event_detail": {
+        "vehicle_idx": 2,
+        "lap_time_s": 70.567001
+      },
+      "lap": 17,
+      "event_session_time_s": 1168.69165,
+      "window_start_session_time_s": 1165.708496,
+      "window_end_session_time_s": 1171.691772,
+      "track_segment": "Start Straight",
+      "segments_seen": [
+        "Final Straight",
+        "Start Straight",
+        "T1 Attack Build",
+        "T1 Braking"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry"
+      ],
+      "usages_seen": [
+        "lap_restart_accel",
+        "overtake_setup",
+        "maximum_brake_pressure"
+      ],
+      "weather_seen": [
+        "Overcast"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        213.0,
+        305.0
+      ]
+    },
+    {
+      "sample_id": "fastest_lap:20260407_025455:034",
+      "kind": "event_window",
+      "category": "fastest_lap",
+      "annotation_goal": "标注最快圈事件及高性能赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "FTLP",
+      "event_detail": {
+        "vehicle_idx": 2,
+        "lap_time_s": 70.321999
+      },
+      "lap": 27,
+      "event_session_time_s": 1900.346069,
+      "window_start_session_time_s": 1897.356567,
+      "window_end_session_time_s": 1903.362427,
+      "track_segment": "Start Straight",
+      "segments_seen": [
+        "Final Straight",
+        "Start Straight",
+        "T1 Attack Build",
+        "T1 Braking"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry"
+      ],
+      "usages_seen": [
+        "lap_restart_accel",
+        "overtake_setup",
+        "maximum_brake_pressure"
+      ],
+      "weather_seen": [
+        "LightCloud"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        213.0,
+        306.0
+      ]
+    },
+    {
+      "sample_id": "fastest_lap:20260407_025455:040",
+      "kind": "event_window",
+      "category": "fastest_lap",
+      "annotation_goal": "标注最快圈事件及高性能赛段",
+      "source_capture_jsonl": "/Users/sn5/Asurada/asurada-core/runtime_logs/live_udp_capture_20260407_025455.jsonl",
+      "source_session_log_full": "/Users/sn5/Asurada/asurada-core/runtime_logs/session_log_full_race_20260407_025455.jsonl",
+      "event_code": "FTLP",
+      "event_detail": {
+        "vehicle_idx": 2,
+        "lap_time_s": 70.108002
+      },
+      "lap": 28,
+      "event_session_time_s": 1970.443237,
+      "window_start_session_time_s": 1967.45459,
+      "window_end_session_time_s": 1973.465576,
+      "track_segment": "Start Straight",
+      "segments_seen": [
+        "Final Straight",
+        "Start Straight",
+        "T1 Attack Build",
+        "T1 Braking"
+      ],
+      "zone_types_seen": [
+        "deployment_straight",
+        "braking_entry"
+      ],
+      "usages_seen": [
+        "lap_restart_accel",
+        "overtake_setup",
+        "maximum_brake_pressure"
+      ],
+      "weather_seen": [
+        "LightCloud"
+      ],
+      "messages_seen": [
+        "LOW_FUEL"
+      ],
+      "pit_status_seen": [],
+      "position_range": [
+        1,
+        1
+      ],
+      "speed_range_kph": [
+        216.0,
+        306.0
+      ]
+    }
+  ]
+}

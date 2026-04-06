@@ -36,6 +36,7 @@ SESSION_TYPE_NAMES = {
 TRACK_NAMES = {
     2: "Shanghai",
     13: "Suzuka",
+    17: "Austria",
 }
 
 TYRE_COMPOUND_NAMES = {
