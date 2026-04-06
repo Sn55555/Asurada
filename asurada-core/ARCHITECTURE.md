@@ -94,18 +94,19 @@ capture JSONL
   -> SessionState
 ```
 
-### 4. Live UDP Shell
+### 4. Live UDP Runtime
 
 Files:
 - `src/asurada/udp_ingest.py`
 - `src/asurada/live_runtime.py`
+- `src/asurada/runtime_pipeline.py`
 
 Purpose:
-- socket listener shell for future real-time deployment
+- ingest live UDP packets and run the full real-time decode -> state -> strategy -> output -> log loop
 
 Boundary:
-- currently limited to packet receive + decode preview
-- not yet wired into the full live strategy loop
+- currently closed against the live runtime loop in the development environment
+- still not the final production audio / HUD / device deployment path
 
 ## Decode And Assembly
 
@@ -439,7 +440,7 @@ Dispatch rule:
 
 ## Current Gaps
 
-- live UDP path is still a shell, not a full real-time closed loop
+- live UDP path is closed in the current development environment, but the device-side production path is still pending
 - some packet bodies still use validated subsets instead of full protocol coverage
 - rival gap semantics are still estimated in some cases
 - dashboard is an engineering workbench, not the final race HUD

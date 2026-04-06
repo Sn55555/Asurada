@@ -28,6 +28,14 @@
 - wake word 首发
 - 解释型大模型正式接入
 
+当前代码位置：
+
+- 已完成统一下行语音输出主线
+- 已完成 `AudioIO / VAD / VoiceTurn / FastIntentASR / voice_nlu / voice_input` 输入基础
+- 已完成语义归一化、短上下文记忆、规则化解释层与 `open_fallback`
+- 已完成 `PiperBackend` 代码路径
+- 当前剩余重点是设备侧音频输入、`OpenASR` fallback、watchdog 与 Pi 真机联调
+
 ---
 
 ## 二、实施顺序

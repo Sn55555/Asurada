@@ -36,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--live-udp",
         action="store_true",
-        help="Start the live UDP listener shell for future F1 25 packets.",
+        help="Start the live UDP real-time runtime path for F1 25 packets.",
     )
     parser.add_argument(
         "--build-dashboard",

@@ -2,10 +2,11 @@
 
 ## Scope
 
-This acceptance note covers Phase 1 with one explicit boundary:
-- real-time live closed-loop validation is excluded in the current environment
+This acceptance note covers Phase 1 with two explicit boundaries:
+- edge-device deployment is excluded in the current environment
+- production bidirectional voice runtime is excluded in the current environment
 
-Everything else in Phase 1 is expected to be reviewable from the M5 Mac development workspace.
+Everything else in Phase 1 is expected to be reviewable from the M5 Mac development workspace, including the live UDP closed-loop runtime in the development environment.
 
 ## Phase 1 Goal
 
@@ -165,12 +166,13 @@ Must provide:
 
 ## Explicit Phase 1 Boundary
 
-The following item is not part of this acceptance in the current environment:
-- live UDP end-to-end closed-loop runtime
+The following items are not part of this acceptance in the current environment:
+- edge-device deployment
+- production bidirectional voice runtime
 
 Current status:
-- live UDP listener shell exists
-- full real-time runtime integration is deferred until environment constraints are removed
+- live UDP end-to-end closed-loop runtime exists in the development environment
+- live and capture replay now share the same runtime pipeline
 
 ## Acceptance Status
 

@@ -11,6 +11,14 @@
 
 本文档不是算法细节文档，而是工程实施图。
 
+当前仓库位置：
+
+- 阶段三语音模块已经完成统一下行语音输出主线
+- `AudioIO / VAD / VoiceTurn / FastIntentASR / voice_nlu / voice_input` 输入基础已经落地
+- 语义归一化、短上下文记忆、规则化解释层与 `open_fallback` 已落地
+- 更广语义问法已覆盖前后车、DRS、ERS、进站、天气、处罚、车损、整体形势与轮胎 outlook
+- 仍未完成真实麦克风 / 设备侧音频 backend、`OpenASR` fallback、watchdog 与 Pi 5 / CM5 真机闭环
+
 ---
 
 ## 一、阶段二 / 阶段三边界
@@ -55,11 +63,11 @@
 - 语音确认 / 权限分级规则最小版
 - 工具与长任务取消接口最小版
 
-阶段二当前未完成：
+阶段二接口预埋之后，由阶段三继续承接的项：
 
-- 本地 ASR / TTS 原型的正式代码落地
-- 双向语音原型的正式代码落地
-- 结构化语音问答原型的正式代码落地
+- 真实麦克风 / 设备侧 `AudioIO` backend
+- 设备侧 `TTS` backend 真机验证
+- `OpenASR` fallback 与 transcript arbiter
 - 语音确认 / 权限分级规则的正式扩展
 - 工具与长任务取消接口的正式扩展
 - `ASR -> query normalization -> strategy -> TTS` 分层日志骨架的正式扩展

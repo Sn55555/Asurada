@@ -38,11 +38,16 @@
 - 统一下行语音任务模型 `SpeechJob`
 - 统一输出协调器 `ConsoleVoiceOutput`
 - 真实开发机 TTS backend `MacOSSayBackend`
+- `AudioIO / VAD / VoiceTurn` 输入基础模块
+- `FastIntentASR / voice_nlu / voice_input` 结构化输入骨架
+- `conversation_context / semantic_normalizer / response_composer` 语义归一化、短上下文记忆与规则化解释层
+- `open_fallback` 与更广结构化问法
+- `PiperBackend` 设备侧 TTS backend 代码路径
 - `1 active + 1 pending` 输出队列
 - `enqueue / replace_pending / complete` 生命周期
 - 系统主动播报与结构化查询响应共路径
 
-因此阶段三不应重写输出层，只应补齐**输入侧**和**设备侧 TTS backend**。
+因此阶段三不应重写输出层；下一步重点是补齐**真实麦克风 / 设备侧输入 front-end**、`OpenASR` fallback、watchdog 与 Pi 真机验证。
 
 ---
 

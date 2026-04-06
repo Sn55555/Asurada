@@ -36,7 +36,7 @@ class AppConfig:
 
 @dataclass
 class UdpConfig:
-    """Socket settings for the live UDP listener shell."""
+    """Socket settings for the live UDP real-time runtime path."""
 
     host: str = "0.0.0.0"
     port: int = 20778

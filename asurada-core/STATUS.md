@@ -30,7 +30,7 @@
 - 阶段二已从“数据准备”推进到“baseline + 控制层 + runtime sidecar + 扩展样本接入”并行阶段
 - 本地扩展数据集整理工作流已落地，当前已具备本机复现 split -> metadata -> config -> export -> validation 的统一入口
 - `pit_window_support_model + long_horizon_strategy_baseline` 第一版已实现，并已接入 `decision.debug` 与 `arbiter_v2` 上下文
-- 当前最大未完成项是稀有事件样本验证、少量协议精修，以及阶段三语音输入侧闭环与设备侧部署
+- 当前最大未完成项是稀有事件样本验证、少量协议精修，以及阶段三语音模块的真实麦克风 / 设备侧闭环、`OpenASR` fallback 与 watchdog
 
 ## 阶段总览
 
@@ -455,20 +455,21 @@
     - 当前在 `StrategyEngine.evaluate()` 中为每帧生成系统策略事件
     - 当前已写入 `decision.debug` 和 `session_log.jsonl`
   - 当前边界：
-    - 当前只覆盖 `system_strategy -> strategy_broadcast`
-    - 尚未正式接入 ASR / TTS / query normalization
-    - 尚未实现输出层可取消 / 可中断生命周期
-    - 尚未实现语音分层日志骨架
+    - 当前系统策略事件仍是这条协议的默认来源
+    - 阶段三本地实现已在这条协议上扩到结构化语音查询输入
+    - 当前仍未完成真实麦克风 / 设备侧音频 front-end 与 `OpenASR` fallback
   - 当前意义：
     - 阶段三接入双向语音时，不需要再回改主链的轮次标识和快照绑定协议
     - 输出层、logger、debug dashboard 都可以复用同一事件结构
 - 输出层可取消 / 可中断生命周期最小版已接入
   - 当前结论：输出层生命周期接口已定型到可复用状态
   - 当前实现：
-    - `ConsoleVoiceOutput` 当前已维护 `active output`
+    - `ConsoleVoiceOutput` 当前已维护统一语音输出队列
     - 已支持事件类型：
+      - `enqueue`
+      - `replace_pending`
       - `start`
-      - `interrupt`
+      - `complete`
       - `suppress`
       - `cancel`
       - `idle`
@@ -480,12 +481,11 @@
       - `interrupted_output_event_id`
       - `turn_id / request_id / snapshot_binding_id`
   - 当前边界：
-    - 当前只覆盖 console voice 输出层
-    - 尚未接入真实 TTS / 音频缓冲 / 播放器状态
-    - 尚未实现正式的可抢占音频通道
+    - 当前已接开发机 `MacOSSayBackend`
+    - 当前仍未完成设备侧 `PiperBackend` 真机验证、播放器状态回报与正式抢占策略
   - 当前意义：
-    - 阶段三接 TTS 时，不需要再回改主链的输出事件语义
-    - 当前已经能用同一生命周期协议描述“开始播报 / 被打断 / 被压制 / 被取消”
+    - 阶段三继续扩 `TTS` 时，不需要再回改主链的输出事件语义
+    - 当前已经能用同一生命周期协议描述“排队 / 被替换 / 开始播报 / 播放完成 / 被压制 / 被取消”
 - `ASR -> query normalization -> strategy -> TTS` 分层日志骨架最小版已接入
   - 当前结论：分层日志结构已定型到可复用状态
   - 当前实现：
@@ -501,8 +501,8 @@
       - `tts` 已从 `output_lifecycle` 自动派生
     - 当前日志已写入 `decision.debug` 和 `session_log.jsonl`
   - 当前边界：
-    - 仍是最小骨架，不含真实 ASR transcript / TTS player 状态
-    - 尚未接入结构化 query schema 与工具调用层
+    - 当前仍不含真实麦克风 transcript、播放器状态与设备侧 watchdog 指标
+    - 当前仍未接入外部工具调用层
   - 当前意义：
     - 阶段三接入 ASR/TTS 时，不需要回改日志主结构
     - 当前已可以按同一格式对齐系统策略播报和未来语音问答链路
@@ -521,9 +521,8 @@
       - `response_channel`
     - 当前已写入 `decision.debug` 和 `voice_pipeline_log`
   - 当前边界：
-    - 仍是最小规则版，只覆盖 `system_strategy -> strategy_broadcast`
-    - 尚未接入真实语音问答意图分类
-    - 尚未接入工具调用层
+    - 当前已覆盖系统策略播报、结构化语音查询、语义归一化与 `open_fallback`
+    - 尚未接入真实麦克风声学前端、`OpenASR` fallback 与工具调用层
   - 当前意义：
     - 阶段三接结构化问答时，不需要再回改 query schema 主结构
     - 当前已把“输入事件 -> 结构化 query -> 路由 -> 策略输出”这条接口链打通
@@ -1156,7 +1155,7 @@
 
 ## 阶段三当前状态
 
-状态：`已启动（下行语音输出侧）`
+状态：`已启动（输出主线 + 输入基础 + 语义层）`
 
 当前已完成：
 
@@ -1167,16 +1166,22 @@
 - [x] `1 active + 1 pending` 队列
 - [x] `enqueue / replace_pending / complete` 生命周期
 - [x] 系统主动播报与结构化查询响应共路径
+- [x] `AudioIO / VAD / VoiceTurn` 输入基础模块
+- [x] `FastIntentASR / voice_nlu / voice_input` 结构化双向语音输入骨架
+- [x] `conversation_context / semantic_normalizer / response_composer` 语义归一化、短上下文记忆与规则化解释层
+- [x] `open_fallback` 与更广语义问法
+- [x] `PiperBackend` 设备侧 TTS backend 代码路径
 - [x] 阶段三语音回归脚本
 - [x] 阶段三语音模块架构文档
 - [x] 阶段三语音模块实施计划
 
 当前边界：
 
-- [ ] 还未接 ASR 输入
-- [ ] 还未形成双向语音闭环
-- [ ] 还未接 Pi 5 / CM5 / 边缘设备 TTS backend
-- [ ] 还未做查询触发入口产品化
+- [ ] 还未接真实麦克风 / 设备侧音频 backend
+- [ ] 还未完成设备侧双向语音闭环
+- [ ] 还未完成 `OpenASR` fallback 与 transcript arbiter
+- [ ] 还未完成 `PiperBackend` 的 Pi 5 / CM5 真机验证
+- [ ] 还未做 watchdog、降级恢复与查询触发入口产品化
 
 待启动项：
 

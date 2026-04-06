@@ -35,7 +35,7 @@ See also:
 - replay JSONL input
 - single-lap CSV input
 - captured UDP JSONL replay input
-- live UDP listener shell for future F1 25 PDU packets
+- live UDP real-time input wired into the runtime strategy loop
 
 ## Quick Start
 
@@ -70,7 +70,7 @@ runtime_logs/     replay logs, reports, dashboard output
 - `--capture-jsonl`
   - replay raw UDP capture JSONL through the real decode pipeline
 - `--live-udp`
-  - start the live UDP listener shell
+  - start the live UDP real-time runtime path
 - `--build-dashboard`
   - rebuild the HTML debug dashboard from `runtime_logs/session_log.jsonl`
 
@@ -88,12 +88,22 @@ runtime_logs/     replay logs, reports, dashboard output
   - keeps the rolling in-memory state window
 - `strategy.py`
   - runs the layered strategy pipeline
+- `runtime_pipeline.py`
+  - runs the shared runtime path used by live UDP and capture replay
+- `interaction.py`
+  - defines the shared interaction, query, task, and speech contracts
+- `output.py`
+  - coordinates unified voice output and lifecycle events
+- `voice_input.py`
+  - bridges structured voice input into the existing interaction/output path
 - `track_model.py`
   - applies Shanghai semantic segments and usage labels
 - `replay.py`
   - writes append-only JSONL runtime logs
 - `dashboard.py`
   - generates the local debug dashboard
+- `response_composer.py`
+  - renders structured query responses and explanation-style spoken answers
 - `analysis.py`
   - builds single-lap review summaries and segment analysis
 

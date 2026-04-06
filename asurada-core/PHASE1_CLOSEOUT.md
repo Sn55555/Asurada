@@ -8,12 +8,13 @@ Phase 1 is closed against:
 - offline replay input
 - CSV single-lap prototype input
 - raw capture replay input
+- live UDP end-to-end runtime in the current development environment
+- live replay/runtime path unification
 - protocol refinement on the currently available Shanghai race-weekend capture
 - dashboard-based debug review
 - fixed-sample regression
 
 Phase 1 is not closed against:
-- live UDP end-to-end runtime
 - edge-device deployment
 - model training and model serving
 - production bidirectional voice runtime
@@ -66,8 +67,6 @@ Phase 1 is not closed against:
 
 ### Explicitly Deferred
 
-- live UDP closed-loop runtime
-- live replay/runtime path unification
 - Pi 5 / CM5 deployment work
 - machine-learning model training
 - model inference in the strategy chain

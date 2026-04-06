@@ -30,7 +30,7 @@ flowchart TB
 
 - 阶段一：基本完成，`live UDP` 与 `capture replay` 已共用运行主链，实时日志已补毫秒级阶段观测，顶层天气/时间戳已回写，离线调试面板已按单帧与短时回放重做，当前主要剩外部样本验证和少量协议收口
 - 阶段二：进行中，已完成第一批可用 baseline、控制层主链接口，并扩展到趋势模型 runtime sidecar；新日本站样本已拆分接入训练链，攻击链与动作模型的 exported `val` 已补齐并收口，本地扩展数据集整理入口、校验脚本和交接文档已落地，`fallback_policy` 与 `tactical_state_machine` 已接主链，`pit_window_support_model + long_horizon_strategy_baseline` 第一版已实现并轻度接入 `arbiter_v2`，`counterattack_window_model / short_horizon_risk_forecast_model / driver_style_model / pit_rejoin_traffic_model` 当前处于样本或标签阻塞状态
-- 阶段三：已启动输出侧基础，统一下行语音输出主线已接 `MacOS say`，系统主动播报与结构化查询响应已共路径；阶段三语音模块架构与实施计划已完成，ASR、双向闭环、设备侧部署仍未开始
+- 阶段三：已完成统一下行语音输出主线、输入基础模块（`AudioIO / VAD / VoiceTurn / FastIntentASR / voice_nlu / voice_input`）、结构化语义归一化、短上下文记忆与规则化解释层；`PiperBackend` 代码路径、开放式 fallback 与更广语义问法已落地，当前主要剩真实麦克风 / 设备侧闭环、`OpenASR` fallback、watchdog 与 Pi 5 / CM5 真机联调
 
 详细看板：
 - [PROJECT_PROGRESS.md](PROJECT_PROGRESS.md)

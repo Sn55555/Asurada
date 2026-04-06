@@ -166,21 +166,27 @@ xychart-beta
 - `1 active + 1 pending` 语音队列
 - `enqueue / replace_pending / complete` 生命周期
 - 系统主动播报与结构化查询响应共用同一条输出链
+- `AudioIO / VAD / VoiceTurn` 输入基础模块
+- `FastIntentASR / voice_nlu / voice_input` 结构化双向语音输入骨架
+- `conversation_context / semantic_normalizer / response_composer` 语义归一化、短上下文记忆与规则化解释层
+- `open_fallback` 与更广语义问法已落地，已覆盖前后车、DRS、ERS、车损、进站、天气、处罚、整体形势、轮胎 outlook 等问法
+- `PiperBackend` 设备侧 TTS backend 代码路径已落地
 - 阶段三语音回归脚本
 - 阶段三语音模块架构文档
 - 阶段三语音模块实施计划
 
 ### 停滞项
 
-- 暂无。本阶段当前只启动了输出侧基础设施。
+- 暂无。本阶段当前已进入“输出主线 + 输入基础 + 语义层”并行推进，但设备侧闭环仍未开始。
 
 ### 待开发项
 
-- ASR 输入与双向语音闭环
+- 真实麦克风 / 设备侧 `AudioIO` backend 与声学输入 front-end
+- `OpenASR` fallback 与 transcript arbiter
+- 控制命令、watchdog、降级与恢复机制的正式设备侧闭环
+- Pi 5 / CM5 / 边缘设备 `PiperBackend` 真机验证
 - 查询触发入口产品化
-- Pi 5 / CM5 / 边缘设备 TTS backend
 - Pi 5 / CM5 部署与延迟优化
-- 降级与 watchdog 机制
 - 产品级 HUD / 语音 / 控制台整合
 
 ## 当前重点
