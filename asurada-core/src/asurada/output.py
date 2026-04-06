@@ -64,6 +64,7 @@ class ConsoleVoiceOutput:
         self._active_envelope: _SpeechEnvelope | None = None
         self._active_handle: Any = None
         self._pending_envelope: _SpeechEnvelope | None = None
+        self._last_completed_envelope: _SpeechEnvelope | None = None
 
     def emit(self, decision: StrategyDecision, *, render: bool = True) -> dict:
         """Emit one lifecycle-aware output step and return the lifecycle event."""
@@ -195,6 +196,72 @@ class ConsoleVoiceOutput:
             primary_message=primary_message,
             render=render,
             extra_debug=extra_debug,
+        )
+
+    def emit_control_query_bundle(
+        self,
+        *,
+        state: SessionState,
+        bundle: Any,
+        primary_message: StrategyMessage | None = None,
+        render: bool = True,
+    ) -> dict[str, Any]:
+        """Execute one control query against the current output queue."""
+
+        bundle_dict = bundle.to_dict() if hasattr(bundle, "to_dict") else dict(bundle)
+        input_event = dict(bundle_dict.get("input_event") or {})
+        structured_query = dict(bundle_dict.get("structured_query") or {})
+        query_route = dict(bundle_dict.get("query_route") or {})
+        confirmation_policy = dict(bundle_dict.get("confirmation_policy") or {})
+        task_handle = dict(bundle_dict.get("task_handle") or {})
+        normalization_event = dict(bundle_dict.get("normalization_event") or {})
+        query_kind = str(structured_query.get("query_kind") or "")
+
+        if query_kind == "repeat_last":
+            return self._emit_repeat_last_control(
+                input_event=input_event,
+                structured_query=structured_query,
+                query_route=query_route,
+                confirmation_policy=confirmation_policy,
+                task_handle=task_handle,
+                normalization_event=normalization_event,
+                render=render,
+                extra_debug={
+                    "fast_intent": bundle_dict.get("fast_intent"),
+                    "voice_turn": bundle_dict.get("voice_turn"),
+                },
+            )
+
+        if query_kind in {"stop", "cancel"}:
+            return self._emit_stop_cancel_control(
+                query_kind=query_kind,
+                input_event=input_event,
+                structured_query=structured_query,
+                query_route=query_route,
+                confirmation_policy=confirmation_policy,
+                task_handle=task_handle,
+                normalization_event=normalization_event,
+                render=render,
+                extra_debug={
+                    "fast_intent": bundle_dict.get("fast_intent"),
+                    "voice_turn": bundle_dict.get("voice_turn"),
+                },
+            )
+
+        return self._emit_prepared_query(
+            state=state,
+            input_event=input_event,
+            structured_query=structured_query,
+            query_route=query_route,
+            confirmation_policy=confirmation_policy,
+            task_handle=task_handle,
+            normalization_event=normalization_event,
+            primary_message=primary_message,
+            render=render,
+            extra_debug={
+                "fast_intent": bundle_dict.get("fast_intent"),
+                "voice_turn": bundle_dict.get("voice_turn"),
+            },
         )
 
     def _emit_prepared_query(
@@ -441,6 +508,7 @@ class ConsoleVoiceOutput:
         completed = self._active_envelope
         self._active_envelope = None
         self._active_handle = None
+        self._last_completed_envelope = completed
         return completed
 
     def _start_envelope(self, envelope: _SpeechEnvelope) -> OutputLifecycleEvent:
@@ -714,6 +782,263 @@ class ConsoleVoiceOutput:
         """Format a flat mapping into one readable debug line."""
 
         return ", ".join(f"{key}={value}" for key, value in payload.items())
+
+    def _emit_repeat_last_control(
+        self,
+        *,
+        input_event: dict[str, Any],
+        structured_query: dict[str, Any],
+        query_route: dict[str, Any],
+        confirmation_policy: dict[str, Any],
+        task_handle: dict[str, Any],
+        normalization_event: dict[str, Any],
+        render: bool,
+        extra_debug: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        base = self._active_envelope or self._pending_envelope or self._last_completed_envelope
+        if base is None:
+            return self._emit_control_idle(
+                input_event=input_event,
+                structured_query=structured_query,
+                query_route=query_route,
+                confirmation_policy=confirmation_policy,
+                task_handle=task_handle,
+                normalization_event=normalization_event,
+                render=render,
+                reason="no_repeatable_output",
+                extra_debug=extra_debug,
+            )
+
+        repeated = _SpeechEnvelope(
+            job=SpeechJob(
+                output_event_id=self._next_output_event_id(),
+                interaction_session_id=str(input_event.get("interaction_session_id") or "runtime:unknown"),
+                turn_id=str(input_event.get("turn_id") or "turn:unknown"),
+                request_id=str(input_event.get("request_id") or "req:unknown"),
+                snapshot_binding_id=str(input_event.get("snapshot_binding_id") or "snap:unknown"),
+                source_kind="query_response",
+                action_code="QUERY_REPEAT_LAST",
+                priority=95,
+                speak_text=base.job.speak_text,
+                cancelable=True,
+                metadata={
+                    "source": "query_response",
+                    "query_kind": "repeat_last",
+                    "repeated_action_code": base.job.action_code,
+                    "repeated_output_event_id": base.job.output_event_id,
+                },
+            ),
+            interaction_input_event=input_event,
+            task_handle=task_handle,
+        )
+        result = self._process_submission(
+            submitted_envelope=repeated,
+            fallback_input_event=input_event,
+            fallback_task_handle=task_handle,
+        )
+        debug = self._build_control_debug(
+            input_event=input_event,
+            structured_query=structured_query,
+            query_route=query_route,
+            confirmation_policy=confirmation_policy,
+            task_handle=task_handle,
+            normalization_event=normalization_event,
+            result=result,
+            extra_debug=extra_debug,
+        )
+        if render:
+            event = result.lifecycle_event
+            if event.event_type == "start":
+                print(f"[ASURADA][QUERY][REPEAT] {event.speak_text}")
+            elif event.event_type == "enqueue":
+                print(f"[ASURADA][QUERY][REPEAT-QUEUE] {event.speak_text}")
+            elif event.event_type == "replace_pending":
+                print(f"[ASURADA][QUERY][REPEAT-REPLACE] {event.speak_text}")
+            elif event.event_type == "suppress":
+                print(f"[ASURADA][QUERY][REPEAT-SUPPRESS] {event.metadata.get('reason', 'suppressed')}")
+        return debug
+
+    def _emit_stop_cancel_control(
+        self,
+        *,
+        query_kind: str,
+        input_event: dict[str, Any],
+        structured_query: dict[str, Any],
+        query_route: dict[str, Any],
+        confirmation_policy: dict[str, Any],
+        task_handle: dict[str, Any],
+        normalization_event: dict[str, Any],
+        render: bool,
+        extra_debug: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        lifecycle_event: OutputLifecycleEvent
+        event_envelope: _SpeechEnvelope | None
+        cancelled_output_event: OutputLifecycleEvent | None = None
+        cancelled_envelope: _SpeechEnvelope | None = None
+
+        if query_kind == "stop":
+            active = self._active_envelope
+            pending = self._pending_envelope
+            if active is not None:
+                self.backend.stop(self._active_handle)
+                self._active_handle = None
+                self._active_envelope = None
+                self._last_completed_envelope = active
+                lifecycle_event = self._build_event_from_envelope(
+                    active,
+                    "cancel",
+                    metadata={"reason": "voice_control_stop", "source_kind": active.job.source_kind},
+                )
+                event_envelope = active
+                if pending is not None:
+                    self._pending_envelope = None
+                    cancelled_envelope = pending
+                    cancelled_output_event = self._build_event_from_envelope(
+                        pending,
+                        "cancel",
+                        metadata={"reason": "voice_control_stop", "source_kind": pending.job.source_kind},
+                    )
+            elif pending is not None:
+                self._pending_envelope = None
+                lifecycle_event = self._build_event_from_envelope(
+                    pending,
+                    "cancel",
+                    metadata={"reason": "voice_control_stop_pending", "source_kind": pending.job.source_kind},
+                )
+                event_envelope = pending
+            else:
+                return self._emit_control_idle(
+                    input_event=input_event,
+                    structured_query=structured_query,
+                    query_route=query_route,
+                    confirmation_policy=confirmation_policy,
+                    task_handle=task_handle,
+                    normalization_event=normalization_event,
+                    render=render,
+                    reason="nothing_to_stop",
+                    extra_debug=extra_debug,
+                )
+        else:
+            pending = self._pending_envelope
+            active = self._active_envelope
+            if pending is not None:
+                self._pending_envelope = None
+                lifecycle_event = self._build_event_from_envelope(
+                    pending,
+                    "cancel",
+                    metadata={"reason": "voice_control_cancel_pending", "source_kind": pending.job.source_kind},
+                )
+                event_envelope = pending
+            elif active is not None and active.job.cancelable:
+                self.backend.stop(self._active_handle)
+                self._active_handle = None
+                self._active_envelope = None
+                self._last_completed_envelope = active
+                lifecycle_event = self._build_event_from_envelope(
+                    active,
+                    "cancel",
+                    metadata={"reason": "voice_control_cancel_active", "source_kind": active.job.source_kind},
+                )
+                event_envelope = active
+            else:
+                return self._emit_control_idle(
+                    input_event=input_event,
+                    structured_query=structured_query,
+                    query_route=query_route,
+                    confirmation_policy=confirmation_policy,
+                    task_handle=task_handle,
+                    normalization_event=normalization_event,
+                    render=render,
+                    reason="nothing_to_cancel",
+                    extra_debug=extra_debug,
+                )
+
+        result = _OutputProcessingResult(
+            lifecycle_event=lifecycle_event,
+            event_envelope=event_envelope,
+            cancelled_output_event=cancelled_output_event,
+            cancelled_envelope=cancelled_envelope,
+        )
+        debug = self._build_control_debug(
+            input_event=input_event,
+            structured_query=structured_query,
+            query_route=query_route,
+            confirmation_policy=confirmation_policy,
+            task_handle=task_handle,
+            normalization_event=normalization_event,
+            result=result,
+            extra_debug=extra_debug,
+        )
+        if render:
+            print(f"[ASURADA][QUERY][{query_kind.upper()}] {result.lifecycle_event.metadata.get('reason', query_kind)}")
+        return debug
+
+    def _emit_control_idle(
+        self,
+        *,
+        input_event: dict[str, Any],
+        structured_query: dict[str, Any],
+        query_route: dict[str, Any],
+        confirmation_policy: dict[str, Any],
+        task_handle: dict[str, Any],
+        normalization_event: dict[str, Any],
+        render: bool,
+        reason: str,
+        extra_debug: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result = _OutputProcessingResult(
+            lifecycle_event=self._build_fallback_event(
+                event_type="idle",
+                input_event=input_event,
+                task_handle=task_handle,
+                action_code="NONE",
+                metadata={"reason": reason, "source_kind": "query_response"},
+            ),
+            event_envelope=None,
+        )
+        debug = self._build_control_debug(
+            input_event=input_event,
+            structured_query=structured_query,
+            query_route=query_route,
+            confirmation_policy=confirmation_policy,
+            task_handle=task_handle,
+            normalization_event=normalization_event,
+            result=result,
+            extra_debug=extra_debug,
+        )
+        if render:
+            print(f"[ASURADA][QUERY][IDLE] {reason}")
+        return debug
+
+    def _build_control_debug(
+        self,
+        *,
+        input_event: dict[str, Any],
+        structured_query: dict[str, Any],
+        query_route: dict[str, Any],
+        confirmation_policy: dict[str, Any],
+        task_handle: dict[str, Any],
+        normalization_event: dict[str, Any],
+        result: _OutputProcessingResult,
+        extra_debug: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        debug: dict[str, Any] = {
+            "interaction_input_event": input_event,
+            "structured_query": structured_query,
+            "query_route": query_route,
+            "confirmation_policy": confirmation_policy,
+            "task_handle": task_handle,
+            "voice_pipeline_log": {
+                "asr": build_asr_stage_event(InteractionInputEvent(**input_event)).to_dict(),
+                "query_normalization": normalization_event,
+                "query_route": query_route,
+                "confirmation_policy": confirmation_policy,
+            },
+        }
+        if extra_debug:
+            debug.update(extra_debug)
+        self._write_debug_payload(debug=debug, result=result)
+        return debug
 
 
 class ConsoleLapSummaryOutput:
