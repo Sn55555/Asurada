@@ -5,6 +5,150 @@ from typing import Any
 from .models import SessionState, StrategyMessage
 
 
+def _format_gap(gap_s: float | None) -> str:
+    return "未知" if gap_s is None else f"{gap_s:.3f} 秒"
+
+
+def _overall_primary_posture(state: SessionState, primary_message: StrategyMessage | None) -> str:
+    gap_ahead = state.player.gap_ahead_s
+    gap_behind = state.player.gap_behind_s
+    if primary_message is not None and primary_message.code == "DEFEND_WINDOW":
+        return f"当前整体先以防守为主，因为 {primary_message.detail}"
+    if primary_message is not None and primary_message.code == "ATTACK_WINDOW":
+        return f"当前整体先以进攻施压为主，因为 {primary_message.detail}"
+    if gap_behind is not None and gap_behind <= 1.2:
+        return f"当前整体更偏向防守，后车只落后 {gap_behind:.3f} 秒。"
+    if gap_ahead is not None and gap_ahead <= 1.0 and state.player.drs_available:
+        return f"当前整体更偏向进攻，前车只领先 {gap_ahead:.3f} 秒且 DRS 可用。"
+    return "当前整体以中性管理为主。"
+
+
+def _overall_main_risk(state: SessionState, primary_message: StrategyMessage | None) -> str:
+    drive_through = int(state.raw.get("num_unserved_drive_through_pens", 0) or 0)
+    stop_go = int(state.raw.get("num_unserved_stop_go_pens", 0) or 0)
+    should_serve = bool(state.raw.get("pit_stop_should_serve_pen", False))
+    fuel = state.player.fuel_laps_remaining
+    tyre_wear = state.player.tyre.wear_pct
+    gap_behind = state.player.gap_behind_s
+    if drive_through or stop_go or should_serve:
+        return f"最大风险还是处罚处理，当前穿越维修区 {drive_through} 条，stop-go {stop_go} 条。"
+    if primary_message is not None and primary_message.code == "DEFEND_WINDOW":
+        return f"最大风险是后车压力，{primary_message.detail}"
+    if gap_behind is not None and gap_behind <= 1.1:
+        return f"最大风险是后车逼近，当前差距只有 {gap_behind:.3f} 秒。"
+    if fuel <= 3.0:
+        return f"最大风险是燃油偏紧，预计只剩 {fuel:.1f} 圈。"
+    if tyre_wear >= 65.0:
+        return f"最大风险是轮胎磨损偏高，已经到 {tyre_wear:.1f}%。"
+    if state.safety_car != "NONE":
+        return f"当前最大变量是赛道管制，赛道处于 {state.safety_car} 阶段。"
+    return "当前没有单一压倒性风险。"
+
+
+def _overall_next_focus(state: SessionState, primary_message: StrategyMessage | None) -> str:
+    drive_through = int(state.raw.get("num_unserved_drive_through_pens", 0) or 0)
+    stop_go = int(state.raw.get("num_unserved_stop_go_pens", 0) or 0)
+    should_serve = bool(state.raw.get("pit_stop_should_serve_pen", False))
+    if drive_through or stop_go or should_serve:
+        return "下一步先把处罚处理窗口放在最前面。"
+    if primary_message is not None and primary_message.code == "DEFEND_WINDOW":
+        return "下一步优先守住后车 DRS 线并稳住出弯。"
+    if primary_message is not None and primary_message.code == "ATTACK_WINDOW":
+        return "下一步优先盯前车差距和 DRS 兑现，别在资源不足时硬上。"
+    if state.player.fuel_laps_remaining <= 3.0:
+        return "下一步优先控燃油。"
+    if state.player.tyre.wear_pct >= 65.0:
+        return "下一步优先保护轮胎。"
+    if state.safety_car != "NONE":
+        return "下一步优先看赛道管制是否变化。"
+    return "下一步优先稳住前后车差距和资源消耗。"
+
+
+def _damage_snapshot(state: SessionState) -> dict[str, Any]:
+    raw = state.raw
+    wing_damage = raw.get("wing_damage_pct") or {}
+    front_left = int(wing_damage.get("front_left", 0) or 0)
+    front_right = int(wing_damage.get("front_right", 0) or 0)
+    return {
+        "front_wing": max(front_left, front_right),
+        "rear_wing": int(wing_damage.get("rear", 0) or 0),
+        "floor": int(raw.get("floor_damage_pct", 0) or 0),
+        "diffuser": int(raw.get("diffuser_damage_pct", 0) or 0),
+        "sidepod": int(raw.get("sidepod_damage_pct", 0) or 0),
+        "gearbox": int(raw.get("gearbox_damage_pct", 0) or 0),
+        "engine": int(raw.get("engine_damage_pct", 0) or 0),
+        "engine_blown": bool(raw.get("engine_blown", False)),
+        "engine_seized": bool(raw.get("engine_seized", False)),
+    }
+
+
+def _damage_recommendation(snapshot: dict[str, Any]) -> str:
+    front_wing = int(snapshot["front_wing"])
+    floor = int(snapshot["floor"])
+    diffuser = int(snapshot["diffuser"])
+    sidepod = int(snapshot["sidepod"])
+    engine = int(snapshot["engine"])
+    aero_core = max(front_wing, floor, diffuser)
+    if bool(snapshot["engine_blown"]) or bool(snapshot["engine_seized"]):
+        return "当前已经是故障级车损，优先考虑立刻退赛或最低风险收车。"
+    if engine >= 70 or front_wing >= 40 or aero_core >= 45:
+        return "建议优先保守节奏，并尽快评估进站修复窗口。"
+    if engine >= 35 or front_wing >= 15 or aero_core >= 20 or sidepod >= 15:
+        return "建议减少无谓缠斗，先观察节奏损失，再决定是否专门进站处理。"
+    return "暂时不需要专门为车损改变整段策略，先继续观察。"
+
+
+def _tyre_wear_outlook(state: SessionState, primary_message: StrategyMessage | None) -> str:
+    tyre = state.player.tyre
+    wear = tyre.wear_pct
+    gap_ahead = state.player.gap_ahead_s
+    gap_behind = state.player.gap_behind_s
+    active_attack = bool(
+        primary_message is not None and primary_message.code == "ATTACK_WINDOW"
+    ) or (
+        gap_ahead is not None and gap_ahead <= 1.0 and state.player.drs_available
+    )
+    active_defend = bool(
+        primary_message is not None and primary_message.code == "DEFEND_WINDOW"
+    ) or (gap_behind is not None and gap_behind <= 1.1)
+    active_duel = active_attack or active_defend
+
+    if wear >= 70.0:
+        return (
+            f"当前轮胎已经在高磨损区，磨损 {wear:.1f}%。接下来一到两圈损耗还会继续放大，"
+            "不适合再用高强度攻防去硬扛。"
+        )
+    if wear >= 50.0 and active_duel:
+        return (
+            f"当前轮胎磨损已经到 {wear:.1f}%，而且你还在直接攻防窗口里。接下来两三圈损耗会明显加快，"
+            "更适合尽快把节奏收回到可控区间。"
+        )
+    if wear >= 50.0:
+        return (
+            f"当前轮胎磨损在 {wear:.1f}% 的中高位。接下来两三圈会继续往高风险区走，"
+            "虽然还能撑一段，但不适合继续额外消耗。"
+        )
+    if wear >= 30.0 and active_duel:
+        return (
+            f"当前轮胎磨损 {wear:.1f}%，基础窗口还在，但如果继续维持现在的攻防强度，"
+            "未来两三圈损耗会比正常管理明显更快。"
+        )
+    if wear >= 30.0:
+        return (
+            f"当前轮胎磨损 {wear:.1f}%，还在可控区间。未来两三圈会稳定上升，"
+            "但只要节奏别继续拉高，暂时不会突然掉出窗口。"
+        )
+    if active_duel:
+        return (
+            f"当前轮胎还比较新，磨损 {wear:.1f}%。未来几圈基础损耗可控，"
+            "但如果继续保持当前攻防强度，磨损会上升得比平时更快。"
+        )
+    return (
+        f"当前轮胎状态还健康，磨损 {wear:.1f}%，胎龄 {tyre.age_laps} 圈。"
+        "未来两三圈损耗预计仍然可控，窗口暂时比较稳定。"
+    )
+
+
 def compose_structured_query_response(
     *,
     state: SessionState,
@@ -25,6 +169,95 @@ def compose_structured_query_response(
             "QUERY_FUEL_STATUS",
         )
 
+    if query_kind == "damage_status":
+        damage = _damage_snapshot(state)
+        recommendation = _damage_recommendation(damage)
+        return (
+            f"当前主要车损是前翼 {damage['front_wing']}%，底板 {damage['floor']}%，扩散器 {damage['diffuser']}%，"
+            f"发动机 {damage['engine']}%。{recommendation}",
+            "QUERY_DAMAGE_STATUS",
+        )
+
+    if query_kind == "damage_pit_advice":
+        damage = _damage_snapshot(state)
+        recommendation = _damage_recommendation(damage)
+        if damage["engine_blown"] or damage["engine_seized"]:
+            detail = "这份车损已经不是普通进站能优雅解决的级别，优先考虑收车或最低风险返回。"
+        elif damage["engine"] >= 70 or damage["front_wing"] >= 40 or max(damage["floor"], damage["diffuser"]) >= 45:
+            detail = "建议优先找最近的可控进站窗口处理车损，不要继续拿正常节奏硬扛。"
+        elif damage["engine"] >= 35 or damage["front_wing"] >= 15 or max(damage["floor"], damage["diffuser"]) >= 20:
+            detail = "还不一定要立刻进站，但如果接下来有便宜窗口，处理车损会比继续拖更稳。"
+        else:
+            detail = "暂时不建议专门为了这份车损立刻进站，先继续观察节奏损失。"
+        return (f"{detail} {recommendation}", "QUERY_DAMAGE_PIT_ADVICE")
+
+    if query_kind == "front_wing_damage_status":
+        damage = _damage_snapshot(state)
+        front_wing = int(damage["front_wing"])
+        if front_wing >= 40:
+            detail = f"前翼损伤已经很重，当前约 {front_wing}%，会明显影响前端抓地。建议尽快考虑修复窗口。"
+        elif front_wing >= 15:
+            detail = f"前翼有中等损伤，当前约 {front_wing}%。建议减少激进压路肩和无谓近身缠斗。"
+        else:
+            detail = f"前翼损伤不重，当前约 {front_wing}%，短期还不需要专门改策略。"
+        return (detail, "QUERY_FRONT_WING_DAMAGE_STATUS")
+
+    if query_kind == "floor_damage_status":
+        damage = _damage_snapshot(state)
+        floor = int(damage["floor"])
+        diffuser = int(damage["diffuser"])
+        sidepod = int(damage["sidepod"])
+        aero_core = max(floor, diffuser)
+        if aero_core >= 45:
+            detail = f"底板和尾部气动损伤已经偏重，底板 {floor}% 、扩散器 {diffuser}% 。建议尽快转保守节奏。"
+        elif aero_core >= 20 or sidepod >= 15:
+            detail = f"底板区域有中等损伤，底板 {floor}% 、扩散器 {diffuser}% 、侧箱 {sidepod}% 。高速稳定性会先受影响。"
+        else:
+            detail = f"底板区域损伤目前不重，底板 {floor}% 、扩散器 {diffuser}% 、侧箱 {sidepod}% 。"
+        return (detail, "QUERY_FLOOR_DAMAGE_STATUS")
+
+    if query_kind == "engine_damage_status":
+        damage = _damage_snapshot(state)
+        engine = int(damage["engine"])
+        if damage["engine_blown"] or damage["engine_seized"]:
+            detail = "发动机已经进入故障状态，当前不适合继续正常推进。"
+        elif engine >= 70:
+            detail = f"发动机损伤已经很重，当前约 {engine}%。建议立刻保守运行，并准备处理。"
+        elif engine >= 35:
+            detail = f"发动机有中等损伤，当前约 {engine}%。建议降低无谓负荷，优先把比赛带回可控区间。"
+        else:
+            detail = f"发动机损伤目前不高，当前约 {engine}%，短期更像需要继续观察。"
+        return (detail, "QUERY_ENGINE_DAMAGE_STATUS")
+
+    if query_kind == "front_gap":
+        if state.player.gap_ahead_s is None:
+            return ("前车时差当前缺失，不能可靠判断进攻距离。", "QUERY_FRONT_GAP")
+        front_name = state.rivals[0].name if state.rivals else "前车"
+        gap = state.player.gap_ahead_s
+        if gap <= 1.0 and state.player.drs_available:
+            verdict = "前车已经进直接进攻观察窗口。"
+        elif gap <= 1.2:
+            verdict = "前车正在进入可施压距离。"
+        else:
+            verdict = "前车还没进直接进攻窗口。"
+        drs_hint = "当前有 DRS。" if state.player.drs_available else "当前没有 DRS。"
+        return (
+            f"{verdict} 前车 {front_name} 领先 {gap:.3f} 秒。{drs_hint}",
+            "QUERY_FRONT_GAP",
+        )
+
+    if query_kind == "front_rival_drs_status":
+        if not state.rivals:
+            return ("当前没有可靠前车对象，不能判断前车 DRS 状态。", "QUERY_FRONT_RIVAL_DRS_STATUS")
+        front_rival = state.rivals[0]
+        if front_rival.drs_available:
+            detail = f"前车 {front_rival.name} 当前有 DRS。"
+        else:
+            detail = f"前车 {front_rival.name} 当前没有 DRS。"
+        if state.player.gap_ahead_s is not None:
+            detail += f" 你与前车差距 {state.player.gap_ahead_s:.3f} 秒。"
+        return (detail, "QUERY_FRONT_RIVAL_DRS_STATUS")
+
     if query_kind == "rear_gap":
         if state.player.gap_behind_s is None:
             return ("后车时差当前缺失，不能可靠判断防守压力。", "QUERY_REAR_GAP")
@@ -41,6 +274,17 @@ def compose_structured_query_response(
             "QUERY_REAR_GAP",
         )
 
+    if query_kind == "rear_rival_drs_status":
+        if state.player.gap_behind_s is None:
+            return ("后车时差当前缺失，不能可靠判断后车是否进 DRS 线。", "QUERY_REAR_RIVAL_DRS_STATUS")
+        rear_name = state.rivals[0].name if state.rivals else "后车"
+        gap = state.player.gap_behind_s
+        if gap <= 1.0:
+            detail = f"后车 {rear_name} 已经进 DRS 线，当前差距 {gap:.3f} 秒。"
+        else:
+            detail = f"后车 {rear_name} 还没进 DRS 线，当前差距 {gap:.3f} 秒。"
+        return (detail, "QUERY_REAR_RIVAL_DRS_STATUS")
+
     if query_kind == "tyre_status":
         tyre = state.player.tyre
         if tyre.wear_pct >= 70.0:
@@ -54,12 +298,40 @@ def compose_structured_query_response(
             "QUERY_TYRE_STATUS",
         )
 
+    if query_kind == "drs_status":
+        if state.player.drs_available:
+            detail = "当前 DRS 可用。"
+            if state.player.gap_ahead_s is not None:
+                detail += f" 前车时差 {state.player.gap_ahead_s:.3f} 秒。"
+        else:
+            detail = "当前 DRS 不可用。"
+            if state.player.gap_ahead_s is not None:
+                detail += f" 前车时差 {state.player.gap_ahead_s:.3f} 秒。"
+        return (detail, "QUERY_DRS_STATUS")
+
+    if query_kind == "ers_status":
+        ers_pct = state.player.ers_pct
+        if ers_pct <= 20.0:
+            verdict = "ERS 已经偏低。"
+        elif ers_pct <= 55.0:
+            verdict = "ERS 处在中段。"
+        else:
+            verdict = "ERS 余量还比较充足。"
+        return (f"{verdict} 当前剩余 {ers_pct:.1f}%。", "QUERY_ERS_STATUS")
+
     if query_kind == "weather_status":
         safety_car = "无赛道管制" if state.safety_car == "NONE" else f"{state.safety_car} 阶段"
         return (
             f"当前天气是 {state.weather}，赛道状态为 {safety_car}。",
             "QUERY_WEATHER_STATUS",
         )
+
+    if query_kind == "race_control_status":
+        if state.safety_car == "NONE":
+            detail = f"当前没有赛道管制，天气是 {state.weather}。"
+        else:
+            detail = f"当前赛道处于 {state.safety_car} 阶段，天气是 {state.weather}。"
+        return (detail, "QUERY_RACE_CONTROL_STATUS")
 
     if query_kind == "penalty_status":
         warnings = int(state.raw.get("total_warnings", 0) or 0)
@@ -93,6 +365,31 @@ def compose_structured_query_response(
             detail += " 这次进站需要处理处罚。"
         return (detail, "QUERY_PIT_STATUS")
 
+    if query_kind == "pit_penalty_plan":
+        drive_through = int(state.raw.get("num_unserved_drive_through_pens", 0) or 0)
+        stop_go = int(state.raw.get("num_unserved_stop_go_pens", 0) or 0)
+        should_serve = bool(state.raw.get("pit_stop_should_serve_pen", False))
+        if drive_through or stop_go or should_serve:
+            detail = (
+                f"下次进站需要处理处罚。当前待执行处罚：穿越维修区 {drive_through} 条，"
+                f"stop-go {stop_go} 条。"
+            )
+        else:
+            detail = "下次进站当前不需要处理处罚。现在没有待执行 drive-through 或 stop-go。"
+        return (detail, "QUERY_PIT_PENALTY_PLAN")
+
+    if query_kind == "penalty_handling_strategy":
+        drive_through = int(state.raw.get("num_unserved_drive_through_pens", 0) or 0)
+        stop_go = int(state.raw.get("num_unserved_stop_go_pens", 0) or 0)
+        should_serve = bool(state.raw.get("pit_stop_should_serve_pen", False))
+        if drive_through > 0:
+            detail = "当前最优先的是尽快完成穿越维修区处罚，这类处罚不能拖成一次普通进站。"
+        elif stop_go > 0 or should_serve:
+            detail = "当前最好的处理方式是把下一次进站明确用来处理 stop-go，不要把这次进站浪费成普通换胎。"
+        else:
+            detail = "当前没有待处理处罚，不需要专门围绕处罚调整进站。"
+        return (detail, "QUERY_PENALTY_HANDLING_STRATEGY")
+
     if query_kind == "current_strategy":
         if primary_message is None:
             return ("当前没有高优先级主策略。", "QUERY_CURRENT_STRATEGY")
@@ -100,6 +397,222 @@ def compose_structured_query_response(
             f"当前主策略是 {primary_message.title}。原因是 {primary_message.detail}",
             "QUERY_CURRENT_STRATEGY",
         )
+
+    if query_kind == "overall_situation":
+        gap_ahead = _format_gap(state.player.gap_ahead_s)
+        gap_behind = _format_gap(state.player.gap_behind_s)
+        safety_car = "无赛道管制" if state.safety_car == "NONE" else state.safety_car
+        posture = _overall_primary_posture(state, primary_message)
+        main_risk = _overall_main_risk(state, primary_message)
+        next_focus = _overall_next_focus(state, primary_message)
+        return (
+            f"{posture} {main_risk} {next_focus} 前车差距 {gap_ahead}，后车差距 {gap_behind}，"
+            f"燃油预计 {state.player.fuel_laps_remaining:.1f} 圈，轮胎磨损 {state.player.tyre.wear_pct:.1f}%，"
+            f"ERS {state.player.ers_pct:.1f}%，天气 {state.weather}，赛道状态 {safety_car}。",
+            "QUERY_OVERALL_SITUATION",
+        )
+
+    if query_kind == "attack_or_defend_summary":
+        gap_ahead = state.player.gap_ahead_s
+        gap_behind = state.player.gap_behind_s
+        if primary_message is not None and primary_message.code == "DEFEND_WINDOW":
+            detail = f"当前更偏向防守，因为 {primary_message.detail}"
+        elif primary_message is not None and primary_message.code == "ATTACK_WINDOW":
+            detail = f"当前更偏向进攻，因为 {primary_message.detail}"
+        elif gap_behind is not None and gap_behind <= 1.2:
+            detail = f"当前更偏向防守，后车差距只有 {gap_behind:.3f} 秒。"
+        elif gap_ahead is not None and gap_ahead <= 1.0 and state.player.drs_available:
+            detail = f"当前更偏向进攻，前车差距 {gap_ahead:.3f} 秒且 DRS 可用。"
+        else:
+            detail = "当前更偏向中性管理，前后车都还没把攻防窗口压到最强。"
+        return (detail, "QUERY_ATTACK_OR_DEFEND_SUMMARY")
+
+    if query_kind == "attack_defend_tradeoff":
+        gap_ahead = state.player.gap_ahead_s
+        gap_behind = state.player.gap_behind_s
+        fuel = state.player.fuel_laps_remaining
+        tyre_wear = state.player.tyre.wear_pct
+        if gap_behind is not None and gap_behind <= 1.0:
+            detail = f"当前防守代价更低，因为后车已经压到 {gap_behind:.3f} 秒内，贸然进攻更容易把位置暴露出去。"
+        elif gap_ahead is not None and gap_ahead <= 1.0 and state.player.drs_available and (gap_behind is None or gap_behind > 1.2):
+            detail = f"当前进攻代价更低，因为前车只有 {gap_ahead:.3f} 秒且 DRS 可用，后车压力相对可控。"
+        elif fuel <= 3.0 or tyre_wear >= 65.0:
+            detail = "当前两边代价都不低，但更大的成本来自资源消耗，优先稳住资源比强攻或强守更划算。"
+        else:
+            detail = "当前攻守代价接近，更适合跟着下一段前后车变化再决定。"
+        return (detail, "QUERY_ATTACK_DEFEND_TRADEOFF")
+
+    if query_kind == "main_risk_summary":
+        drive_through = int(state.raw.get("num_unserved_drive_through_pens", 0) or 0)
+        stop_go = int(state.raw.get("num_unserved_stop_go_pens", 0) or 0)
+        should_serve = bool(state.raw.get("pit_stop_should_serve_pen", False))
+        fuel = state.player.fuel_laps_remaining
+        tyre_wear = state.player.tyre.wear_pct
+        gap_behind = state.player.gap_behind_s
+        if drive_through or stop_go or should_serve:
+            detail = (
+                f"当前最大风险是处罚处理，下一次进站需要处理。待执行穿越维修区 {drive_through} 条，"
+                f"stop-go {stop_go} 条。"
+            )
+        elif primary_message is not None and primary_message.code == "DEFEND_WINDOW":
+            detail = f"当前最大风险是后车压力，因为 {primary_message.detail}"
+        elif gap_behind is not None and gap_behind <= 1.1:
+            detail = f"当前最大风险是后车逼近，差距只有 {gap_behind:.3f} 秒。"
+        elif fuel <= 3.0:
+            detail = f"当前最大风险是燃油偏紧，预计只剩 {fuel:.1f} 圈。"
+        elif tyre_wear >= 65.0:
+            detail = f"当前最大风险是轮胎磨损偏高，已经到 {tyre_wear:.1f}%。"
+        elif state.safety_car != "NONE":
+            detail = f"当前最大变量是赛道管制，赛道处于 {state.safety_car} 阶段。"
+        else:
+            detail = "当前没有单一压倒性风险，主要还是控制前后车差距并稳定资源消耗。"
+        return (detail, "QUERY_MAIN_RISK_SUMMARY")
+
+    if query_kind == "next_lap_focus":
+        drive_through = int(state.raw.get("num_unserved_drive_through_pens", 0) or 0)
+        stop_go = int(state.raw.get("num_unserved_stop_go_pens", 0) or 0)
+        should_serve = bool(state.raw.get("pit_stop_should_serve_pen", False))
+        if drive_through or stop_go or should_serve:
+            detail = "接下来几圈先把处罚处理优先级放高，别错过下一次合适的处理窗口。"
+        elif primary_message is not None and primary_message.code == "DEFEND_WINDOW":
+            detail = "接下来几圈先守住后车，重点看后车 DRS 线和出弯稳定性。"
+        elif primary_message is not None and primary_message.code == "ATTACK_WINDOW":
+            detail = "接下来几圈先盯前车差距和 DRS 兑现，避免在资源不足时硬上。"
+        elif state.player.fuel_laps_remaining <= 3.0:
+            detail = f"接下来几圈先控燃油，当前预计只剩 {state.player.fuel_laps_remaining:.1f} 圈。"
+        elif state.player.tyre.wear_pct >= 65.0:
+            detail = f"接下来几圈先保护轮胎，当前磨损已经到 {state.player.tyre.wear_pct:.1f}%。"
+        elif state.safety_car != "NONE":
+            detail = f"接下来几圈重点看赛道管制变化，当前赛道处于 {state.safety_car} 阶段。"
+        else:
+            detail = "接下来几圈先稳住节奏，优先管理前后车差距、ERS 和轮胎消耗。"
+        return (detail, "QUERY_NEXT_LAP_FOCUS")
+
+    if query_kind == "tyre_wear_outlook":
+        detail = _tyre_wear_outlook(state, primary_message)
+        return (detail, "QUERY_TYRE_WEAR_OUTLOOK")
+
+    if query_kind == "risk_severity_followup":
+        drive_through = int(state.raw.get("num_unserved_drive_through_pens", 0) or 0)
+        stop_go = int(state.raw.get("num_unserved_stop_go_pens", 0) or 0)
+        should_serve = bool(state.raw.get("pit_stop_should_serve_pen", False))
+        fuel = state.player.fuel_laps_remaining
+        tyre_wear = state.player.tyre.wear_pct
+        gap_behind = state.player.gap_behind_s
+        if drive_through > 0:
+            detail = "这个风险很高，因为 drive-through 不能拖延处理。"
+        elif stop_go > 0 or should_serve:
+            detail = "这个风险偏高，因为下一次进站必须专门处理 stop-go。"
+        elif gap_behind is not None and gap_behind <= 1.0:
+            detail = f"这个风险偏高，后车已经压到 {gap_behind:.3f} 秒内。"
+        elif fuel <= 3.0:
+            detail = f"这个风险偏高，燃油只剩 {fuel:.1f} 圈。"
+        elif tyre_wear >= 65.0:
+            detail = f"这个风险中高，轮胎磨损已经到 {tyre_wear:.1f}%。"
+        else:
+            detail = "这个风险目前是中等，还没有压到必须立刻处理。"
+        return (detail, "QUERY_RISK_SEVERITY")
+
+    if query_kind == "risk_escalation_timing":
+        drive_through = int(state.raw.get("num_unserved_drive_through_pens", 0) or 0)
+        stop_go = int(state.raw.get("num_unserved_stop_go_pens", 0) or 0)
+        should_serve = bool(state.raw.get("pit_stop_should_serve_pen", False))
+        gap_behind = state.player.gap_behind_s
+        fuel = state.player.fuel_laps_remaining
+        tyre_wear = state.player.tyre.wear_pct
+        if drive_through > 0:
+            detail = "这个风险已经是立即要处理的级别，当前就不能再继续拖。"
+        elif stop_go > 0 or should_serve:
+            detail = "这个风险已经偏高，最晚到下一次进站窗口就会变成强约束。"
+        elif gap_behind is not None and gap_behind <= 1.0:
+            detail = f"这个风险已经在高位，下一段到下一圈内就可能继续升级，当前后车只有 {gap_behind:.3f} 秒。"
+        elif fuel <= 3.0:
+            detail = f"这个风险已经很近了，接下来一两圈内就会继续恶化，当前燃油只剩 {fuel:.1f} 圈。"
+        elif tyre_wear >= 65.0:
+            detail = f"这个风险会在接下来两三圈继续放大，当前轮胎磨损已经到 {tyre_wear:.1f}%。"
+        else:
+            detail = "这个风险短期不会立刻跳变，当前更像需要持续观察而不是马上处理。"
+        return (detail, "QUERY_RISK_ESCALATION_TIMING")
+
+    if query_kind == "rear_pressure_relief_outlook":
+        gap_behind = state.player.gap_behind_s
+        if gap_behind is not None and gap_behind <= 1.0:
+            detail = f"后车压力不太会自己消下去，当前差距只有 {gap_behind:.3f} 秒，还是要主动把防守窗口管住。"
+        elif gap_behind is not None and gap_behind <= 1.4:
+            detail = f"后车压力可能小幅波动，但短期未必会自己解除，当前差距 {gap_behind:.3f} 秒。"
+        else:
+            detail = "后车压力有机会自己回落，因为它还没压进最强直接窗口。"
+        return (detail, "QUERY_REAR_PRESSURE_RELIEF_OUTLOOK")
+
+    if query_kind == "pit_delay_consequence":
+        drive_through = int(state.raw.get("num_unserved_drive_through_pens", 0) or 0)
+        stop_go = int(state.raw.get("num_unserved_stop_go_pens", 0) or 0)
+        should_serve = bool(state.raw.get("pit_stop_should_serve_pen", False))
+        if drive_through > 0:
+            detail = "如果继续不进站，这条 drive-through 会继续挂着，处罚风险会持续存在。"
+        elif stop_go > 0 or should_serve:
+            detail = "如果继续不进站，这条 stop-go 会继续留到后面，后续进站窗口会更被动。"
+        elif state.player.tyre.wear_pct >= 65.0:
+            detail = f"如果继续不进站，轮胎压力会继续上升，当前磨损已经到 {state.player.tyre.wear_pct:.1f}%。"
+        else:
+            detail = "如果继续不进站，短期不会立刻出硬性处罚问题，但会继续消耗轮胎和策略弹性。"
+        return (detail, "QUERY_PIT_DELAY_CONSEQUENCE")
+
+    if query_kind == "pit_one_lap_delay_consequence":
+        drive_through = int(state.raw.get("num_unserved_drive_through_pens", 0) or 0)
+        stop_go = int(state.raw.get("num_unserved_stop_go_pens", 0) or 0)
+        should_serve = bool(state.raw.get("pit_stop_should_serve_pen", False))
+        tyre_wear = state.player.tyre.wear_pct
+        if drive_through > 0:
+            detail = "如果只再等一圈，这条 drive-through 仍然会继续挂着，风险不会自己消失。"
+        elif stop_go > 0 or should_serve:
+            detail = "如果只再等一圈，下一次进站窗口会更紧，stop-go 处理空间会变差。"
+        elif tyre_wear >= 65.0:
+            detail = f"如果再等一圈进站，轮胎压力会继续往上走，当前磨损已经到 {tyre_wear:.1f}%。"
+        else:
+            detail = "如果只等一圈，短期代价还可控，但会少一层策略缓冲。"
+        return (detail, "QUERY_PIT_ONE_LAP_DELAY_CONSEQUENCE")
+
+    if query_kind == "tyre_management_advice":
+        tyre_wear = state.player.tyre.wear_pct
+        if tyre_wear >= 65.0:
+            detail = f"现在要开始保胎，当前磨损已经到 {tyre_wear:.1f}%。"
+        elif primary_message is not None and primary_message.code == "DEFEND_WINDOW":
+            detail = "现在先以防守优先，不建议为了保胎牺牲掉直接防守窗口。"
+        else:
+            detail = f"现在不用明显保胎，当前磨损 {tyre_wear:.1f}%，更适合先稳住正常节奏。"
+        return (detail, "QUERY_TYRE_MANAGEMENT_ADVICE")
+
+    if query_kind == "fuel_management_advice":
+        fuel = state.player.fuel_laps_remaining
+        if fuel <= 3.0:
+            detail = f"现在需要开始省油，当前预计只剩 {fuel:.1f} 圈。"
+        elif fuel <= 6.0:
+            detail = f"现在建议轻度省油，当前预计剩余 {fuel:.1f} 圈。"
+        else:
+            detail = f"现在不用明显省油，当前预计还能跑 {fuel:.1f} 圈。"
+        return (detail, "QUERY_FUEL_MANAGEMENT_ADVICE")
+
+    if query_kind == "defend_outcome_projection":
+        gap_behind = state.player.gap_behind_s
+        if primary_message is not None and primary_message.code == "DEFEND_WINDOW":
+            detail = "如果现在先守住，最直接的收益是先保住位置，但接下来还要继续顶住后车 DRS 线和出弯压力。"
+        elif gap_behind is not None and gap_behind <= 1.1:
+            detail = f"如果现在先守住，短期最可能是保住当前位置，但后车 {gap_behind:.3f} 秒的压力还会继续存在。"
+        else:
+            detail = "如果现在主动转成防守，短期收益不会特别大，因为后车还没把直接窗口压到最强。"
+        return (detail, "QUERY_DEFEND_OUTCOME_PROJECTION")
+
+    if query_kind == "attack_outcome_projection":
+        gap_ahead = state.player.gap_ahead_s
+        gap_behind = state.player.gap_behind_s
+        if gap_ahead is not None and gap_ahead <= 1.0 and state.player.drs_available:
+            detail = f"如果现在进攻，短期有机会把前车压进直接对抗，但要避免把后车 {gap_behind:.3f} 秒的压力一起放大。"
+        elif gap_ahead is not None and gap_ahead <= 1.2:
+            detail = f"如果现在进攻，能形成施压，但兑现条件还不完整，当前前车差距 {gap_ahead:.3f} 秒。"
+        else:
+            detail = "如果现在主动进攻，短期收益有限，更像是在提前消耗轮胎和资源。"
+        return (detail, "QUERY_ATTACK_OUTCOME_PROJECTION")
 
     if query_kind == "why_defend":
         gap = state.player.gap_behind_s
@@ -166,8 +679,10 @@ def compose_structured_query_response(
             detail = "这类天气开放式问题我还不能做完整推演，但我现在能回答当前天气和赛道管制状态。"
         elif domain_hint == "penalty":
             detail = "这类处罚开放式问题我还不能解释成因，但我现在能回答当前警告和待执行处罚状态。"
+        elif domain_hint == "damage":
+            detail = "这类车损开放式问题我还不能做完整推演，但我现在能回答整体车损、前翼、底板、发动机损伤，以及值不值得为车损进站。"
         else:
-            detail = "这类开放式问题我还没接完整。当前可以直接回答燃油、后车、轮胎、当前策略、进站状态、天气和处罚状态。"
+            detail = "这类开放式问题我还没接完整。当前可以直接回答燃油、前后车、前后车 DRS、轮胎、DRS、ERS、车损、当前策略、进站状态、处罚处理、赛道状态、整体形势、接下来几圈的关注点，以及当前攻防或风险的直接后果。"
         prefix = f"关于“{query_text}”，" if query_text else ""
         return (f"{prefix}{detail}", "QUERY_OPEN_FALLBACK")
 

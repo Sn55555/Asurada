@@ -417,7 +417,20 @@ def build_structured_query_schema(input_event: InteractionInputEvent) -> Structu
         requested_fields = ["messages", "risk_profile", "session_route"]
     else:
         query_kind = str(input_event.metadata.get("query_kind") or "status_query")
-        target_scope = "strategy" if query_kind == "current_strategy" else "state_snapshot"
+        target_scope = "strategy" if query_kind in {
+            "current_strategy",
+            "overall_situation",
+            "attack_or_defend_summary",
+            "attack_defend_tradeoff",
+            "main_risk_summary",
+            "next_lap_focus",
+            "tyre_wear_outlook",
+            "risk_severity_followup",
+            "risk_escalation_timing",
+            "defend_outcome_projection",
+            "attack_outcome_projection",
+            "rear_pressure_relief_outlook",
+        } else "state_snapshot"
         requested_fields = _requested_fields_for_query_kind(query_kind)
     return StructuredQuerySchema(
         schema_version="v1",
@@ -455,18 +468,74 @@ def route_structured_query(schema: StructuredQuerySchema) -> QueryRoute:
         )
     if schema.query_kind == "fuel_status":
         handler = "fuel_snapshot_handler"
+    elif schema.query_kind == "damage_status":
+        handler = "damage_snapshot_handler"
+    elif schema.query_kind == "damage_pit_advice":
+        handler = "damage_pit_handler"
+    elif schema.query_kind == "front_wing_damage_status":
+        handler = "front_wing_damage_handler"
+    elif schema.query_kind == "floor_damage_status":
+        handler = "floor_damage_handler"
+    elif schema.query_kind == "engine_damage_status":
+        handler = "engine_damage_handler"
+    elif schema.query_kind == "front_gap":
+        handler = "front_gap_snapshot_handler"
+    elif schema.query_kind == "front_rival_drs_status":
+        handler = "front_rival_drs_snapshot_handler"
     elif schema.query_kind == "rear_gap":
         handler = "rear_gap_snapshot_handler"
+    elif schema.query_kind == "rear_rival_drs_status":
+        handler = "rear_rival_drs_snapshot_handler"
     elif schema.query_kind == "tyre_status":
         handler = "tyre_snapshot_handler"
+    elif schema.query_kind == "drs_status":
+        handler = "drs_snapshot_handler"
+    elif schema.query_kind == "ers_status":
+        handler = "ers_snapshot_handler"
     elif schema.query_kind == "weather_status":
         handler = "weather_snapshot_handler"
+    elif schema.query_kind == "race_control_status":
+        handler = "race_control_snapshot_handler"
     elif schema.query_kind == "penalty_status":
         handler = "penalty_snapshot_handler"
     elif schema.query_kind == "pit_status":
         handler = "pit_snapshot_handler"
+    elif schema.query_kind == "pit_penalty_plan":
+        handler = "pit_penalty_snapshot_handler"
+    elif schema.query_kind == "penalty_handling_strategy":
+        handler = "penalty_strategy_handler"
     elif schema.query_kind == "current_strategy":
         handler = "strategy_snapshot_handler"
+    elif schema.query_kind == "overall_situation":
+        handler = "strategy_summary_handler"
+    elif schema.query_kind == "attack_or_defend_summary":
+        handler = "tactical_summary_handler"
+    elif schema.query_kind == "attack_defend_tradeoff":
+        handler = "tactical_tradeoff_handler"
+    elif schema.query_kind == "main_risk_summary":
+        handler = "risk_summary_handler"
+    elif schema.query_kind == "next_lap_focus":
+        handler = "next_lap_focus_handler"
+    elif schema.query_kind == "tyre_wear_outlook":
+        handler = "tyre_wear_outlook_handler"
+    elif schema.query_kind == "risk_severity_followup":
+        handler = "risk_severity_handler"
+    elif schema.query_kind == "risk_escalation_timing":
+        handler = "risk_timing_handler"
+    elif schema.query_kind == "rear_pressure_relief_outlook":
+        handler = "rear_pressure_outlook_handler"
+    elif schema.query_kind == "pit_delay_consequence":
+        handler = "pit_delay_handler"
+    elif schema.query_kind == "pit_one_lap_delay_consequence":
+        handler = "pit_one_lap_delay_handler"
+    elif schema.query_kind == "tyre_management_advice":
+        handler = "tyre_management_handler"
+    elif schema.query_kind == "fuel_management_advice":
+        handler = "fuel_management_handler"
+    elif schema.query_kind == "defend_outcome_projection":
+        handler = "defend_projection_handler"
+    elif schema.query_kind == "attack_outcome_projection":
+        handler = "attack_projection_handler"
     elif schema.query_kind in {"why_defend", "why_not_attack", "why_current_strategy", "why_not_pit"}:
         handler = "strategy_explanation_handler"
     elif schema.query_kind == "open_fallback":
@@ -715,11 +784,39 @@ def _build_snapshot_binding(
 def _query_prompt(query_kind: str) -> str:
     prompts = {
         "fuel_status": "当前燃油情况怎么样",
+        "damage_status": "当前车损情况怎么样",
+        "damage_pit_advice": "当前这份车损要不要进站处理",
+        "front_wing_damage_status": "当前前翼损伤怎么样",
+        "floor_damage_status": "当前底板损伤怎么样",
+        "engine_damage_status": "当前发动机损伤怎么样",
+        "front_gap": "前车距离多少",
+        "front_rival_drs_status": "前车有没有 DRS",
         "rear_gap": "后车距离多少",
+        "rear_rival_drs_status": "后车是不是进了 DRS",
         "tyre_status": "当前轮胎状态怎么样",
+        "drs_status": "当前 DRS 状态怎么样",
+        "ers_status": "当前 ERS 状态怎么样",
         "weather_status": "当前天气和赛道状态怎么样",
+        "race_control_status": "当前赛道管制状态怎么样",
         "penalty_status": "当前处罚和警告情况怎么样",
         "pit_status": "当前进站状态怎么样",
+        "pit_penalty_plan": "下次进站要不要处理处罚",
+        "penalty_handling_strategy": "当前处罚最好的处理方式是什么",
+        "overall_situation": "当前整体形势怎么样",
+        "attack_or_defend_summary": "现在更该攻还是守",
+        "attack_defend_tradeoff": "当前守和攻哪个代价更低",
+        "main_risk_summary": "当前最需要注意什么",
+        "next_lap_focus": "接下来这几圈最该注意什么",
+        "tyre_wear_outlook": "未来几圈轮胎预计损耗怎么样",
+        "risk_severity_followup": "当前这个风险严不严重",
+        "risk_escalation_timing": "当前这个风险多久会继续恶化",
+        "rear_pressure_relief_outlook": "后车压力会不会自己降下去",
+        "pit_delay_consequence": "继续不进站会怎么样",
+        "pit_one_lap_delay_consequence": "如果等一圈再进站会怎么样",
+        "tyre_management_advice": "现在要不要保胎",
+        "fuel_management_advice": "现在要不要省油",
+        "defend_outcome_projection": "如果现在守住会怎样",
+        "attack_outcome_projection": "如果现在进攻会怎样",
         "current_strategy": "当前主策略是什么",
         "why_defend": "为什么现在偏向防守",
         "why_not_attack": "为什么现在不进攻",
@@ -736,12 +833,60 @@ def _query_prompt(query_kind: str) -> str:
 def _requested_fields_for_query_kind(query_kind: str) -> list[str]:
     if query_kind == "fuel_status":
         return ["player.fuel_laps_remaining", "total_laps", "raw.fuel_in_tank"]
+    if query_kind == "damage_status":
+        return [
+            "raw.wing_damage_pct",
+            "raw.floor_damage_pct",
+            "raw.diffuser_damage_pct",
+            "raw.sidepod_damage_pct",
+            "raw.gearbox_damage_pct",
+            "raw.engine_damage_pct",
+            "raw.engine_blown",
+            "raw.engine_seized",
+        ]
+    if query_kind == "damage_pit_advice":
+        return [
+            "raw.wing_damage_pct",
+            "raw.floor_damage_pct",
+            "raw.diffuser_damage_pct",
+            "raw.sidepod_damage_pct",
+            "raw.gearbox_damage_pct",
+            "raw.engine_damage_pct",
+            "raw.engine_blown",
+            "raw.engine_seized",
+            "messages",
+            "player.gap_ahead_s",
+            "player.gap_behind_s",
+        ]
+    if query_kind == "front_wing_damage_status":
+        return ["raw.wing_damage_pct"]
+    if query_kind == "floor_damage_status":
+        return ["raw.floor_damage_pct", "raw.diffuser_damage_pct", "raw.sidepod_damage_pct"]
+    if query_kind == "engine_damage_status":
+        return [
+            "raw.engine_damage_pct",
+            "raw.engine_components_damage_pct",
+            "raw.engine_blown",
+            "raw.engine_seized",
+        ]
+    if query_kind == "front_gap":
+        return ["player.gap_ahead_s", "player.drs_available", "rivals"]
+    if query_kind == "front_rival_drs_status":
+        return ["player.gap_ahead_s", "rivals"]
     if query_kind == "rear_gap":
+        return ["player.gap_behind_s", "rivals"]
+    if query_kind == "rear_rival_drs_status":
         return ["player.gap_behind_s", "rivals"]
     if query_kind == "tyre_status":
         return ["player.tyre"]
+    if query_kind == "drs_status":
+        return ["player.drs_available", "player.gap_ahead_s", "messages"]
+    if query_kind == "ers_status":
+        return ["player.ers_pct", "raw.ers_store_energy", "messages"]
     if query_kind == "weather_status":
         return ["weather", "safety_car"]
+    if query_kind == "race_control_status":
+        return ["weather", "safety_car", "messages"]
     if query_kind == "penalty_status":
         return [
             "raw.total_warnings",
@@ -758,8 +903,190 @@ def _requested_fields_for_query_kind(query_kind: str) -> list[str]:
             "raw.pit_stop_should_serve_pen",
             "raw.pit_stop_timer_ms",
         ]
+    if query_kind == "pit_penalty_plan":
+        return [
+            "raw.pit_status",
+            "raw.num_unserved_drive_through_pens",
+            "raw.num_unserved_stop_go_pens",
+            "raw.pit_stop_should_serve_pen",
+            "raw.total_warnings",
+            "player.tyre",
+        ]
+    if query_kind == "penalty_handling_strategy":
+        return [
+            "raw.pit_status",
+            "raw.num_unserved_drive_through_pens",
+            "raw.num_unserved_stop_go_pens",
+            "raw.pit_stop_should_serve_pen",
+            "raw.total_warnings",
+            "player.tyre",
+            "safety_car",
+        ]
     if query_kind == "current_strategy":
         return ["messages", "session_route"]
+    if query_kind == "overall_situation":
+        return [
+            "messages",
+            "session_route",
+            "weather",
+            "safety_car",
+            "player.gap_ahead_s",
+            "player.gap_behind_s",
+            "player.fuel_laps_remaining",
+            "player.tyre",
+            "player.ers_pct",
+        ]
+    if query_kind == "attack_or_defend_summary":
+        return [
+            "messages",
+            "session_route",
+            "player.gap_ahead_s",
+            "player.gap_behind_s",
+            "player.drs_available",
+            "player.ers_pct",
+        ]
+    if query_kind == "attack_defend_tradeoff":
+        return [
+            "messages",
+            "session_route",
+            "player.gap_ahead_s",
+            "player.gap_behind_s",
+            "player.drs_available",
+            "player.ers_pct",
+            "player.tyre",
+            "player.fuel_laps_remaining",
+        ]
+    if query_kind == "main_risk_summary":
+        return [
+            "messages",
+            "session_route",
+            "player.gap_ahead_s",
+            "player.gap_behind_s",
+            "player.fuel_laps_remaining",
+            "player.tyre",
+            "player.ers_pct",
+            "raw.num_unserved_drive_through_pens",
+            "raw.num_unserved_stop_go_pens",
+            "raw.pit_stop_should_serve_pen",
+            "safety_car",
+        ]
+    if query_kind == "next_lap_focus":
+        return [
+            "messages",
+            "session_route",
+            "player.gap_ahead_s",
+            "player.gap_behind_s",
+            "player.fuel_laps_remaining",
+            "player.tyre",
+            "player.ers_pct",
+            "player.drs_available",
+            "raw.num_unserved_drive_through_pens",
+            "raw.num_unserved_stop_go_pens",
+            "raw.pit_stop_should_serve_pen",
+            "safety_car",
+            "weather",
+        ]
+    if query_kind == "tyre_wear_outlook":
+        return [
+            "messages",
+            "session_route",
+            "player.tyre",
+            "player.gap_ahead_s",
+            "player.gap_behind_s",
+            "player.drs_available",
+            "player.ers_pct",
+            "player.fuel_laps_remaining",
+            "safety_car",
+            "weather",
+        ]
+    if query_kind == "risk_severity_followup":
+        return [
+            "messages",
+            "session_route",
+            "player.gap_behind_s",
+            "player.gap_ahead_s",
+            "player.fuel_laps_remaining",
+            "player.tyre",
+            "raw.num_unserved_drive_through_pens",
+            "raw.num_unserved_stop_go_pens",
+            "raw.pit_stop_should_serve_pen",
+            "safety_car",
+        ]
+    if query_kind == "risk_escalation_timing":
+        return [
+            "messages",
+            "session_route",
+            "player.gap_behind_s",
+            "player.fuel_laps_remaining",
+            "player.tyre",
+            "raw.num_unserved_drive_through_pens",
+            "raw.num_unserved_stop_go_pens",
+            "raw.pit_stop_should_serve_pen",
+            "safety_car",
+        ]
+    if query_kind == "rear_pressure_relief_outlook":
+        return [
+            "messages",
+            "session_route",
+            "player.gap_behind_s",
+            "player.ers_pct",
+            "player.tyre",
+        ]
+    if query_kind == "pit_delay_consequence":
+        return [
+            "raw.pit_status",
+            "raw.num_unserved_drive_through_pens",
+            "raw.num_unserved_stop_go_pens",
+            "raw.pit_stop_should_serve_pen",
+            "player.tyre",
+            "player.fuel_laps_remaining",
+            "safety_car",
+        ]
+    if query_kind == "pit_one_lap_delay_consequence":
+        return [
+            "raw.pit_status",
+            "raw.num_unserved_drive_through_pens",
+            "raw.num_unserved_stop_go_pens",
+            "raw.pit_stop_should_serve_pen",
+            "player.tyre",
+            "player.fuel_laps_remaining",
+            "safety_car",
+        ]
+    if query_kind == "tyre_management_advice":
+        return [
+            "messages",
+            "player.tyre",
+            "player.gap_ahead_s",
+            "player.gap_behind_s",
+            "player.ers_pct",
+        ]
+    if query_kind == "defend_outcome_projection":
+        return [
+            "messages",
+            "session_route",
+            "player.gap_behind_s",
+            "player.tyre",
+            "player.ers_pct",
+            "player.drs_available",
+        ]
+    if query_kind == "attack_outcome_projection":
+        return [
+            "messages",
+            "session_route",
+            "player.gap_ahead_s",
+            "player.gap_behind_s",
+            "player.drs_available",
+            "player.ers_pct",
+            "player.tyre",
+        ]
+    if query_kind == "fuel_management_advice":
+        return [
+            "messages",
+            "player.fuel_laps_remaining",
+            "player.gap_ahead_s",
+            "player.gap_behind_s",
+            "player.ers_pct",
+        ]
     if query_kind in {"why_defend", "why_not_attack", "why_current_strategy"}:
         return ["messages", "player.gap_ahead_s", "player.gap_behind_s", "player.drs_available", "session_route"]
     if query_kind == "why_not_pit":
