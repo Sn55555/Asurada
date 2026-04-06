@@ -9,7 +9,6 @@ from .output import ConsoleVoiceOutput
 from .packet_snapshot import CaptureSnapshotAssembler
 from .pdu import RawPacket
 from .pdu_decoder import F125PacketDecoder, PacketDecodeError, PacketEnvelope
-from .replay import ReplayLogger
 from .state import UnifiedStateStore
 from .strategy import StrategyEngine
 
@@ -30,7 +29,7 @@ class StrategyRuntimePipeline:
         state_store: UnifiedStateStore,
         strategy: StrategyEngine,
         voice_output: ConsoleVoiceOutput,
-        logger: ReplayLogger,
+        logger: Any,
     ) -> None:
         self.decoder = F125PacketDecoder()
         self.assembler = CaptureSnapshotAssembler()

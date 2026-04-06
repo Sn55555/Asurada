@@ -9,12 +9,14 @@ from .csv_ingest import LapCsvSource
 from .dashboard import DebugDashboardBuilder
 from .decode import decode_snapshot
 from .ingest import ReplaySource
+from .live_dashboard_feed import CompositeRuntimeLogger, DashboardFeedWriter
 from .live_runtime import LiveRuntime
 from .output import ConsoleLapSummaryOutput, ConsoleVoiceOutput
 from .replay import ReplayLogger
 from .reports import ReportWriter
 from .state import UnifiedStateStore
 from .strategy import StrategyEngine
+from .udp_capture import RawPacketCaptureRecorder
 from .udp_ingest import UdpPacketSource
 
 
@@ -33,6 +35,7 @@ class AsuradaApp:
         self.voice_output = ConsoleVoiceOutput()
         self.summary_output = ConsoleLapSummaryOutput()
         self.logger = ReplayLogger(config.replay_log_dir)
+        self.live_dashboard_feed = DashboardFeedWriter(config.replay_log_dir / "dashboard")
         self.report_writer = ReportWriter(config.replay_log_dir / "reports")
         self.dashboard_builder = DebugDashboardBuilder(config.replay_log_dir / "dashboard")
 
@@ -73,14 +76,21 @@ class AsuradaApp:
         )
         print(f"[ASURADA][REPORT] 已生成复盘报告: {report_path}")
 
-    def run_live_udp(self, udp_config: UdpConfig) -> None:
-        self.logger.reset()
+    def run_live_udp(self, udp_config: UdpConfig, *, capture_path: Path | None = None) -> None:
+        live_logger = CompositeRuntimeLogger(self.logger, self.live_dashboard_feed)
+        live_logger.reset()
+        packet_recorder = None
+        if capture_path is not None:
+            packet_recorder = RawPacketCaptureRecorder(capture_path)
+            packet_recorder.reset()
+            print(f"[ASURADA] Raw UDP capture recording: {capture_path}")
         runtime = LiveRuntime(
             UdpPacketSource(udp_config),
             state_store=self.state_store,
             strategy=self.strategy,
             voice_output=self.voice_output,
-            logger=self.logger,
+            logger=live_logger,
+            packet_recorder=packet_recorder,
             dashboard_refresh=None,
         )
         runtime.run()

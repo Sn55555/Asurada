@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Callable
+from typing import Any, Callable
 
 from .output import ConsoleVoiceOutput
 from .pdu_decoder import PacketDecodeError
-from .replay import ReplayLogger
 from .runtime_pipeline import StrategyRuntimePipeline
 from .state import UnifiedStateStore
 from .strategy import StrategyEngine
@@ -22,7 +21,8 @@ class LiveRuntime:
         state_store: UnifiedStateStore,
         strategy: StrategyEngine,
         voice_output: ConsoleVoiceOutput,
-        logger: ReplayLogger,
+        logger: Any,
+        packet_recorder: Any | None = None,
         dashboard_refresh: Callable[[], None] | None = None,
     ) -> None:
         self.packet_source = packet_source
@@ -30,6 +30,7 @@ class LiveRuntime:
         self.strategy = strategy
         self.voice_output = voice_output
         self.logger = logger
+        self.packet_recorder = packet_recorder
         self.dashboard_refresh = dashboard_refresh
         self.pipeline = StrategyRuntimePipeline(
             state_store=state_store,
@@ -48,6 +49,8 @@ class LiveRuntime:
         empty_snapshot_count = 0
         print("[ASURADA] Live UDP runtime started. Waiting for packets...")
         for packet in self.packet_source:
+            if self.packet_recorder is not None:
+                self.packet_recorder.append(packet)
             try:
                 result = self.pipeline.ingest_packet(packet)
             except PacketDecodeError as exc:

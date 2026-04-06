@@ -65,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=20778,
         help="Port to bind the UDP listener.",
     )
+    parser.add_argument(
+        "--record-capture-jsonl",
+        type=Path,
+        help="Optional path to record raw live UDP packets as capture JSONL.",
+    )
     return parser
 
 
@@ -86,7 +91,10 @@ def main() -> None:
         )
         return
     if args.live_udp:
-        app.run_live_udp(UdpConfig(host=args.udp_host, port=args.udp_port))
+        app.run_live_udp(
+            UdpConfig(host=args.udp_host, port=args.udp_port),
+            capture_path=args.record_capture_jsonl,
+        )
         return
     if args.build_dashboard:
         app.build_debug_dashboard()
