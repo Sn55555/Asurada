@@ -179,6 +179,8 @@ class CaptureSnapshotAssembler:
         brake = float(telemetry.get("brake", 0.0))
         steer = float(telemetry.get("steer", 0.0))
         speed_kph = float(telemetry.get("speed_kph", 0.0))
+        tyres_surface_temperature = [int(item) for item in telemetry.get("tyres_surface_temperature", [])]
+        tyres_inner_temperature = [int(item) for item in telemetry.get("tyres_inner_temperature", [])]
         g_force = motion.get("g_force", {})
         g_lat = float(g_force.get("lateral", 0.0))
         g_lon = float(g_force.get("longitudinal", 0.0))
@@ -263,6 +265,8 @@ class CaptureSnapshotAssembler:
                     ),
                     "wear_pct": tyre_wear_pct,
                     "age_laps": tyres_age_laps,
+                    "surface_temperature_c": tyres_surface_temperature,
+                    "inner_temperature_c": tyres_inner_temperature,
                 },
                 "status_tags": tags,
             },
@@ -346,6 +350,20 @@ class CaptureSnapshotAssembler:
                 "tyres_damage_pct": list(damage.get("tyres_damage_pct", [])),
                 "tyre_blisters_pct": list(damage.get("tyre_blisters_pct", [])),
                 "brakes_damage_pct": list(damage.get("brakes_damage_pct", [])),
+                "tyres_surface_temperature_c": tyres_surface_temperature,
+                "tyres_inner_temperature_c": tyres_inner_temperature,
+                "tyres_surface_temperature_avg_c": round(
+                    sum(float(item) for item in tyres_surface_temperature) / len(tyres_surface_temperature),
+                    2,
+                )
+                if tyres_surface_temperature
+                else None,
+                "tyres_inner_temperature_avg_c": round(
+                    sum(float(item) for item in tyres_inner_temperature) / len(tyres_inner_temperature),
+                    2,
+                )
+                if tyres_inner_temperature
+                else None,
                 "wing_damage_pct": {
                     "front_left": int(damage.get("front_left_wing_damage_pct", 0)),
                     "front_right": int(damage.get("front_right_wing_damage_pct", 0)),

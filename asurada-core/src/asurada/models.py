@@ -11,6 +11,8 @@ class TyreState:
     compound: str
     wear_pct: float
     age_laps: int
+    surface_temperature_c: list[int] = field(default_factory=list)
+    inner_temperature_c: list[int] = field(default_factory=list)
 
 
 @dataclass

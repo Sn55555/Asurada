@@ -11,6 +11,8 @@ def _decode_driver(payload: dict) -> DriverState:
         compound=payload["tyre"]["compound"],
         wear_pct=float(payload["tyre"]["wear_pct"]),
         age_laps=int(payload["tyre"]["age_laps"]),
+        surface_temperature_c=[int(item) for item in payload["tyre"].get("surface_temperature_c", [])],
+        inner_temperature_c=[int(item) for item in payload["tyre"].get("inner_temperature_c", [])],
     )
     return DriverState(
         car_index=int(payload["car_index"]),
