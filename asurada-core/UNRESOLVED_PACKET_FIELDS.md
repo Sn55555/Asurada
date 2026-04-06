@@ -255,20 +255,45 @@ Current status:
 
 Current status:
 - multi-car damage arrays are parsed
-- downstream strategy / dashboard usage is still shallow
+- player-facing damage summary now feeds debug / voice explanation and the external live dashboard
+- multi-car comparative damage usage is still shallow in downstream strategy and summaries
 
 ### Event Coverage
 
 Current status:
 - common event detail payloads are named
 - standard union-backed detail payloads are named
-- remaining work is mainly real-sample validation for rare codes not present in the current capture
+- real-sample validation now exists for:
+  - `BUTN`
+  - `FTLP`
+  - `PENA`
+  - `OVTK`
+  - `STLG`
+  - `LGOT`
+  - `SCAR`
+  - `SGSV`
+  - `SPTP`
+- remaining work is mainly rare-code validation for event families that still lack stable real samples:
+  - `DTSV`
+  - `DTEN`
+  - `SGEN`
+  - `RDFL`
+  - `RCWN`
+  - `RTMT`
 
 ### Participants Integration
 
 Current status:
 - identity fields are parsed
-- not yet fully promoted into all downstream displays and summaries
+- player / rival names and identity fields now flow into normalized state, replay logs, debug dashboard, and voice answers
+- lobby-oriented fields are still not fully promoted into all downstream displays and summaries
+
+### LobbyInfo
+
+Current status:
+- parser support exists and the main player / player-list fields are named
+- real multiplayer packet sample validation is still missing
+- downstream promotion is still limited because this packet family is not part of the current mainline runtime sample set
 
 ### TimeTrial
 
