@@ -16,6 +16,7 @@ from .interaction import (
 )
 from .models import SessionState
 from .semantic_normalizer import SemanticIntentResult
+from .transcript_router import TranscriptRouteDecision
 from .voice_turn import VoiceTurn
 
 
@@ -31,6 +32,8 @@ class VoiceQueryBundle:
     normalization_event: dict[str, Any]
     fast_intent: dict[str, Any]
     voice_turn: dict[str, Any]
+    response_override: dict[str, Any] | None = None
+    llm_explainer: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -42,6 +45,9 @@ def build_voice_query_bundle(
     voice_turn: VoiceTurn,
     fast_intent: FastIntentResult,
     semantic_intent: SemanticIntentResult | None = None,
+    route_decision: TranscriptRouteDecision | None = None,
+    response_override: dict[str, Any] | None = None,
+    llm_explainer: dict[str, Any] | None = None,
 ) -> VoiceQueryBundle:
     """Map one completed voice turn into the existing interaction contracts."""
 
@@ -54,6 +60,7 @@ def build_voice_query_bundle(
         voice_turn=voice_turn,
         fast_intent=fast_intent,
         semantic_intent=semantic_intent,
+        route_decision=route_decision,
     )
     structured_query = build_structured_query_schema(input_event)
     query_route = route_structured_query(structured_query)
@@ -77,6 +84,8 @@ def build_voice_query_bundle(
         normalization_event=normalization_event.to_dict(),
         fast_intent=fast_intent.to_dict(),
         voice_turn=voice_turn.to_dict(),
+        response_override=response_override,
+        llm_explainer=llm_explainer,
     )
 
 
@@ -86,6 +95,7 @@ def build_voice_query_input_event(
     voice_turn: VoiceTurn,
     fast_intent: FastIntentResult,
     semantic_intent: SemanticIntentResult | None = None,
+    route_decision: TranscriptRouteDecision | None = None,
 ) -> InteractionInputEvent:
     raw = state.raw
     frame_identifier = _optional_int(raw.get("frame_identifier"))
@@ -139,6 +149,7 @@ def build_voice_query_input_event(
             "semantic_reason": semantic_intent.reason if semantic_intent is not None else None,
             "response_style": semantic_intent.response_style if semantic_intent is not None else "structured",
             "semantic_metadata": semantic_intent.metadata if semantic_intent is not None else {},
+            "route_decision": route_decision.to_dict() if route_decision is not None else {},
         },
     )
 

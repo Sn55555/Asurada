@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from .analysis import summarize_lap
@@ -16,6 +17,7 @@ from .replay import ReplayLogger
 from .reports import ReportWriter
 from .state import UnifiedStateStore
 from .strategy import StrategyEngine
+from .tts_backends import NullSpeechBackend, resolve_default_speech_backend
 from .udp_capture import RawPacketCaptureRecorder
 from .udp_ingest import UdpPacketSource
 
@@ -32,12 +34,20 @@ class AsuradaApp:
         self.config = config
         self.state_store = UnifiedStateStore()
         self.strategy = StrategyEngine(config.thresholds, config.usage_hooks_path)
-        self.voice_output = ConsoleVoiceOutput()
+        self.voice_output = ConsoleVoiceOutput(backend=self._resolve_voice_backend())
         self.summary_output = ConsoleLapSummaryOutput()
         self.logger = ReplayLogger(config.replay_log_dir)
         self.live_dashboard_feed = DashboardFeedWriter(config.replay_log_dir / "dashboard")
         self.report_writer = ReportWriter(config.replay_log_dir / "reports")
         self.dashboard_builder = DebugDashboardBuilder(config.replay_log_dir / "dashboard")
+
+    def _resolve_voice_backend(self):
+        forced_backend = str(os.getenv("ASURADA_TTS_BACKEND") or "").strip().lower()
+        if forced_backend:
+            return resolve_default_speech_backend()
+        if str(os.getenv("ASURADA_DISABLE_LOCAL_VOICE_OUTPUT") or "").strip().lower() in {"1", "true", "yes", "on"}:
+            return NullSpeechBackend()
+        return None
 
     def run_replay(self, replay_path: Path) -> None:
         # 备注:

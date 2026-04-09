@@ -80,6 +80,8 @@ class SpeechJob:
     priority: int
     speak_text: str
     cancelable: bool
+    persona_id: str | None = None
+    voice_profile_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

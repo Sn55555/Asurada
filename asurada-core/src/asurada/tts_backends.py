@@ -6,10 +6,12 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from typing import Any
 
 from .interaction import SpeechJob
+from .voice_sidecar_protocol import TtsRenderRequest
 
 
 class SpeechBackend:
@@ -153,10 +155,62 @@ class PiperBackend(SpeechBackend):
         ]
 
 
+@dataclass
+class _VoiceSidecarSpeechHandle:
+    thread: threading.Thread
+    state: dict[str, Any]
+
+
+class VoiceSidecarSpeechBackend(SpeechBackend):
+    """Speech backend that delegates playback to the local voice sidecar."""
+
+    def __init__(self) -> None:
+        from .audio_agent_client import VoiceSidecarClient
+
+        self._client = VoiceSidecarClient.from_env()
+
+    def start(self, job: SpeechJob) -> _VoiceSidecarSpeechHandle:
+        state: dict[str, Any] = {"done": False, "error": None}
+
+        def _run() -> None:
+            try:
+                self._client.play_tts(
+                    request=TtsRenderRequest(
+                        text=job.speak_text,
+                        persona_id=job.persona_id or "",
+                        voice_profile_id=job.voice_profile_id or "",
+                        audio_format="pcm_s16le",
+                        sample_rate_hz=16000,
+                        metadata={
+                            "source_kind": job.source_kind,
+                            "action_code": job.action_code,
+                            **dict(job.metadata or {}),
+                        },
+                    )
+                )
+            except Exception as exc:  # pragma: no cover - surfaced through state
+                state["error"] = str(exc)
+            finally:
+                state["done"] = True
+
+        thread = threading.Thread(target=_run, name=f"voice-sidecar-speech:{job.output_event_id}", daemon=True)
+        thread.start()
+        return _VoiceSidecarSpeechHandle(thread=thread, state=state)
+
+    def is_active(self, handle: _VoiceSidecarSpeechHandle | None) -> bool:
+        return handle is not None and handle.thread.is_alive()
+
+    def stop(self, handle: _VoiceSidecarSpeechHandle | None) -> None:
+        # The current sidecar playback path is not interruptible from this thread wrapper.
+        return None
+
+
 def resolve_default_speech_backend() -> SpeechBackend:
     forced_backend = str(os.getenv("ASURADA_TTS_BACKEND") or "").strip().lower()
     if forced_backend == "null":
         return NullSpeechBackend()
+    if forced_backend == "voice_sidecar":
+        return VoiceSidecarSpeechBackend()
     if forced_backend == "piper":
         try:
             return PiperBackend.from_env()

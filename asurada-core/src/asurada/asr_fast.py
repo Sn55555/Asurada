@@ -96,24 +96,57 @@ class KeywordFastIntentASR(FastIntentASR):
         self.threshold = threshold
 
     def recognize_turn(self, turn: VoiceTurn) -> FastIntentResult:
-        transcript_text = str(
-            turn.metadata.get("transcript_text")
-            or turn.metadata.get("transcript_hint")
-            or ""
-        ).strip()
-        normalized_text = " ".join(transcript_text.lower().split())
-        if not normalized_text:
+        transcript_text = str(turn.metadata.get("transcript_text") or "").strip()
+        transcript_hint = str(turn.metadata.get("transcript_hint") or "").strip()
+        primary_text = transcript_text or transcript_hint
+        primary_normalized = " ".join(primary_text.lower().split())
+        if not primary_normalized:
             return FastIntentResult(
                 lane="fast_intent",
                 status="no_transcript",
-                transcript_text=transcript_text,
-                normalized_text=normalized_text,
+                transcript_text=primary_text,
+                normalized_text=primary_normalized,
                 query_kind=None,
                 confidence=0.0,
                 matched_phrase=None,
                 metadata={"turn_id": turn.turn_id},
             )
 
+        chosen_text = primary_text
+        chosen_normalized = primary_normalized
+        chosen_source = "transcript_text" if transcript_text else "transcript_hint"
+        best_query_kind, best_phrase, best_score = self._best_match_for_text(primary_normalized)
+
+        if transcript_hint:
+            hint_normalized = " ".join(transcript_hint.lower().split())
+            hint_query_kind, hint_phrase, hint_score = self._best_match_for_text(hint_normalized)
+            if hint_score > best_score:
+                chosen_text = transcript_hint
+                chosen_normalized = hint_normalized
+                chosen_source = "transcript_hint"
+                best_query_kind = hint_query_kind
+                best_phrase = hint_phrase
+                best_score = hint_score
+
+        status = "matched" if best_query_kind is not None and best_score >= self.threshold else "fallback"
+        return FastIntentResult(
+            lane="fast_intent",
+            status=status,
+            transcript_text=chosen_text,
+            normalized_text=chosen_normalized,
+            query_kind=best_query_kind if status == "matched" else None,
+            confidence=round(best_score, 4),
+            matched_phrase=best_phrase if status == "matched" else None,
+            metadata={
+                "turn_id": turn.turn_id,
+                "threshold": self.threshold,
+                "transcript_source": chosen_source,
+                "original_transcript_text": transcript_text,
+                "transcript_hint": transcript_hint,
+            },
+        )
+
+    def _best_match_for_text(self, normalized_text: str) -> tuple[str | None, str | None, float]:
         best_query_kind: str | None = None
         best_phrase: str | None = None
         best_score = 0.0
@@ -124,18 +157,7 @@ class KeywordFastIntentASR(FastIntentASR):
                     best_score = score
                     best_query_kind = query_kind
                     best_phrase = phrase
-
-        status = "matched" if best_query_kind is not None and best_score >= self.threshold else "fallback"
-        return FastIntentResult(
-            lane="fast_intent",
-            status=status,
-            transcript_text=transcript_text,
-            normalized_text=normalized_text,
-            query_kind=best_query_kind if status == "matched" else None,
-            confidence=round(best_score, 4),
-            matched_phrase=best_phrase if status == "matched" else None,
-            metadata={"turn_id": turn.turn_id, "threshold": self.threshold},
-        )
+        return best_query_kind, best_phrase, best_score
 
     def _score_phrase(self, normalized_text: str, phrase: str) -> float:
         if normalized_text == phrase:

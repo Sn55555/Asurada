@@ -21,6 +21,7 @@ from .interaction import (
     route_structured_query,
 )
 from .models import SessionState, StrategyDecision, StrategyMessage
+from .persona_registry import get_default_persona
 from .tts_backends import (
     MacOSSayBackend,
     NullSpeechBackend,
@@ -60,6 +61,7 @@ class ConsoleVoiceOutput:
     def __init__(self, *, backend: SpeechBackend | None = None) -> None:
         self.output_session_id = "voice-output:console"
         self.backend = backend or self._default_backend()
+        self.persona = get_default_persona()
         self._event_counter = 0
         self._active_envelope: _SpeechEnvelope | None = None
         self._active_handle: Any = None
@@ -181,10 +183,14 @@ class ConsoleVoiceOutput:
         confirmation_policy = dict(bundle_dict.get("confirmation_policy") or {})
         task_handle = dict(bundle_dict.get("task_handle") or {})
         normalization_event = dict(bundle_dict.get("normalization_event") or {})
+        response_override = dict(bundle_dict.get("response_override") or {})
+        llm_explainer = dict(bundle_dict.get("llm_explainer") or {})
         extra_debug = {
             "fast_intent": bundle_dict.get("fast_intent"),
             "voice_turn": bundle_dict.get("voice_turn"),
         }
+        if llm_explainer:
+            extra_debug["llm_explainer"] = llm_explainer
         return self._emit_prepared_query(
             state=state,
             input_event=input_event,
@@ -193,6 +199,7 @@ class ConsoleVoiceOutput:
             confirmation_policy=confirmation_policy,
             task_handle=task_handle,
             normalization_event=normalization_event,
+            response_override=response_override,
             primary_message=primary_message,
             render=render,
             extra_debug=extra_debug,
@@ -276,14 +283,17 @@ class ConsoleVoiceOutput:
         normalization_event: dict[str, Any],
         primary_message: StrategyMessage | None,
         render: bool,
+        response_override: dict[str, Any] | None = None,
         extra_debug: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         schema = StructuredQuerySchema(**structured_query)
-        speak_text, action_code = render_structured_query_response(
+        default_speak_text, default_action_code = render_structured_query_response(
             state=state,
             schema=schema,
             primary_message=primary_message,
         )
+        speak_text = str((response_override or {}).get("speak_text") or default_speak_text)
+        action_code = str((response_override or {}).get("action_code") or default_action_code)
         envelope = self._build_query_envelope(
             input_event=input_event,
             task_handle=task_handle,
@@ -311,6 +321,24 @@ class ConsoleVoiceOutput:
         }
         if extra_debug:
             debug.update(extra_debug)
+        if response_override:
+            debug["response_override"] = response_override
+            debug["voice_pipeline_log"]["llm_sidecar"] = {
+                "used": True,
+                "status": response_override.get("status"),
+                "source": response_override.get("source"),
+                "backend_name": response_override.get("backend_name"),
+                "fallback_reason": response_override.get("fallback_reason"),
+            }
+        elif extra_debug and extra_debug.get("llm_explainer"):
+            llm_result = ((extra_debug.get("llm_explainer") or {}).get("result") or {})
+            debug["voice_pipeline_log"]["llm_sidecar"] = {
+                "used": False,
+                "status": llm_result.get("status"),
+                "source": "llm_sidecar",
+                "backend_name": llm_result.get("backend_name"),
+                "fallback_reason": llm_result.get("fallback_reason"),
+            }
         self._write_debug_payload(debug=debug, result=result)
         if render:
             event = result.lifecycle_event
@@ -339,6 +367,8 @@ class ConsoleVoiceOutput:
             return None
 
         top = decision.messages[0]
+        if top.code == "NONE":
+            return None
         output_event_id = self._next_output_event_id()
         return _SpeechEnvelope(
             job=SpeechJob(
@@ -352,7 +382,13 @@ class ConsoleVoiceOutput:
                 priority=int(final_voice_action.get("priority") or top.priority or 0),
                 speak_text=str(final_voice_action.get("speak_text") or top.title),
                 cancelable=top.code != "SAFETY_CAR",
-                metadata={"source": "strategy_broadcast"},
+                persona_id=self.persona.persona_id,
+                voice_profile_id=self.persona.voice_profile_id,
+                metadata={
+                    "source": "strategy_broadcast",
+                    "persona_id": self.persona.persona_id,
+                    "voice_profile_id": self.persona.voice_profile_id,
+                },
             ),
             interaction_input_event=interaction_input_event,
             task_handle=task_handle,
@@ -379,9 +415,13 @@ class ConsoleVoiceOutput:
                 priority=95,
                 speak_text=speak_text,
                 cancelable=True,
+                persona_id=self.persona.persona_id,
+                voice_profile_id=self.persona.voice_profile_id,
                 metadata={
                     "source": "query_response",
                     "query_kind": schema.get("query_kind"),
+                    "persona_id": self.persona.persona_id,
+                    "voice_profile_id": self.persona.voice_profile_id,
                 },
             ),
             interaction_input_event=input_event,
@@ -648,6 +688,13 @@ class ConsoleVoiceOutput:
                 metadata=metadata or {},
             )
         job = envelope.job
+        merged_metadata = {
+            "source_kind": job.source_kind,
+            "persona_id": job.persona_id,
+            "voice_profile_id": job.voice_profile_id,
+        }
+        if metadata:
+            merged_metadata.update(metadata)
         return OutputLifecycleEvent(
             output_session_id=self.output_session_id,
             output_event_id=job.output_event_id,
@@ -660,7 +707,7 @@ class ConsoleVoiceOutput:
             request_id=job.request_id,
             snapshot_binding_id=job.snapshot_binding_id,
             speak_text=job.speak_text,
-            metadata=metadata or {"source_kind": job.source_kind},
+            metadata=merged_metadata,
         )
 
     def _build_fallback_event(
@@ -697,6 +744,8 @@ class ConsoleVoiceOutput:
             "priority": envelope.job.priority,
             "source_kind": envelope.job.source_kind,
             "request_id": envelope.job.request_id,
+            "persona_id": envelope.job.persona_id,
+            "voice_profile_id": envelope.job.voice_profile_id,
         }
 
     def _task_summary(self, envelope: _SpeechEnvelope | None) -> dict[str, Any] | None:
@@ -821,11 +870,15 @@ class ConsoleVoiceOutput:
                 priority=95,
                 speak_text=base.job.speak_text,
                 cancelable=True,
+                persona_id=self.persona.persona_id,
+                voice_profile_id=self.persona.voice_profile_id,
                 metadata={
                     "source": "query_response",
                     "query_kind": "repeat_last",
                     "repeated_action_code": base.job.action_code,
                     "repeated_output_event_id": base.job.output_event_id,
+                    "persona_id": self.persona.persona_id,
+                    "voice_profile_id": self.persona.voice_profile_id,
                 },
             ),
             interaction_input_event=input_event,

@@ -44,7 +44,10 @@ def _make_state() -> SessionState:
     )
 
 
-def _make_turn(*, transcript_text: str) -> VoiceTurn:
+def _make_turn(*, transcript_text: str, transcript_hint: str | None = None) -> VoiceTurn:
+    metadata = {"transcript_text": transcript_text}
+    if transcript_hint is not None:
+        metadata["transcript_hint"] = transcript_hint
     return VoiceTurn(
         turn_id="voice-turn:test",
         started_at_ms=1_777_000_000_100,
@@ -54,7 +57,7 @@ def _make_turn(*, transcript_text: str) -> VoiceTurn:
         chunk_count=8,
         source="ptt",
         completion_reason="vad_speech_end",
-        metadata={"transcript_text": transcript_text},
+        metadata=metadata,
     )
 
 
@@ -154,6 +157,9 @@ def run_phase3_fast_intent_regression() -> dict[str, Any]:
     fallback_turn = _make_turn(transcript_text="帮我解释为什么刚才那圈不进站")
     fallback_result = recognizer.recognize_turn(fallback_turn)
 
+    partial_hint_turn = _make_turn(transcript_text="后车插句", transcript_hint="后车差距")
+    partial_hint_result = recognizer.recognize_turn(partial_hint_turn)
+
     checks = {
         "rear_gap_matches": rear_gap_result.query_kind == "rear_gap" and rear_gap_result.status == "matched",
         "rear_gap_bundle_routes": rear_gap_bundle.structured_query["query_kind"] == "rear_gap"
@@ -187,6 +193,9 @@ def run_phase3_fast_intent_regression() -> dict[str, Any]:
         "asr_fast_input_type": rear_gap_bundle.input_event["input_type"] == "asr_fast_query",
         "cancel_maps_to_control_query": cancel_result.query_kind == "cancel",
         "fallback_unmatched": fallback_result.status == "fallback" and fallback_result.query_kind is None,
+        "partial_hint_route_fallback": partial_hint_result.status == "matched"
+        and partial_hint_result.query_kind == "rear_gap"
+        and (partial_hint_result.metadata or {}).get("transcript_source") == "transcript_hint",
     }
 
     return {
@@ -223,6 +232,7 @@ def run_phase3_fast_intent_regression() -> dict[str, Any]:
             "rear_gap_bundle": rear_gap_bundle.to_dict(),
             "cancel_result": cancel_result.to_dict(),
             "fallback_result": fallback_result.to_dict(),
+            "partial_hint_result": partial_hint_result.to_dict(),
         },
     }
 
