@@ -17,7 +17,9 @@
 - `AudioIO / VAD / VoiceTurn / FastIntentASR / voice_nlu / voice_input` 输入基础已经落地
 - 语义归一化、短上下文记忆、规则化解释层与 `open_fallback` 已落地
 - 更广语义问法已覆盖前后车、DRS、ERS、进站、天气、处罚、车损、整体形势与轮胎 outlook
-- 仍未完成真实麦克风 / 设备侧音频 backend、`OpenASR` fallback、watchdog 与 Pi 5 / CM5 真机闭环
+- `voice sidecar`、Doubao LLM / streaming TTS / realtime ASR、macOS realtime voice loop 已落地
+- 当前开发机链路已经是 sidecar + 云端 provider 形态
+- 仍未完成 AEC / 串音抑制、local ASR fallback、watchdog 与 Pi 5 / CM5 真机闭环
 
 ---
 
@@ -208,7 +210,7 @@ flowchart TD
 
 ## 五、阶段三工程图
 
-阶段三的关键是“把阶段二验证过的能力，压进本地实时主链”。
+阶段三的关键是“把阶段二验证过的能力，压进最终可交付主链”。
 
 ```mermaid
 flowchart TD
@@ -217,10 +219,10 @@ flowchart TD
 
     C --> D["主路径规则 + 模型联合推理"]
     D --> E["实时仲裁层"]
-    E --> F["本地 TTS"]
+    E --> F["本地或 sidecar TTS"]
     E --> G["HUD / 控制面板"]
 
-    H["本地 ASR"] --> I["指令路由"]
+    H["本地或 sidecar ASR"] --> I["指令路由"]
     I --> C
     I --> E
 
@@ -244,7 +246,7 @@ flowchart TD
 
 ## 六、哪些能力必须本地
 
-以下能力进入比赛主链后必须本地运行：
+以下能力在 Pi 正式比赛主链下必须本地运行：
 
 - UDP 接收
 - Packet 解码
@@ -253,8 +255,7 @@ flowchart TD
 - 规则策略引擎
 - 主路径模型推理
 - 意图路由
-- ASR
-- TTS
+- 意图路由与最终查询执行
 - 告警仲裁
 
 原因：
@@ -267,7 +268,7 @@ flowchart TD
 
 ## 七、哪些能力可以旁路或远端
 
-以下能力可以不在主路径本地运行：
+以下能力可以不在主路径本地运行，或允许开发机阶段先旁路验证：
 
 - 训练任务
 - 超参数搜索
@@ -276,6 +277,7 @@ flowchart TD
 - 大模型解释层
 - 长文本总结
 - 对外展示型问答
+- 开发机阶段的 sidecar ASR / TTS 桥接
 
 这些能力的原则是：
 
@@ -289,19 +291,19 @@ flowchart TD
 
 双向语音不能直接“麦克风 -> 大模型 -> 语音”，否则延迟和稳定性都不可控。
 
-正确链路如下：
+当前开发机可运行链路如下：
 
 ```mermaid
 flowchart LR
-    A["车手语音输入"] --> B["本地 ASR"]
+    A["车手语音输入"] --> B["sidecar realtime ASR"]
     B --> C["指令路由"]
     C --> D["结构化查询"]
     D --> E["状态仓 / 策略引擎"]
     E --> F["模板化响应"]
-    F --> G["本地 TTS"]
+    F --> G["sidecar TTS"]
 
     C --> H["解释型请求"]
-    H -.旁路.-> I["轻量解释层 / 大模型层"]
+    H -.旁路.-> I["LLM sidecar"]
     I -.不阻塞主链.-> G
 ```
 
@@ -312,6 +314,11 @@ flowchart LR
 - 策略类回答直接查本地策略结果
 - TTS 支持中断和覆盖
 - 大模型解释必须旁路
+
+Pi 最终目标仍然是：
+
+- ASR / TTS 尽量本地化
+- sidecar 云端依赖可降级
 
 ---
 

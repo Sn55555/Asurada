@@ -21,7 +21,7 @@
 - 阶段一总体进度：`98%`
 - 阶段一排除实时闭环后的进度：`98%+`
 - 阶段二准备工作进度：`70%`
-- 阶段三产品化进度：`10%`
+- 阶段三产品化进度：`35%`
 
 当前结论：
 
@@ -30,7 +30,7 @@
 - 阶段二已从“数据准备”推进到“baseline + 控制层 + runtime sidecar + 扩展样本接入”并行阶段
 - 本地扩展数据集整理工作流已落地，当前已具备本机复现 split -> metadata -> config -> export -> validation 的统一入口
 - `pit_window_support_model + long_horizon_strategy_baseline` 第一版已实现，并已接入 `decision.debug` 与 `arbiter_v2` 上下文
-- 当前最大未完成项是稀有事件样本验证、少量协议精修，以及阶段三语音模块的真实麦克风 / 设备侧闭环、`OpenASR` fallback 与 watchdog
+- 当前最大未完成项是稀有事件样本验证、少量协议精修，以及阶段三语音模块的 AEC / 串音抑制、watchdog / recovery 与 Pi 侧部署硬化
 
 ## 阶段总览
 
@@ -457,7 +457,8 @@
   - 当前边界：
     - 当前系统策略事件仍是这条协议的默认来源
     - 阶段三本地实现已在这条协议上扩到结构化语音查询输入
-    - 当前仍未完成真实麦克风 / 设备侧音频 front-end 与 `OpenASR` fallback
+    - 开发机 realtime 麦克风 front-end 已跑通
+    - 当前仍未完成 Pi / 设备侧 front-end、local ASR fallback 与 transcript arbiter
   - 当前意义：
     - 阶段三接入双向语音时，不需要再回改主链的轮次标识和快照绑定协议
     - 输出层、logger、debug dashboard 都可以复用同一事件结构
@@ -482,6 +483,7 @@
       - `turn_id / request_id / snapshot_binding_id`
   - 当前边界：
     - 当前已接开发机 `MacOSSayBackend`
+    - 当前也已接 sidecar TTS 播放链
     - 当前仍未完成设备侧 `PiperBackend` 真机验证、播放器状态回报与正式抢占策略
   - 当前意义：
     - 阶段三继续扩 `TTS` 时，不需要再回改主链的输出事件语义
@@ -501,7 +503,8 @@
       - `tts` 已从 `output_lifecycle` 自动派生
     - 当前日志已写入 `decision.debug` 和 `session_log.jsonl`
   - 当前边界：
-    - 当前仍不含真实麦克风 transcript、播放器状态与设备侧 watchdog 指标
+    - 当前已含开发机 realtime transcript 与 sidecar 播放状态
+    - 当前仍未完成设备侧 watchdog 指标
     - 当前仍未接入外部工具调用层
   - 当前意义：
     - 阶段三接入 ASR/TTS 时，不需要回改日志主结构
@@ -522,7 +525,8 @@
     - 当前已写入 `decision.debug` 和 `voice_pipeline_log`
   - 当前边界：
     - 当前已覆盖系统策略播报、结构化语音查询、语义归一化与 `open_fallback`
-    - 尚未接入真实麦克风声学前端、`OpenASR` fallback 与工具调用层
+    - 开发机声学前端已接入
+    - 尚未完成 local ASR fallback / transcript arbiter 与工具调用层
   - 当前意义：
     - 阶段三接结构化问答时，不需要再回改 query schema 主结构
     - 当前已把“输入事件 -> 结构化 query -> 路由 -> 策略输出”这条接口链打通
@@ -660,11 +664,11 @@
 
 当前状态：
 
-- `已启动（输出侧）`
+- `已启动（voice sidecar 与实时语音主链已跑通）`
 
 当前完成度：
 
-- `10%`
+- `35%`
 
 ## 阶段一详细状态
 
@@ -1155,7 +1159,7 @@
 
 ## 阶段三当前状态
 
-状态：`已启动（输出主线 + 输入基础 + 语义层）`
+状态：`已启动（voice sidecar + realtime ASR + LLM/TTS 已打通）`
 
 当前已完成：
 
@@ -1171,17 +1175,26 @@
 - [x] `conversation_context / semantic_normalizer / response_composer` 语义归一化、短上下文记忆与规则化解释层
 - [x] `open_fallback` 与更广语义问法
 - [x] `PiperBackend` 设备侧 TTS backend 代码路径
+- [x] `transcript_router / capability_registry / state_summary_for_llm / llm_response_schema` 语音-LLM 边界层
+- [x] `llm_explainer / companion` sidecar 路径
+- [x] `voice_sidecar_protocol / voice_sidecar_server / audio_agent_client` 本地 sidecar 主线
+- [x] Doubao LLM sidecar
+- [x] Doubao streaming TTS sidecar
+- [x] Doubao realtime websocket ASR
+- [x] macOS realtime `voice loop` 默认接入 sidecar ASR
+- [x] partial transcript 预览、提前 arm 与 fast-intent 兜底
+- [x] persona / voice profile 与统一 TTS metadata
 - [x] 阶段三语音回归脚本
 - [x] 阶段三语音模块架构文档
 - [x] 阶段三语音模块实施计划
 
 当前边界：
 
-- [ ] 还未接真实麦克风 / 设备侧音频 backend
-- [ ] 还未完成设备侧双向语音闭环
-- [ ] 还未完成 `OpenASR` fallback 与 transcript arbiter
+- [ ] 还未完成 AEC / 串音抑制，外放环境下上行仍会吃到解说与播报
+- [ ] partial transcript 仍只做 preview / hint，不做稳定 partial commit 执行
+- [ ] 还未完成 local ASR fallback 与 transcript arbiter
 - [ ] 还未完成 `PiperBackend` 的 Pi 5 / CM5 真机验证
-- [ ] 还未做 watchdog、降级恢复与查询触发入口产品化
+- [ ] 还未做 watchdog、降级恢复、主动播报节流与查询触发入口产品化
 
 待启动项：
 

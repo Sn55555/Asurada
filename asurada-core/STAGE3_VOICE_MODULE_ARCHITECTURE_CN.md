@@ -24,7 +24,7 @@
 
 ## 一、设计前提
 
-阶段三语音模块必须满足以下约束：
+阶段三语音模块在最终 Pi / CM5 产品形态下必须满足以下约束：
 
 - 最终部署环境是 `Pi 5 / CM5`
 - 主路径不依赖外网
@@ -46,8 +46,12 @@
 - `1 active + 1 pending` 输出队列
 - `enqueue / replace_pending / complete` 生命周期
 - 系统主动播报与结构化查询响应共路径
+- `voice sidecar` 协议与本地 server
+- Doubao LLM / streaming TTS / realtime ASR
+- macOS realtime `voice loop`
+- partial transcript preview、提前 arm 与 `companion` 模式
 
-因此阶段三不应重写输出层；下一步重点是补齐**真实麦克风 / 设备侧输入 front-end**、`OpenASR` fallback、watchdog 与 Pi 真机验证。
+因此阶段三不应重写输出层。当前开发机已经有一条可运行的 sidecar 实现；下一步重点是补齐 AEC / 串音抑制、local ASR fallback、watchdog 与 Pi 真机验证。
 
 ---
 
@@ -55,7 +59,7 @@
 
 阶段三语音模块采用以下原则：
 
-1. 本地优先
+1. Pi 正式形态本地优先
 2. 结构化快路径优先
 3. 开放式识别只做 fallback
 4. 控制面和媒体面分离
@@ -67,11 +71,37 @@
 - `麦克风 -> 通用 ASR -> LLM -> TTS` 单链路
 - 首发即纯 wake word
 - 全部走开放式自由语音
-- 用 HTTP 微服务做本机主路径通信
+- 把 HTTP 微服务作为 Pi 正式主路径的唯一依赖
+
+说明：
+
+- 当前开发机实现已经采用本机 `voice sidecar` 的 HTTP / WS 桥接
+- 这条链是当前验证路径，不等于最终 Pi 正式主路径
 
 ---
 
-## 三、推荐总体架构
+## 三、当前开发机实现与最终推荐架构
+
+### 1. 当前开发机实现
+
+```mermaid
+flowchart LR
+    A["macOS Mic"] --> B["Realtime Audio Stream"]
+    B --> C["voice sidecar realtime ASR"]
+    C --> D["Wake / Router"]
+    D --> E["Structured / Explainer / Companion"]
+    E --> F["OutputCoordinator"]
+    F --> G["voice sidecar TTS"]
+```
+
+当前特征：
+
+- realtime ASR 已默认接入
+- LLM / TTS / ASR 当前通过 Doubao sidecar 跑通
+- `companion` 模式已可运行
+- 这条链用于开发机验证，不代表 Pi 最终部署形态
+
+### 2. 最终 Pi 推荐架构
 
 ```mermaid
 flowchart LR
@@ -137,9 +167,13 @@ flowchart LR
 
 - 决定何时允许开始语音输入
 
-首发建议：
+当前开发机默认：
 
-- `PTT` 优先
+- 连续监听 + wake phrase
+
+Pi 首发建议：
+
+- `PTT` 优先，wake word 作为补充
 
 不建议首发即上纯 wake word，原因：
 
@@ -199,7 +233,7 @@ flowchart LR
 - alias / 同义短语映射
 - 受限 grammar 或 phrase-ranking
 
-这条链是阶段三语音输入的正式主路径。
+当前开发机里，这条链已经被 sidecar realtime ASR 暂时替代；它更适合作为 Pi / 本地降级路径。
 
 ### 5. OpenASR
 
@@ -222,8 +256,8 @@ flowchart LR
 
 定位：
 
-- fallback
-- 非主路径
+- Pi / 离线 fallback
+- 非当前开发机主路径
 
 ### 6. Transcript Arbiter
 
@@ -326,7 +360,7 @@ flowchart LR
 
 不推荐：
 
-- 本机 HTTP 微服务主路径
+- 把本机 HTTP 微服务作为 Pi 正式主路径的唯一通信方式
 
 建议进程：
 
@@ -369,7 +403,7 @@ PTT -> AudioIO -> VAD -> FastIntentASR -> InteractionInputEvent
 -> SpeechJob -> OutputCoordinator -> TTS backend
 ```
 
-这是阶段三语音模块首发必须打通的链路。
+这是 Pi 正式首发必须打通的链路。当前开发机已先走 sidecar realtime ASR 验证链。
 
 ### 3. 开放式 fallback
 
@@ -379,7 +413,7 @@ PTT -> AudioIO -> VAD -> OpenASR -> normalization
 -> SpeechJob -> OutputCoordinator -> TTS backend
 ```
 
-这条链不是第一批交付重点，但必须在架构上预留。
+这条链当前已由 LLM sidecar 在开发机环境跑通，但本地 fallback 仍需在 Pi 路线里补齐。
 
 ---
 
@@ -414,16 +448,16 @@ PTT -> AudioIO -> VAD -> OpenASR -> normalization
 
 ## 八、正式降级策略
 
-### 情况 1：FastIntentASR 异常
+### 情况 1：realtime ASR 异常
 
-- 禁用语音输入
+- 禁用 realtime 语音输入
 - 保留系统主动播报
-- `OpenASR` 不自动顶上主路径
+- 若本地 fallback 可用，则切到本地 fallback
 
-### 情况 2：OpenASR 异常
+### 情况 2：local fallback 异常
 
-- 保留结构化语音查询
-- 禁用开放式 fallback
+- 保留当前主路径
+- 禁用本地 fallback
 
 ### 情况 3：TTS 异常
 

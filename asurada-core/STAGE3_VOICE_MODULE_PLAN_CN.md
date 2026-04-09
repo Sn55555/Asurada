@@ -8,6 +8,21 @@
 
 ## 一、实施目标
 
+本文档描述的是**阶段三语音模块的最终产品化收口计划**，不是当前仓库实现快照。
+
+当前仓库已经先落地了一条开发机可运行链：
+
+- `voice sidecar`
+- Doubao LLM / streaming TTS / realtime ASR
+- macOS realtime `voice loop`
+- `companion` 模式
+- wake preview / partial transcript arm
+
+因此下面的“首发边界”和“实施顺序”，应理解为：
+
+- Pi / CM5 正式产品化目标
+- 本地优先架构的收口路线
+
 把当前已完成的统一下行语音输出主线，扩展成：
 
 - 树莓派可部署
@@ -15,18 +30,18 @@
 - 本地可降级
 - 不重复开发输出侧
 
-阶段三语音模块首发的交付边界是：
+阶段三语音模块在 Pi / CM5 首发目标下的交付边界是：
 
 - 系统主动播报继续可用
 - 结构化语音查询可用
-- 不依赖外网
+- 本地可降级
 - 正式设备侧 TTS 可用
 
-不在首发范围：
+不在 Pi 首发必须完成的范围：
 
 - 开放式自由问答
-- wake word 首发
-- 解释型大模型正式接入
+- 把 LLM 变成策略主链
+- 完整产品级双工体验
 
 当前代码位置：
 
@@ -34,7 +49,8 @@
 - 已完成 `AudioIO / VAD / VoiceTurn / FastIntentASR / voice_nlu / voice_input` 输入基础
 - 已完成语义归一化、短上下文记忆、规则化解释层与 `open_fallback`
 - 已完成 `PiperBackend` 代码路径
-- 当前剩余重点是设备侧音频输入、`OpenASR` fallback、watchdog 与 Pi 真机联调
+- 已完成 `voice sidecar` 与 Doubao LLM / TTS / realtime ASR 开发链
+- 当前剩余重点是 AEC / 串音抑制、local ASR fallback、watchdog 与 Pi 真机联调
 
 ---
 
@@ -56,11 +72,12 @@
 
 - `InteractionInputEvent / StructuredQuerySchema / QueryRoute / ConfirmationPolicy / SpeechJob` 边界不再变化
 
-### Phase B：AudioIO + VAD
+### Phase B：AudioIO + VAD + AEC
 
 目标：
 
 - 在树莓派侧建立稳定的音频输入 turn 边界
+- 解决当前开发链仍存在的串音与回声问题
 
 实现项：
 
@@ -70,8 +87,9 @@
 
 建议先做：
 
-- `PTT`
+- `PTT` 或受控 wake word
 - `Silero VAD`
+- AEC / 下行门控
 
 完成标准：
 
@@ -79,17 +97,19 @@
 - 能记录 turn 开始、结束、持续时长
 - 不引入主链阻塞
 
-### Phase C：FastIntentASR 主路径
+### Phase C：正式输入主路径收口
 
 目标：
 
-- 打通结构化语音查询的正式输入主路径
+- 在当前 realtime ASR 开发链基础上，收口正式输入主路径
+- 区分“开发机云端 sidecar 主路径”和“Pi 本地主路径”
 
 实现项：
 
 - `asr_fast.py`
 - `voice_nlu.py`
 - `dialogue_policy.py`
+- realtime ASR 与本地 fallback 的切换策略
 
 首发 query 范围：
 
@@ -103,7 +123,8 @@
 
 - 受限 query 能进入现有 `StructuredQuerySchema`
 - 查询响应能走现有统一输出主线
-- 能在开发机和树莓派环境下复现
+- 开发机链继续可跑
+- Pi 目标链可替换掉当前云端依赖
 
 ### Phase D：PiperBackend 正式设备侧 TTS
 
@@ -141,11 +162,12 @@
 - TTS / ASR / AudioIO 都可局部重启
 - 降级状态可写入 debug/log
 
-### Phase F：OpenASR Fallback
+### Phase F：Local ASR Fallback / Transcript Arbiter
 
 目标：
 
-- 增加开放式识别 fallback，但不影响首发结构化主路径
+- 增加本地 ASR fallback，但不影响当前 realtime 主路径
+- 为 Pi / 离线模式提供可降级识别链
 
 实现项：
 
@@ -158,8 +180,9 @@
 
 完成标准：
 
-- `FastIntentASR` 未命中时才启用
+- 云端 realtime ASR 不可用时可切本地 fallback
 - 不抢结构化 query 主路径
+- transcript 来源在日志中可观测
 
 ### Phase G：Selective Barge-in
 
@@ -179,23 +202,25 @@
 
 ---
 
-## 三、首发模块清单
+## 三、最终产品化仍需收口的模块清单
 
-建议第一批创建的文件：
+当前仓库里，以下模块已经存在并可运行：
+
+- `voice_sidecar_server`
+- `voice_sidecar_protocol`
+- `voice_sidecar_asr`
+- `voice_sidecar_tts`
+- `llm_explainer`
+- `phase3_macos_voice_loop.py`
+
+下一批仍需补齐或收口的模块：
 
 - `src/asurada/audio_io.py`
 - `src/asurada/vad.py`
-- `src/asurada/voice_turn.py`
-- `src/asurada/asr_fast.py`
-- `src/asurada/voice_nlu.py`
-- `src/asurada/dialogue_policy.py`
-- `src/asurada/tts_backends.py`
 - `src/asurada/voice_health.py`
-
-第二批再加：
-
 - `src/asurada/asr_open.py`
 - `src/asurada/transcript_arbiter.py`
+- `PiperBackend` 的 Pi 真机与正式切换路径
 
 不建议第一批就把所有内容塞进：
 

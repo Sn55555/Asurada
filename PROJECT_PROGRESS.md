@@ -7,14 +7,14 @@
 
 ![Phase 1](https://img.shields.io/badge/Phase%201-98%25-2ea44f?style=for-the-badge)
 ![Phase 2](https://img.shields.io/badge/Phase%202-70%25-f59e0b?style=for-the-badge)
-![Phase 3](https://img.shields.io/badge/Phase%203-10%25-2563eb?style=for-the-badge)
+![Phase 3](https://img.shields.io/badge/Phase%203-35%25-2563eb?style=for-the-badge)
 
 ```mermaid
 xychart-beta
     title "Asurada Three-Phase Progress"
     x-axis ["Phase 1", "Phase 2", "Phase 3"]
     y-axis "Percent" 0 --> 100
-    bar [98, 70, 10]
+    bar [98, 70, 35]
 ```
 
 ## 阶段一：核心开发闭环
@@ -153,9 +153,9 @@ xychart-beta
 ## 阶段三：产品化与平台化
 
 ![Status](https://img.shields.io/badge/Status-Started-2563eb?style=flat-square)
-![Progress](https://img.shields.io/badge/Progress-10%25-2563eb?style=flat-square)
+![Progress](https://img.shields.io/badge/Progress-35%25-2563eb?style=flat-square)
 
-进度条：`█░░░░░░░░░ 10%`
+进度条：`███▓░░░░░░ 35%`
 
 ### 已完成项
 
@@ -171,18 +171,28 @@ xychart-beta
 - `conversation_context / semantic_normalizer / response_composer` 语义归一化、短上下文记忆与规则化解释层
 - `open_fallback` 与更广语义问法已落地，已覆盖前后车、DRS、ERS、车损、进站、天气、处罚、整体形势、轮胎 outlook 等问法
 - `PiperBackend` 设备侧 TTS backend 代码路径已落地
+- `transcript_router / capability_registry / state_summary_for_llm / llm_response_schema` 已落为语音-LLM 边界层
+- `voice sidecar` 协议、本地 server 与 macOS 调试链已落地
+- Doubao LLM / 流式 TTS / realtime ASR 已接入 sidecar
+- macOS `voice loop` 默认已切到 realtime ASR
+- partial transcript 已支持唤醒词 preview、提前 arm 与 fast-intent 兜底
+- `companion` 模式已落地：不在比赛状态时可转为陪聊入口
+- persona / voice profile 层已统一到 core 与 sidecar 输出链
 - 阶段三语音回归脚本
 - 阶段三语音模块架构文档
 - 阶段三语音模块实施计划
 
 ### 停滞项
 
-- 暂无。本阶段当前已进入“输出主线 + 输入基础 + 语义层”并行推进，但设备侧闭环仍未开始。
+- AEC / 串音抑制仍未落地，外放环境下上行识别仍会被污染
+- watchdog / recovery / query 产品化节流仍未收口
+- Pi 5 / CM5 真机侧稳定性与部署硬化仍未开始
 
 ### 待开发项
 
-- 真实麦克风 / 设备侧 `AudioIO` backend 与声学输入 front-end
-- `OpenASR` fallback 与 transcript arbiter
+- realtime ASR 与 TTS 的 sidecar 产品化收口
+- AEC、VAD 前置抑制与下行门控进一步加强
+- local ASR fallback / transcript arbiter
 - 控制命令、watchdog、降级与恢复机制的正式设备侧闭环
 - Pi 5 / CM5 / 边缘设备 `PiperBackend` 真机验证
 - 查询触发入口产品化

@@ -630,6 +630,27 @@ LLM 对未接入数据域给出“听起来像真的”答案。
 
 ## 附录 B：当前 backend 与开关
 
+### 0. 当前主用 backend：`voice_sidecar`
+
+适合：
+
+- 当前开发机主链
+- `explainer` / `companion` 统一走 sidecar
+- 与 Doubao LLM / TTS / realtime ASR 共用一条 sidecar 入口
+
+环境变量：
+
+- `ASURADA_LLM_SIDECAR_ENABLED=1`
+- `ASURADA_LLM_SIDECAR_BACKEND=voice_sidecar`
+- `ASURADA_VOICE_SIDECAR_BASE_URL=http://127.0.0.1:8788`
+- `ASURADA_LLM_SIDECAR_TIMEOUT_MS=1800`
+
+说明：
+
+- 当前运行中的主路径优先使用这一项
+- `voice_sidecar_server.py` 内部可继续挂 Doubao provider
+- sidecar 失败、超时、`unsupported` 时仍自动回退 core
+
 ### 1. `command` backend
 
 适合：
