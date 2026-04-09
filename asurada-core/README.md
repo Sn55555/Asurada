@@ -27,6 +27,8 @@ See also:
 - [REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md](REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md)
 - [STAGE3_VOICE_MODULE_ARCHITECTURE_CN.md](STAGE3_VOICE_MODULE_ARCHITECTURE_CN.md)
 - [STAGE3_VOICE_MODULE_PLAN_CN.md](STAGE3_VOICE_MODULE_PLAN_CN.md)
+- [STAGE3_LLM_EXPLAINER_BOUNDARY_CN.md](STAGE3_LLM_EXPLAINER_BOUNDARY_CN.md)
+- [STAGE3_LLM_SIDECAR_ROUTING_CN.md](STAGE3_LLM_SIDECAR_ROUTING_CN.md)
 - [PROJECT_TIMELINE_AND_RISKS_CN.md](PROJECT_TIMELINE_AND_RISKS_CN.md)
 - [PHASE2_DEBUG_DASHBOARD_CN.md](PHASE2_DEBUG_DASHBOARD_CN.md)
 
@@ -209,6 +211,88 @@ For stage-two feature work, use:
 - [STAGE2_MODEL_INPUT_SCHEMA.md](STAGE2_MODEL_INPUT_SCHEMA.md)
   - recommended model input schema, feature groups, units, ranges, and training views
 
+For stage-three voice/LLM boundary work, use:
+- [STAGE3_LLM_EXPLAINER_BOUNDARY_CN.md](STAGE3_LLM_EXPLAINER_BOUNDARY_CN.md)
+  - explainer lane boundary, current backend switches, and local smoke setup
+- [STAGE3_LLM_SIDECAR_ROUTING_CN.md](STAGE3_LLM_SIDECAR_ROUTING_CN.md)
+  - routing rules for when core may hand explainer questions to the LLM sidecar
+
+## Current Voice Status
+
+The stage-three voice path is no longer just a design skeleton. The repo now contains a runnable sidecar-based voice stack:
+
+- realtime ASR:
+  - macOS microphone capture
+  - Doubao realtime websocket ASR
+  - local realtime sidecar stream bridge
+- routing:
+  - `control`
+  - `structured`
+  - `explainer`
+  - `companion`
+  - `reject`
+- explainer / companion:
+  - Doubao LLM sidecar
+  - companion-mode retry path for slower non-racing chat requests
+- speech output:
+  - Doubao streaming TTS
+  - sidecar playback path with unified persona / voice profile metadata
+
+Current implementation status:
+
+- done:
+  - voice sidecar protocol and local server
+  - Doubao LLM / TTS / ASR integration
+  - realtime ASR default path in the macOS voice loop
+  - wake-word preview and partial-transcript fallback
+  - companion mode outside active racing state
+- not done:
+  - AEC / echo cancellation
+  - true partial-commit execution from partial transcript
+  - Pi deployment hardening
+  - watchdog / recovery
+
+## Voice Sidecar Quick Start
+
+Start the voice sidecar:
+
+```bash
+source ~/.asurada_llm_env
+source ~/.asurada_tts_env
+source ~/.asurada_asr_env
+export ASURADA_VOICE_SIDECAR_PROVIDER_BACKEND=doubao
+export ASURADA_VOICE_SIDECAR_TTS_ENABLED=1
+export ASURADA_VOICE_SIDECAR_TTS_BACKEND=doubao_tts
+PYTHONPATH=src python3 scripts/phase3_voice_sidecar_server.py
+```
+
+Start the macOS duplex voice loop:
+
+```bash
+source ~/.asurada_llm_env
+source ~/.asurada_tts_env
+source ~/.asurada_asr_env
+export ASURADA_LLM_SIDECAR_ENABLED=1
+export ASURADA_LLM_SIDECAR_BACKEND=voice_sidecar
+export ASURADA_VOICE_SIDECAR_BASE_URL=http://127.0.0.1:8788
+export ASURADA_VOICE_SIDECAR_TTS_BACKEND=doubao_tts
+export ASURADA_AUDIO_AGENT_STREAM_PREROLL_MS=120
+export ASURADA_VOICE_DOWNLINK_COOLDOWN_MS=900
+PYTHONPATH=src python3 scripts/phase3_macos_voice_loop.py --enable-llm-sidecar --use-sidecar-tts
+```
+
 ## Next Step
 
 Continue expanding the real F1 25 PDU parser, especially richer rival-state reconstruction and more validated packet bodies.
+Voice sidecar TTS smoke:
+
+```bash
+export ASURADA_VOICE_SIDECAR_TTS_BACKEND=doubao_tts
+export ASURADA_DOUBAO_TTS_APP_ID='your-app-id'
+export ASURADA_DOUBAO_TTS_ACCESS_KEY='your-access-key'
+# optional:
+# export ASURADA_DOUBAO_TTS_RESOURCE_ID='volc.service_type.10029'
+# export ASURADA_DOUBAO_TTS_SPEAKER='zh_male_ahu_conversation_wvae_bigtts'
+# export ASURADA_DOUBAO_TTS_STREAM_URL='https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse'
+PYTHONPATH=src python3 scripts/phase3_doubao_tts_smoke.py --text '当前整体先守住后车，再看处罚窗口。'
+```
