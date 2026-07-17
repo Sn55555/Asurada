@@ -150,10 +150,13 @@ Must expose debug layers for:
 ### Track Semantics
 
 Must support:
-- Shanghai semantic segments
+- all 27 F1 25 base-game track layouts
 - zone classification
+- next-segment preview
 - usage labels
 - usage hook configuration
+- braking-zone targets
+- corner-gear targets
 
 ### Driver Dynamics Prototype
 

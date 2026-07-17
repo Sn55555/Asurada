@@ -1,0 +1,399 @@
+{
+  "track": "Baku",
+  "track_id": 20,
+  "lap_length_m": 6003.0,
+  "source": {
+    "provider": "F1Laps",
+    "community": "F1Laps F1 25 public leaderboard",
+    "leaderboard_url": "https://www.f1laps.com/f1-25/leaderboard/azerbaijan/",
+    "retrieved_at": "2026-07-16T14:53:41.347953+00:00",
+    "lap_count": 3,
+    "lap_ids": [
+      "f09f1a16-8cdc-44d9-9df0-d5f0f905e3ac",
+      "44c86dce-2e58-4f2e-b796-35e44e45afb3",
+      "a0b1ece7-df94-4ce5-b4b5-e116fffca441"
+    ],
+    "telemetry_channels": [
+      "speed",
+      "brake",
+      "throttle",
+      "steer",
+      "gear",
+      "drs"
+    ],
+    "method": "lap-length calibrated 5 m resampling, per-channel multi-lap median, telemetry-derived braking/corner/exit segmentation",
+    "distance_calibration": "Each community racing-line distance is linearly normalized to the F1 25 circuit lap distance."
+  },
+  "quality": {
+    "grid_step_m": 5.0,
+    "corner_signal_count": 14,
+    "braking_zone_count": 9,
+    "semantic_segment_count": 33
+  },
+  "braking_zones": [
+    {
+      "name": "Corner 01 Braking",
+      "start_m": 170.0,
+      "end_m": 310.0
+    },
+    {
+      "name": "Corner 02 Braking",
+      "start_m": 570.0,
+      "end_m": 660.0
+    },
+    {
+      "name": "Corner 03 Braking",
+      "start_m": 1400.0,
+      "end_m": 1525.0
+    },
+    {
+      "name": "Corner 04 Braking",
+      "start_m": 1685.0,
+      "end_m": 1765.0
+    },
+    {
+      "name": "Corner 05 Braking",
+      "start_m": 2005.0,
+      "end_m": 2105.0
+    },
+    {
+      "name": "Corner 07 Braking",
+      "start_m": 2450.0,
+      "end_m": 2550.0
+    },
+    {
+      "name": "Corner 08 Braking",
+      "start_m": 2705.0,
+      "end_m": 2760.0
+    },
+    {
+      "name": "Corner 11 Braking",
+      "start_m": 3650.0,
+      "end_m": 3770.0
+    },
+    {
+      "name": "Corner 12 Braking",
+      "start_m": 4030.0,
+      "end_m": 4125.0
+    }
+  ],
+  "corner_apexes": [
+    {
+      "name": "Corner 01 Apex",
+      "distance_m": 330.0,
+      "window_m": 50.0,
+      "recommended_gear": 3
+    },
+    {
+      "name": "Corner 02 Apex",
+      "distance_m": 675.0,
+      "window_m": 45.0,
+      "recommended_gear": 2
+    },
+    {
+      "name": "Corner 03 Apex",
+      "distance_m": 1545.0,
+      "window_m": 45.0,
+      "recommended_gear": 3
+    },
+    {
+      "name": "Corner 04 Apex",
+      "distance_m": 1770.0,
+      "window_m": 42.5,
+      "recommended_gear": 3
+    },
+    {
+      "name": "Corner 05 Apex",
+      "distance_m": 2115.0,
+      "window_m": 45.0,
+      "recommended_gear": 2
+    },
+    {
+      "name": "Corner 06 Apex",
+      "distance_m": 2170.0,
+      "window_m": 35.0,
+      "recommended_gear": 3
+    },
+    {
+      "name": "Corner 07 Apex",
+      "distance_m": 2565.0,
+      "window_m": 42.5,
+      "recommended_gear": 2
+    },
+    {
+      "name": "Corner 08 Apex",
+      "distance_m": 2770.0,
+      "window_m": 47.5,
+      "recommended_gear": 3
+    },
+    {
+      "name": "Corner 09 Apex",
+      "distance_m": 2870.0,
+      "window_m": 32.5,
+      "recommended_gear": 2
+    },
+    {
+      "name": "Corner 10 Apex",
+      "distance_m": 2925.0,
+      "window_m": 37.5,
+      "recommended_gear": 2
+    },
+    {
+      "name": "Corner 11 Apex",
+      "distance_m": 3780.0,
+      "window_m": 35.0,
+      "recommended_gear": 3
+    },
+    {
+      "name": "Corner 12 Apex",
+      "distance_m": 4140.0,
+      "window_m": 55.0,
+      "recommended_gear": 3
+    },
+    {
+      "name": "Corner 13 Apex",
+      "distance_m": 4505.0,
+      "window_m": 55.0,
+      "recommended_gear": 7
+    },
+    {
+      "name": "Corner 14 Apex",
+      "distance_m": 4650.0,
+      "window_m": 60.0,
+      "recommended_gear": 7
+    }
+  ],
+  "semantic_segments": [
+    {
+      "name": "Main Straight",
+      "zone_type": "deployment_straight",
+      "start_m": 0.0,
+      "end_m": 165.0,
+      "usage": "lap_restart_accel"
+    },
+    {
+      "name": "Corner 01 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 165.0,
+      "end_m": 315.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "Corner 01 Rotation",
+      "zone_type": "apex_rotation",
+      "start_m": 315.0,
+      "end_m": 375.0,
+      "usage": "yaw_balance"
+    },
+    {
+      "name": "Straight 02",
+      "zone_type": "deployment_straight",
+      "start_m": 375.0,
+      "end_m": 565.0,
+      "usage": "ers_prepare"
+    },
+    {
+      "name": "Corner 02 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 565.0,
+      "end_m": 665.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "Corner 02 Rotation",
+      "zone_type": "apex_rotation",
+      "start_m": 665.0,
+      "end_m": 715.0,
+      "usage": "slow_corner_rotation"
+    },
+    {
+      "name": "Straight 03",
+      "zone_type": "deployment_straight",
+      "start_m": 715.0,
+      "end_m": 1395.0,
+      "usage": "primary_overtake_deploy"
+    },
+    {
+      "name": "Corner 03 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 1395.0,
+      "end_m": 1530.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "Corner 03 Rotation",
+      "zone_type": "apex_rotation",
+      "start_m": 1530.0,
+      "end_m": 1585.0,
+      "usage": "slow_corner_rotation"
+    },
+    {
+      "name": "Straight 04",
+      "zone_type": "deployment_straight",
+      "start_m": 1585.0,
+      "end_m": 1680.0,
+      "usage": "brake_setup"
+    },
+    {
+      "name": "Corner 04 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 1680.0,
+      "end_m": 1770.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "Corner 04 Rotation",
+      "zone_type": "apex_rotation",
+      "start_m": 1770.0,
+      "end_m": 1815.0,
+      "usage": "slow_corner_rotation"
+    },
+    {
+      "name": "Straight 05",
+      "zone_type": "deployment_straight",
+      "start_m": 1815.0,
+      "end_m": 2000.0,
+      "usage": "ers_prepare"
+    },
+    {
+      "name": "Corner 05 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 2000.0,
+      "end_m": 2110.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "Corner 06 Rotation",
+      "zone_type": "apex_rotation",
+      "start_m": 2110.0,
+      "end_m": 2210.0,
+      "usage": "slow_corner_rotation"
+    },
+    {
+      "name": "Straight 06",
+      "zone_type": "deployment_straight",
+      "start_m": 2210.0,
+      "end_m": 2445.0,
+      "usage": "ers_prepare"
+    },
+    {
+      "name": "Corner 07 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 2445.0,
+      "end_m": 2555.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "Corner 07 Rotation",
+      "zone_type": "apex_rotation",
+      "start_m": 2555.0,
+      "end_m": 2615.0,
+      "usage": "slow_corner_rotation"
+    },
+    {
+      "name": "Straight 07",
+      "zone_type": "deployment_straight",
+      "start_m": 2615.0,
+      "end_m": 2700.0,
+      "usage": "brake_setup"
+    },
+    {
+      "name": "Corner 08 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 2700.0,
+      "end_m": 2765.0,
+      "usage": "late_brake_control"
+    },
+    {
+      "name": "Corner 10 Rotation",
+      "zone_type": "apex_rotation",
+      "start_m": 2765.0,
+      "end_m": 2980.0,
+      "usage": "slow_corner_rotation"
+    },
+    {
+      "name": "Straight 08",
+      "zone_type": "deployment_straight",
+      "start_m": 2980.0,
+      "end_m": 3645.0,
+      "usage": "primary_ers_deploy"
+    },
+    {
+      "name": "Corner 11 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 3645.0,
+      "end_m": 3775.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "Corner 11 Rotation",
+      "zone_type": "apex_rotation",
+      "start_m": 3775.0,
+      "end_m": 3815.0,
+      "usage": "slow_corner_rotation"
+    },
+    {
+      "name": "Straight 09",
+      "zone_type": "deployment_straight",
+      "start_m": 3815.0,
+      "end_m": 4025.0,
+      "usage": "ers_prepare"
+    },
+    {
+      "name": "Corner 12 Braking",
+      "zone_type": "braking_entry",
+      "start_m": 4025.0,
+      "end_m": 4130.0,
+      "usage": "maximum_brake_pressure"
+    },
+    {
+      "name": "Corner 12 Rotation",
+      "zone_type": "apex_rotation",
+      "start_m": 4130.0,
+      "end_m": 4200.0,
+      "usage": "yaw_balance"
+    },
+    {
+      "name": "Straight 10",
+      "zone_type": "deployment_straight",
+      "start_m": 4200.0,
+      "end_m": 4505.0,
+      "usage": "ers_prepare"
+    },
+    {
+      "name": "Corner 13 High Load",
+      "zone_type": "high_load_management",
+      "start_m": 4505.0,
+      "end_m": 4620.0,
+      "usage": "front_tyre_protection"
+    },
+    {
+      "name": "Straight 11",
+      "zone_type": "deployment_straight",
+      "start_m": 4620.0,
+      "end_m": 4650.0,
+      "usage": "brake_setup"
+    },
+    {
+      "name": "Corner 14 High Load",
+      "zone_type": "high_load_management",
+      "start_m": 4650.0,
+      "end_m": 4770.0,
+      "usage": "front_tyre_protection"
+    },
+    {
+      "name": "Corner 14 Exit",
+      "zone_type": "exit_traction",
+      "start_m": 4770.0,
+      "end_m": 4790.0,
+      "usage": "traction_release"
+    },
+    {
+      "name": "Main Straight",
+      "zone_type": "deployment_straight",
+      "start_m": 4790.0,
+      "end_m": 6003.0,
+      "usage": "lap_restart_accel"
+    }
+  ]
+}

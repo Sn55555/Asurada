@@ -1,0 +1,282 @@
+{
+  "passed": true,
+  "evidence_mode": "raw_telemetry_recomputed",
+  "source_manifest_sha256": "c67c1add3c16d801c2515bbb14f9645ae20e47c8afc143e7c8f1cb4a5abbb692",
+  "thresholds": {
+    "brake_zone_hit_rate": 0.7,
+    "apex_steer_hit_rate": 0.8,
+    "gear_agreement_rate": 0.8
+  },
+  "summary": {
+    "community_generated_tracks": 24,
+    "passed_tracks": 24,
+    "high_risk_tracks": 6,
+    "passed_high_risk_tracks": 6
+  },
+  "tracks": [
+    {
+      "track_id": 0,
+      "track": "Melbourne",
+      "profile_slug": "melbourne",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 3,
+      "track": "Bahrain",
+      "profile_slug": "bahrain",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 0.9048,
+      "apex_steer_hit_rate": 0.9394,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 4,
+      "track": "Catalunya",
+      "profile_slug": "catalunya",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 0.8667,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 5,
+      "track": "Monaco",
+      "profile_slug": "monaco",
+      "high_risk": true,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 6,
+      "track": "Montreal",
+      "profile_slug": "montreal",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 7,
+      "track": "Silverstone",
+      "profile_slug": "silverstone",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 9,
+      "track": "Hungaroring",
+      "profile_slug": "hungaroring",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 0.9524,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 10,
+      "track": "Spa",
+      "profile_slug": "spa",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 0.9762,
+      "gear_agreement_rate": 0.9286,
+      "passed": true
+    },
+    {
+      "track_id": 11,
+      "track": "Monza",
+      "profile_slug": "monza",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 12,
+      "track": "Singapore",
+      "profile_slug": "singapore",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 14,
+      "track": "Abu Dhabi",
+      "profile_slug": "abu_dhabi",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 0.8889,
+      "apex_steer_hit_rate": 0.9091,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 15,
+      "track": "Texas",
+      "profile_slug": "texas",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 0.9583,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 0.9792,
+      "passed": true
+    },
+    {
+      "track_id": 16,
+      "track": "Brazil",
+      "profile_slug": "brazil",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 19,
+      "track": "Mexico",
+      "profile_slug": "mexico",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 0.8333,
+      "apex_steer_hit_rate": 0.8444,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 20,
+      "track": "Baku",
+      "profile_slug": "baku",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 0.963,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 0.9756,
+      "passed": true
+    },
+    {
+      "track_id": 26,
+      "track": "Zandvoort",
+      "profile_slug": "zandvoort",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 0.9524,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 27,
+      "track": "Imola",
+      "profile_slug": "imola",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 29,
+      "track": "Jeddah",
+      "profile_slug": "jeddah",
+      "high_risk": true,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 30,
+      "track": "Miami",
+      "profile_slug": "miami",
+      "high_risk": true,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 31,
+      "track": "Las Vegas",
+      "profile_slug": "las_vegas",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 0.7333,
+      "apex_steer_hit_rate": 0.9,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 32,
+      "track": "Losail",
+      "profile_slug": "losail",
+      "high_risk": false,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 0.9444,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 39,
+      "track": "Silverstone Reverse",
+      "profile_slug": "silverstone_reverse",
+      "high_risk": true,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 0.8333,
+      "apex_steer_hit_rate": 0.9231,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    },
+    {
+      "track_id": 40,
+      "track": "Austria Reverse",
+      "profile_slug": "austria_reverse",
+      "high_risk": true,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 0.9583,
+      "passed": true
+    },
+    {
+      "track_id": 41,
+      "track": "Zandvoort Reverse",
+      "profile_slug": "zandvoort_reverse",
+      "high_risk": true,
+      "community_laps": 3,
+      "brake_zone_hit_rate": 1.0,
+      "apex_steer_hit_rate": 1.0,
+      "gear_agreement_rate": 1.0,
+      "passed": true
+    }
+  ]
+}

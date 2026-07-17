@@ -1906,12 +1906,12 @@ def preview_segments(*, track_profile, lap_distance_m: float, offsets: list[floa
 
     if track_profile is None:
         return None, None, ""
+    next_segment = track_profile.next_segment(lap_distance_m)
     classifications = [track_profile.classify(lap_distance_m + offset) for offset in offsets]
-    first = classifications[0] if classifications else None
     combined = " > ".join(item.zone_name for item in classifications if item.zone_name)
     return (
-        first.zone_name if first is not None else None,
-        first.usage if first is not None else None,
+        next_segment.zone_name,
+        next_segment.usage,
         combined,
     )
 

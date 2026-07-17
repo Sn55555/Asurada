@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -31,6 +32,7 @@ class CornerApex:
     name: str
     distance_m: float
     window_m: float
+    recommended_gear: int | None = None
 
 
 @dataclass
@@ -54,10 +56,13 @@ class TrackProfile:
         # 备注:
         # 分类优先级是 semantic segment -> braking zone -> corner apex -> fallback straight。
         # 这样细语义段会压过旧的粗粒度 braking/corner 回退逻辑。
+        if lap_distance_m < 0.0:
+            return TrackZone(zone_type="unavailable", zone_name="Pre-start")
+
         wrapped = lap_distance_m % self.lap_length_m if self.lap_length_m else lap_distance_m
 
         for segment in self.semantic_segments:
-            if segment.start_m <= wrapped <= segment.end_m:
+            if segment.start_m <= wrapped < segment.end_m:
                 return TrackZone(zone_type=segment.zone_type, zone_name=segment.name, usage=segment.usage)
 
         for zone in self.braking_zones:
@@ -70,6 +75,23 @@ class TrackProfile:
 
         return TrackZone(zone_type="straight", zone_name="Straight")
 
+    def next_segment(self, lap_distance_m: float) -> TrackZone:
+        """Return the semantic segment immediately following the current one."""
+
+        if lap_distance_m < 0.0 or not self.semantic_segments:
+            return TrackZone(zone_type="unavailable", zone_name="Pre-start")
+        wrapped = lap_distance_m % self.lap_length_m if self.lap_length_m else lap_distance_m
+        for index, segment in enumerate(self.semantic_segments):
+            if segment.start_m <= wrapped < segment.end_m:
+                following = self.semantic_segments[(index + 1) % len(self.semantic_segments)]
+                return TrackZone(
+                    zone_type=following.zone_type,
+                    zone_name=following.name,
+                    usage=following.usage,
+                )
+        first = self.semantic_segments[0]
+        return TrackZone(zone_type=first.zone_type, zone_name=first.name, usage=first.usage)
+
     def segment_order(self, segment_name: str) -> int | None:
         for index, segment in enumerate(self.semantic_segments):
             if segment.name == segment_name:
@@ -81,7 +103,7 @@ class TrackProfile:
 def load_track_profile(track_name: str) -> TrackProfile | None:
     # 备注:
     # 赛道模型按文件名加载并做 LRU 缓存，避免回放过程中重复读 JSON。
-    normalized = track_name.strip().lower()
+    normalized = re.sub(r"[^a-z0-9]+", "_", track_name.strip().lower()).strip("_")
     root = Path(__file__).resolve().parents[2]
     candidate = root / "data" / "tracks" / f"{normalized}_segments.json"
     if not candidate.exists():
@@ -114,6 +136,11 @@ def load_track_profile(track_name: str) -> TrackProfile | None:
                 name=item["name"],
                 distance_m=float(item["distance_m"]),
                 window_m=float(item["window_m"]),
+                recommended_gear=(
+                    int(item["recommended_gear"])
+                    if item.get("recommended_gear") is not None
+                    else None
+                ),
             )
             for item in payload.get("corner_apexes", [])
         ],

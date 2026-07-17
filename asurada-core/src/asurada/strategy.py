@@ -278,13 +278,18 @@ class StrategyEngine:
         track_profile = load_track_profile(state.track)
         if track_profile is not None:
             classified = track_profile.classify(lap_distance)
+            next_segment = track_profile.next_segment(lap_distance)
             track_zone = classified.zone_type
             track_segment = classified.zone_name
             track_usage = classified.usage
+            next_track_segment = next_segment.zone_name
+            next_track_usage = next_segment.usage
         else:
             track_zone = self._classify_track_zone(lap_distance)
             track_segment = "Generic Segment"
             track_usage = ""
+            next_track_segment = "UNKNOWN"
+            next_track_usage = "UNKNOWN"
         avg_throttle = sum(throttle_values) / total
         avg_brake = sum(brake_values) / total
         avg_steer = sum(steer_values) / total
@@ -311,6 +316,8 @@ class StrategyEngine:
             track_zone=track_zone,
             track_segment=track_segment,
             track_usage=track_usage,
+            next_track_segment=next_track_segment,
+            next_track_usage=next_track_usage,
             tyre_age_factor=tyre_age_factor,
             brake_phase_factor=brake_phase_factor,
             throttle_phase_factor=throttle_phase_factor,

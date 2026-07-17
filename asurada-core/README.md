@@ -99,7 +99,7 @@ runtime_logs/     replay logs, reports, dashboard output
 - `voice_input.py`
   - bridges structured voice input into the existing interaction/output path
 - `track_model.py`
-  - applies Shanghai semantic segments and usage labels
+  - loads and classifies semantic segments for all 27 F1 25 base-game layouts
 - `replay.py`
   - writes append-only JSONL runtime logs
 - `dashboard.py`
@@ -128,10 +128,14 @@ This is the basis for dashboard inspection, replay tuning, and future HUD integr
 
 ## Track Semantics And Usage Hooks
 
-Shanghai currently uses a semantic track model with:
+The F1 25 base-game catalog covers 27 layouts: 24 standard circuits and the Silverstone,
+Austria, and Zandvoort reverse layouts. Every profile provides:
 - segment names
 - zone types
 - usage labels
+- braking zones
+- corner apexes
+- corner gear recommendations
 
 Example usages:
 - `primary_overtake_deploy`
@@ -143,6 +147,9 @@ Usage weights are configurable in:
 - [data/strategy/usage_hooks.json](data/strategy/usage_hooks.json)
 
 The strategy engine reads these values at startup, so tuning no longer requires editing code.
+
+Coverage details, source provenance, and rebuild commands are documented in:
+- [data/tracks/README.md](data/tracks/README.md)
 
 ## Debug Outputs
 
@@ -159,6 +166,11 @@ Main runtime artifacts:
 Fixed-sample phase-one regression:
 ```bash
 python3 scripts/phase1_regression.py --snapshot-limit 400
+python3 scripts/validate_f1_25_track_semantics.py
+python3 scripts/phase1_all_track_semantics_regression.py
+python3 scripts/phase1_track_semantics_quality_regression.py
+python3 scripts/phase1_real_udp_track_semantics_regression.py
+python3 scripts/phase1_all_track_udp_replay_regression.py
 ```
 
 Artifact:

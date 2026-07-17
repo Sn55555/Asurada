@@ -853,31 +853,39 @@
 
 ## 6. 赛道语义模型
 
-状态：`上海站已完成`  
-完成度：`95%`
+状态：`F1 25 基础版 27 布局已完成`
+完成度：`100%（当前范围）`
 
 已完成：
 
-- [x] 上海站分段模型
-- [x] 细化区段语义
-- [x] usage 标签
+- [x] 24 条常规赛道与 3 条反向布局的 profile
+- [x] 749 个连续语义分段、169 个制动区、324 个弯心
+- [x] 27 条布局的区段分类、下一段预视与负圈距门控
+- [x] 27 条布局的刹车点辅助目标
+- [x] 27 条布局的入弯档位建议
+- [x] 统一 usage 标签
 - [x] usage hooks 配置化
 - [x] 区段顺序接入 dashboard
+- [x] 24 条自动 profile 的 81 圈社区遥测质量回归
+- [x] 上海、铃鹿、奥地利真实 raw UDP 语义回归
+- [x] 27 个 `track_id` 的 UDP 解码、组帧和 profile 映射回归
 
 相关文件：
 
 - [track_model.py](src/asurada/track_model.py)
-- [shanghai_segments.json](data/tracks/shanghai_segments.json)
+- [tracks/README.md](data/tracks/README.md)
+- [f1_25_track_semantics_manifest.json](data/tracks/f1_25_track_semantics_manifest.json)
 - [usage_hooks.json](data/strategy/usage_hooks.json)
+- [phase1_all_track_semantics_regression.py](scripts/phase1_all_track_semantics_regression.py)
+- [phase1_track_semantics_quality_regression.py](scripts/phase1_track_semantics_quality_regression.py)
+- [phase1_real_udp_track_semantics_regression.py](scripts/phase1_real_udp_track_semantics_regression.py)
+- [phase1_all_track_udp_replay_regression.py](scripts/phase1_all_track_udp_replay_regression.py)
 
-未完成：
+当前边界：
 
-- [ ] 多赛道语义库
-
-优化空间：
-
-- [ ] 不同赛道共享 usage 语义规范
-- [ ] 区段级特征模板复用
+- 24 条自动 profile 是社区遥测派生语义，不等同于逐弯人工标注。
+- 仓库真实 raw UDP 抓包目前覆盖上海、铃鹿、奥地利；其余布局由社区质量回归与 UDP 集成矩阵覆盖。
+- 2026 Season Pack 不在当前范围内。
 
 ---
 
@@ -1096,7 +1104,7 @@
 - [ ] 标签体系定义
 - [ ] 特征版本管理
 - [ ] 回归验证体系进一步扩展
-- [ ] 多赛道泛化语义库
+- [x] F1 25 基础版 27 布局泛化语义库
 - [ ] `counterattack` 专题样本集与导出策略
 - [x] 面向阶段三的统一交互输入事件模型
 - [x] 面向阶段三的 `turn_id / interaction_session_id` 会话轮次结构

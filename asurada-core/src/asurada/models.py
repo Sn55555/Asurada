@@ -99,6 +99,8 @@ class ContextProfile:
     brake_phase_factor: int
     throttle_phase_factor: int
     steering_phase_factor: int
+    next_track_segment: str = "UNKNOWN"
+    next_track_usage: str = "UNKNOWN"
 
 
 @dataclass
