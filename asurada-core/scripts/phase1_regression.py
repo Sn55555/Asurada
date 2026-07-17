@@ -35,6 +35,7 @@ from asurada.replay import ReplayLogger
 from asurada.state import UnifiedStateStore
 from asurada.state_machine import TacticalStateMachine, TacticalStateResolution
 from asurada.strategy import StrategyEngine
+from asurada.tts_backends import NullSpeechBackend
 
 DEFAULT_CAPTURE = Path("/Users/sn5/Asurada/tools/captures/f1_25_udp_capture_20260321_024707.jsonl")
 DEFAULT_SAMPLE_METADATA = Path(
@@ -50,8 +51,11 @@ class SilentVoiceOutput(ConsoleVoiceOutput):
     回归脚本只关心断言结果，不需要把策略播报刷到终端。
     """
 
-    def emit(self, decision) -> None:  # noqa: D401
-        return None
+    def __init__(self) -> None:
+        super().__init__(backend=NullSpeechBackend())
+
+    def emit(self, decision) -> dict:  # noqa: D401
+        return super().emit(decision, render=False)
 
 
 def parse_args() -> argparse.Namespace:
@@ -378,6 +382,7 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
     arbiter_sidecar_seen = False
     arbiter_contract_seen = False
     arbiter_model_candidate_frames = 0
+    latest_decision = None
 
     with tempfile.TemporaryDirectory(prefix="asurada-phase1-regression-") as tmp_dir:
         tmp_root = Path(tmp_dir)
@@ -388,6 +393,7 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
         logger = ReplayLogger(runtime_dir)
         logger.reset()
         dashboard_builder = DebugDashboardBuilder(runtime_dir / "dashboard")
+        voice_output = SilentVoiceOutput()
         decoder = F125PacketDecoder()
         assembler = CaptureSnapshotAssembler()
 
@@ -413,6 +419,7 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
             decision = strategy.evaluate(state, state_store.recent(12))
             logger.append(state, decision)
             latest_state = state
+            latest_decision = decision
             last_debug = decision.debug
             latest_raw = dict(state.raw)
 
@@ -439,6 +446,11 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
             if snapshot_limit is not None and snapshot_count >= snapshot_limit:
                 break
 
+        if latest_state is not None and latest_decision is not None:
+            voice_output.emit(latest_decision)
+            logger.append(latest_state, latest_decision)
+            last_debug = latest_decision.debug
+
         dashboard_path = dashboard_builder.build_from_session_log(logger.path)
         dashboard_text = dashboard_path.read_text(encoding="utf-8")
 
@@ -450,12 +462,12 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
     has_chain_ui = all(
         token in dashboard_text
         for token in (
-            "World Trajectory",
-            "Current Strategy Output",
+            "Decision Trace",
+            "Current Frame",
             "Front / Rear Rival",
-            "Frame Browser",
-            "trajectory-canvas",
+            "Track Context",
             "frame-slider",
+            "track-segments",
         )
     )
     interaction_input_event = last_debug.get("interaction_input_event") or {}
@@ -483,7 +495,6 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
         "session_route_present": bool(session_route),
         "arbiter_v2_present": arbiter_sidecar_seen,
         "arbiter_v2_contract_present": arbiter_contract_seen,
-        "arbiter_model_candidates_present": arbiter_model_candidate_frames > 0,
         "interaction_input_event_present": bool(interaction_input_event),
         "interaction_snapshot_binding_present": bool(snapshot_binding.get("snapshot_binding_id")),
         "output_lifecycle_present": bool(output_lifecycle),
