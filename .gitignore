@@ -12,3 +12,23 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local race captures and replay, training, and voice output
+/output/
+/tools/captures/
+/tools/*.zip
+/f1_25_udp_capture_*
+/asurada-core/data/capture_samples/*.rar
+/asurada-core/data/capture_samples/*.zip
+
+# Local project settings and unrelated security assessments
+/.obsidian/
+xcuserdata/
+/security-test/
+
+# Local credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
