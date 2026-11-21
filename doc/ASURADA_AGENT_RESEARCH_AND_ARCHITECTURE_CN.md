@@ -1,0 +1,747 @@
+# 基于 Asurada Core 的 F1 25 官方遥测实时解释智能体研究：系统架构、模型链路与评价框架
+
+## 摘要
+
+模拟赛车正在从娱乐软件扩展为竞技、训练、设备消费、赛车文化传播和驾驶行为研究的复合场景。FIA 已把 Esports 纳入运动治理框架，并推进 FIA 认证电竞锦标赛；Formula 1 也通过 F1 Sim Racing World Championship 将官方车队、职业车手和高规格模拟器纳入统一赛事结构。与此同时，赛车模拟器硬件市场持续增长，方向盘、踏板、直驱基座、座舱和动感平台不断提高沉浸感。然而，现有系统仍存在一个未被充分解决的问题：遥测数据丰富，但多数使用者难以在高负荷驾驶过程中把数据转化为可执行判断。这一问题不是简单的界面展示问题，而是实时数据流、状态估计、模型推理、输出仲裁和人机负荷之间的系统工程问题。
+
+本文以现有 Asurada Core 工程为设计科学研究对象，提出 Asurada Cyber System 的系统化研究定义。该系统面向 F1 25 官方 UDP 遥测，不接管车辆、不修改游戏、不注入输入，而是以只读遥测为输入，通过协议解码、组帧、`SessionState` 状态建模、短窗口上下文、赛道语义、规则链、小型 LightGBM baseline、`strategy_arbiter_v2` 仲裁和语音/日志输出机制，生成低干扰的比赛状态提示、战术建议、驾驶技术反馈与赛后训练报告。大语言模型仅作为 explainer lane 和 companion lane 的旁路，不进入实时主链。
+
+本文的研究贡献有五点：第一，提出“遥测解释层”作为模拟赛车生态中介于原始数据与驾驶行为之间的关键缺口；第二，将 Asurada Core 现有工程抽象为一个可复现实验的人工制品，明确其输入路径、状态模型、策略管线、模型矩阵、仲裁契约和语音边界；第三，基于现有运行统计说明为什么 10Hz 主链不能由大语言模型直接承载；第四，基于阶段二模型报告给出可用模型、旁路模型和阻塞模型的成熟度分层；第五，基于驾驶模拟训练、遥测机器学习和车载人机交互研究，建立后续被试实验与市场应用评价框架。
+
+本文属于设计科学研究。研究目标不是把工程实现包装成已完成的人因实验证明，而是把现有 Asurada Core 的工程事实、模型指标、运行约束和未完成边界纳入论文论证，建立可实现、可检验、可复现的系统模型与评价框架，为后续被试实验、设备化部署和赛事场景审计提供理论与方法基础。
+
+关键词：模拟赛车；F1 25；Asurada Core；遥测解释；策略仲裁；LightGBM；人机交互；设计科学研究；大语言模型旁路
+
+## 1 引言
+
+### 1.1 研究背景
+
+模拟赛车的社会角色正在变化。早期模拟赛车主要被视为赛车游戏或发烧友设备场景；现在，它同时承载了职业电竞、低成本赛车入门、硬件消费升级、赛车内容传播和训练辅助等功能。FIA 近年把 Esports 纳入 International Sporting Code，并提出 FIA 认可 Esports 执照和 FIA-sanctioned Esports Championships 的方向 [1][2]。Formula 1 官方 F1 Sim Racing World Championship 则把官方车队、顶级车手和高规格模拟器组合成制度化赛事 [3]。
+
+这种变化意味着，模拟赛车已经不只是“把赛车开得更像真实赛车”的图形与物理问题，也不是单纯的外设硬件问题。随着方向盘、踏板、座舱、显示和动感平台逐渐成熟，系统竞争的重心会向数据解释、训练反馈、赛事分析和长期用户能力建模扩展。
+
+### 1.2 问题陈述
+
+F1 25 等现代赛车模拟游戏能够通过官方 UDP 输出大量状态数据，包括车辆运动、圈速、赛段、轮胎、ERS、DRS、损伤、天气、事件和历史圈信息 [4]。这些数据本身并不直接等同于训练能力。专业队伍可以依靠工程师、教练、MoTeC 等工具完成遥测分析；普通使用者即使拿到同样一部分数据，也常常难以回答以下问题：
+
+- 本圈损失主要来自刹车、转向、出弯还是能量管理。
+- 当前后车差距是否构成真实攻击或防守威胁。
+- ERS 应在本直道释放、保留还是为下一圈准备。
+- 轮胎温度和磨损是否已经改变策略窗口。
+- 某个弱项弯道应优先训练入弯、弯心速度还是油门打开时机。
+
+因此，现有生态的关键断层不是“缺少遥测”，而是“缺少可在驾驶情境中工作的遥测解释层”。本文把 Asurada Cyber System 定义为一种面向该断层的研究型系统。
+
+### 1.3 研究贡献
+
+本文的贡献如下：
+
+1. 提出模拟赛车实时智能体的研究问题：如何把官方遥测转化为低干扰、可验证、可回放、可降级的驾驶辅助解释。
+2. 建立 Asurada Cyber System 的系统模型：只读遥测输入、确定性实时主链、短窗口状态建模、赛道语义、模型候选、输出仲裁和赛后解释旁路。
+3. 把 Asurada Core 现有架构纳入论文：`Replay JSONL / CSV / Capture JSONL / Live UDP` 输入路径、`F125PacketDecoder`、`CaptureSnapshotAssembler`、`SessionState`、`UnifiedStateStore`、`StrategyEngine`、`strategy_arbiter_v2` 和语音 sidecar 边界。
+4. 基于阶段二模型报告与运行统计，说明当前系统为什么采用“规则 + 小模型 + 仲裁 + LLM 旁路”而不是“LLM 直接决策”。
+5. 基于模拟驾驶训练综述、模拟赛车遥测机器学习研究和车载人机交互标准，提出实验假设、评价指标和统计验证方法。
+6. 分析系统对模拟赛车市场、模拟驾驶训练和电竞/外设生态的应用意义，同时明确其不能替代真实驾驶训练、不能接管驾驶控制、不能绕过平台规则。
+
+## 2 相关研究与资料基础
+
+### 2.1 模拟赛车的制度化与产业化
+
+FIA 对 Esports 的纳入表明，模拟赛车正在被正式纳入赛车运动治理和发展框架。FIA 对 FIA Esports Championships 的公开征集也说明，监管机构已开始把模拟赛车视为具有国际赛事、商业合作和长期培养路径的独立领域 [1][2]。Formula 1 官方 F1 Sim Racing 页面进一步体现了官方车队、职业选手、赛事运营和硬件环境的结合 [3]。
+
+行业层面，Performance Racing Industry 引用 MarketsandMarkets 报告称，赛车模拟器市场预计从 2024 年约 5 亿美元增长至 2030 年约 11 亿美元，复合年增长率为 15.6% [5]。不同报告的市场口径可能不同，本文不把单一数值视为绝对事实，而把它作为一个方向性证据：模拟赛车硬件和训练场景正在持续扩张。
+
+### 2.2 驾驶模拟器训练的有效性与边界
+
+驾驶模拟器训练研究对本文具有直接约束作用。Krasniuk 等人 2024 年系统综述筛选 1630 个来源并纳入 15 项研究，结论显示，模拟器训练相对控制条件可以立即改善年轻新手驾驶员在模拟环境中的部分技能，例如速度控制、车道保持和刺激反应；但对真实道路驾驶能力和长期安全迁移的证据仍不足 [6]。
+
+这意味着，Asurada Cyber System 可以合理声称其在模拟赛车和模拟驾驶训练场景中具有研究价值，但不能在未实验验证的前提下宣称其能降低真实道路事故率、替代驾校训练或证明真实赛车能力。
+
+### 2.3 遥测机器学习与驾驶表现预测
+
+Hojaji 等人 2024 年关于模拟赛车遥测的研究使用专业赛车模拟器和 MoTeC i2 Pro，采集 174 名参与者、1327 圈 Brands Hatch 数据，并利用聚类、相关分析和机器学习预测驾驶表现。该研究报告的最佳模型达到 97.19% 预测准确率，并指出平均速度、横向加速度、转向角和车道偏离是重要指标 [7]。
+
+该研究支持本文的基本假设：模拟赛车遥测中存在可学习、可解释并可用于训练反馈的结构。本文不直接复用其结果作为 Asurada Cyber System 的效果证明，而是把它作为“遥测特征能够承载驾驶表现信息”的证据。
+
+### 2.4 车载人机交互与驾驶负荷
+
+ISO 15005:2017 规定了车辆运动状态下交通信息与控制系统对话管理原则，强调系统必须考虑驾驶员负荷、主驾驶任务、对话简洁性、时机、优先级和容错 [8]。U.S. DOT / NHTSA 的分心驾驶指南也强调视觉-手动任务会提高驾驶风险，并提出限制驾驶员离路视线时间的建议 [9]。
+
+虽然 F1 25 是模拟环境，不是公共道路驾驶，但高速竞速中存在相似的注意力资源限制。实时提示系统若输出过多、解释过长或要求复杂交互，会降低驾驶表现。因此，本研究把低干扰、短时、可中断、可静音和赛后详解作为核心设计约束。
+
+### 2.5 《高智能方程式赛车》的设计隐喻
+
+《高智能方程式赛车》中的阿斯拉达是车载 Cyber System，也是机器名和人工智能名。官方资料和作品设定强调驾驶员与 Cyber System 的共同成长，而不是由系统替代驾驶员 [10][11]。本文将这一设定作为设计隐喻，而不是工程事实来源。
+
+现实转译后的原则是：驾驶员保留完整控制权，系统只提供状态解释、风险判断、训练反馈和赛后复盘。
+
+### 2.6 Asurada Core 的既有工程基础
+
+现有 Asurada Core 已经不是单纯概念设计。根据项目架构文档、核心工作流文档和状态看板，当前系统已经形成三阶段路线：阶段一完成协议、状态和策略闭环；阶段二推进模型 baseline、runtime sidecar 与 `strategy_arbiter_v2`；阶段三推进实时语音、语义归一化、LLM sidecar、输出生命周期和设备化部署边界 [15][16][17]。
+
+阶段一的关键工程成果包括：真实抓包 JSONL 回放输入、CSV 单圈输入、高价值 packet 解析、标准化 `SessionState`、分层策略引擎、HTML debug dashboard、live UDP 与 capture replay 共用运行主链、毫秒级阶段观测日志，以及 `weather / safety_car / source_timestamp_ms / total_laps` 等顶层状态回写 [16]。这说明本文研究对象已经具备可回放、可审计和可调试的工程基础。
+
+阶段二已经完成第一批可用 baseline 与控制层接口，包括 `rear_threat_model`、`attack_opportunity_model`、`front_attack_commit_model`、`strategy_action_model`、资源风险模型、驾驶质量模型、`session_mode_router`、`uncertainty_layer`、`fallback_policy`、`tactical_state_machine` 和 `strategy_arbiter_v2` [18][19]。阶段三已经落地 `AudioIO / VAD / VoiceTurn / FastIntentASR / voice_nlu / voice_input`、`conversation_context / semantic_normalizer / response_composer`、`transcript_router / capability_registry / state_summary_for_llm / llm_response_schema` 和 sidecar LLM/TTS/ASR 调试链 [20][21]。
+
+因此，本文的研究深度不应停留在“可以做一个智能体”的层面，而应讨论一个已部分实现的实时遥测解释系统如何在数据可靠性、低延迟、小模型推理、LLM 边界、输出仲裁和人机负荷之间形成可验证的系统结构。
+
+## 3 研究问题与假设
+
+### 3.1 研究问题
+
+本文围绕七个研究问题展开：
+
+| 编号 | 研究问题 |
+| --- | --- |
+| RQ1 | F1 25 官方 UDP 是否能通过只读、可回放的方式支撑实时解释智能体的状态建模？ |
+| RQ2 | Asurada Core 的 `decode -> snapshot -> SessionState -> StrategyEngine -> arbiter` 链路是否构成稳定的遥测解释层？ |
+| RQ3 | `strategy_action_model top-k + rule candidates + session route + confidence/fallback + tactical_state_machine` 的联合仲裁是否优于单一 top-1 动作直出？ |
+| RQ4 | 在约 10Hz 状态循环和毫秒级策略链约束下，规则与小模型主链是否比大语言模型主链更适合实时竞速辅助？ |
+| RQ5 | LLM explainer lane 能否在不抢占 control / structured lane 的前提下提升可解释性？ |
+| RQ6 | 低干扰提示与赛后解释能否改善模拟赛车训练的稳定性和学习效率？ |
+| RQ7 | 该系统对外设生态、电竞训练和模拟驾驶教育研究具有哪些可验证应用意义？ |
+
+### 3.2 可检验假设
+
+| 编号 | 假设 | 主要观测指标 |
+| --- | --- | --- |
+| H1 | 实时遥测解释能降低圈速波动 | 圈速标准差、sector delta 方差 |
+| H2 | 个性化提示比通用提示更能减少重复错误 | 弯道级 delta、出界次数、滑移事件 |
+| H3 | 低干扰语音/灯光/HUD 比原始遥测面板产生更低认知负荷 | NASA-TLX、主观干扰评分、误操作次数 |
+| H4 | 规则+小模型主链在实时性和可复现性上优于 LLM 主链 | 延迟分布、错误率、回放一致性、降级能力 |
+| H5 | 只读外设模式可在保持公平性的同时提供训练价值 | 提示日志可审计性、赛事接受度、用户信任度 |
+| H6 | top-k 模型候选经仲裁后比 top-1 直出更稳定 | top-1/top-2 命中率、误报率、suppressed_actions |
+| H7 | LLM 旁路只处理解释型请求时，不会破坏实时主链延迟预算 | structured 命中率、LLM 超时率、主链 p95 延迟 |
+
+## 4 研究方法
+
+### 4.1 研究范式
+
+本文采用设计科学研究方法。设计科学研究不以单纯解释现象为目标，而是提出一个可实现的人工制品，并通过理论基础、系统结构、评价方案和边界条件说明其研究价值。
+
+本文提出的人工制品是 Asurada Cyber System。它由以下部分构成：
+
+- 遥测采集与组帧模块。
+- 驾驶状态特征层。
+- 实时规则与小模型判断层。
+- 策略候选与仲裁层。
+- 输出仲裁与人机交互层。
+- 赛后分析与长期画像层。
+- 大语言模型解释旁路。
+
+与一般概念方案不同，本文将现有 Asurada Core 视为已经部分实现的设计科学人工制品。论文分析的对象不是一个从零开始的虚构系统，而是一个包含真实抓包、协议解码、组帧、状态转换、模型 baseline、策略仲裁、输出生命周期和语音 sidecar 的工程系统。
+
+### 4.2 证据分级
+
+| 证据类型 | 代表来源 | 在本文中的作用 |
+| --- | --- | --- |
+| 官方制度资料 | FIA、Formula 1 | 确定模拟赛车制度化与电竞场景 |
+| 官方技术规格 | EA Forums F1 25 UDP | 确定只读外设的技术入口 |
+| 学术研究 | 驾驶模拟训练综述、遥测 ML 论文 | 约束训练价值与验证方式 |
+| 人机交互标准 | ISO 15005、NHTSA 指南 | 约束低干扰输出设计 |
+| 行业资料 | PRI / MarketsandMarkets | 判断产业增长方向 |
+| 动画官方资料 | Cyber Formula、Sunrise World | 提供概念隐喻与命名来源 |
+| 项目工程文档 | Asurada Core README、ARCHITECTURE、STATUS、CORE_WORKFLOW | 确定现有系统边界、模块和完成度 |
+| 项目代码与报告 | `strategy.py`、`arbiter.py`、`model_runtime.py`、训练报告、LLM 评估报告 | 确定模型链路、指标、延迟和 LLM 边界 |
+
+### 4.3 数据范围
+
+F1 25 官方 UDP 规格提供 Motion、Session、LapData、Event、Participants、CarTelemetry、CarStatus、CarDamage、TyreSets、SessionHistory、LapPositions 等 packet 类型 [4]。Asurada Core 当前主捕获路径已经覆盖 `Session`、`LapData`、`Participants`、`CarSetups`、`CarTelemetry`、`CarStatus`、`FinalClassification`、`CarDamage`、`SessionHistory`、`TyreSets`、`Motion`、`MotionEx`、`Event` 和 `LapPositions`，并具备 `LobbyInfo` 与 `TimeTrial` 的解析支持 [22]。在只读外设模式下，系统可获取车辆状态、赛况状态、轮胎状态、能量系统、损伤、圈速、位置、对手、赛道语义和事件信息。
+
+本文将这些数据视为外部可观测状态，不假设可访问游戏内部物理引擎状态、AI 决策状态或未公开内存结构。
+
+### 4.4 工程材料纳入方法
+
+本文对项目已有工程材料采用三类纳入方法：
+
+1. 架构纳入：以 `ARCHITECTURE.md`、`CORE_WORKFLOW_CN.md` 和 `STATUS.md` 作为系统分层、完成度和边界的依据，抽象出输入适配、协议解码、组帧、状态、特征、模型、控制和输出层。
+2. 代码纳入：以 `strategy.py`、`arbiter.py`、`model_runtime.py`、`pdu_decoder.py` 和 `packet_snapshot.py` 作为实现证据，验证论文中的策略主链、模型候选、仲裁输入输出和可靠字段优先原则确实存在代码落点。
+3. 指标纳入：以阶段二训练报告和本地 LLM 承载量评估报告作为工程评价证据，区分已可用模型、旁路观察模型、阻塞模型和不可由 LLM 承担的实时负载。
+
+这种纳入方式不把工程指标直接等同于用户训练效果。模型准确率、运行延迟和 packet 覆盖只能证明系统人工制品具备可运行基础；是否改善训练表现仍需被试实验验证。
+
+### 4.5 边界条件
+
+Asurada Cyber System 不执行以下行为：
+
+- 不自动驾驶。
+- 不接管方向盘、油门、刹车、换挡。
+- 不修改 F1 25 游戏文件。
+- 不读取游戏进程内存。
+- 不注入控制输入。
+- 不绕过反作弊或平台规则。
+
+该边界不是功能取舍，而是研究设计前提。只有在只读、可审计、可回放的条件下，系统才具备进入训练、电竞或研究场景的正当性。
+
+## 5 系统模型
+
+### 5.1 Asurada Core 的分层人工制品
+
+Asurada Core 的现有架构可以概括为一个八层实时解释系统：
+
+```text
+Replay JSONL / CSV / Capture JSONL / Live UDP
+-> source adapters
+-> F125PacketDecoder
+-> CaptureSnapshotAssembler
+-> decode_snapshot() / SessionState
+-> UnifiedStateStore + track_model + runtime features
+-> StrategyEngine + model_runtime
+-> strategy_arbiter_v2
+-> decision.messages / dashboard / voice / replay log
+```
+
+该结构的关键不是“把数据送进 AI”，而是先把官方 UDP 的多 packet 异步流整理为稳定状态，再让规则、小模型和仲裁层在可回放的上下文中做判断。根据项目架构文档，系统当前支持四类输入路径：已标准化 replay JSONL、单圈 CSV、真实抓包 JSONL 和 live UDP runtime [15]。其中 capture JSONL 是最接近真实运行的离线验证路径；live UDP 与 capture replay 已切到共用运行主链 [16]。
+
+### 5.2 协议解码与组帧模型
+
+F1 25 UDP 数据并不是一个天然可直接决策的状态对象，而是一组不同 packet 以不同频率到达的二进制消息。Asurada Core 的 `F125PacketDecoder` 先解析 common header，再按 `packet_id` 分发解析正文。其设计原则是“可靠字段优先”：宁可少解析字段，也不把未验证偏移送入策略层。
+
+组帧层由 `CaptureSnapshotAssembler` 完成。它以 `session_uid + frame_identifier` 为组帧键，只有 `LapData`、`CarTelemetry`、`CarStatus`、`Motion`、`MotionEx` 和 `CarDamage` 等热路径 packet 齐全并通过基本校验时，才产出一个可供下游消费的 normalized snapshot。`Session`、`Participants`、`LobbyInfo`、`Event`、`TyreSets`、`LapPositions` 等跨帧上下文被缓存后注入快照。
+
+这种设计解决了实时遥测解释的第一个研究难点：解释层必须面对的不是“一个完整 JSON 状态”，而是一个需要一致性约束的多源时间同步问题。
+
+### 5.3 状态空间与特征空间
+
+```text
+S_t = Assemble(T_t, T_{t-1}, ..., T_{t-k})
+F_t = Extract(S_t, Profile, TrackContext)
+D_t = Infer(F_t, Rules, SmallModels)
+O_t = Arbitrate(D_t, Workload, Priority, Cooldown)
+```
+
+其中，`T_t` 表示时间 `t` 的官方遥测输入，`S_t` 表示经组帧后的赛况状态，`F_t` 表示从状态中抽取的特征，`D_t` 表示规则与模型生成的候选判断，`O_t` 表示最终输出。`Arbitrate` 是核心约束函数，决定什么信息可以在比赛中出现、何时出现、以何种通道出现，以及哪些信息只能进入赛后报告。
+
+Asurada Core 不让模型直接读取原始 UDP。阶段二模型输入契约把特征分为 `frame_meta`、`session_features`、`lap_features`、`driver_features`、`tyre_damage_features`、`motion_features`、`motion_ex_features`、`track_semantic_features`、`context_features`、`rival_features` 和 `strategy_debug_features` [23]。这意味着模型面对的是已被单位、置信度和来源约束过的状态空间。
+
+核心特征包括：
+
+| 特征组 | 代表字段 | 研究意义 |
+| --- | --- | --- |
+| 帧与会话 | `session_uid`、`frame_identifier`、`session_time_s`、`session_type` | 保证回放、对齐和会话模式路由 |
+| timing/gap | `official_gap_ahead_s`、`official_gap_behind_s`、`timing_support_level`、`gap_confidence_*` | 区分官方 timing 与 debug 估算，防止脏 gap 入主链 |
+| 资源 | `fuel_laps_remaining`、`ers_pct`、`drs_available`、`tyre.wear_pct`、`tyre.age_laps` | 支撑燃油、ERS、轮胎和进站判断 |
+| 动态 | `speed_kph`、`throttle`、`brake`、`steer`、`g_force_*`、`wheel_slip_ratio` | 支撑驾驶质量和车辆不稳定判断 |
+| 对手 | `rear_rival_speed_delta`、`front_rival_speed_delta`、`rear_rival_ers_pct`、`rear_rival_drs_available` | 支撑攻防压力判断 |
+| 赛道语义 | `track_segment`、`track_usage`、`next_track_segment`、`next_two_segments` | 把遥测变量放入赛道上下文 |
+
+`UnifiedStateStore` 保留最新状态和短窗口历史，用于 closing-rate、recent instability、recent overload 等短期趋势；`track_model` 则把圈内距离映射为 deployment straight、braking entry、apex rotation、exit traction、high load management 等语义段。这使系统不只知道“当前速度多少”，还知道该速度发生在什么赛道用途下。
+
+### 5.4 遥测解释层
+
+遥测解释层不是简单的数据展示层。它的任务是把变量转化为判断：
+
+| 原始变量 | 解释层判断 |
+| --- | --- |
+| ERS 百分比、部署模式、赛道位置 | 当前是否应保留、释放或准备下一次攻击 |
+| 前后车 gap、closing rate、DRS 状态 | 攻防威胁是否真实成立 |
+| 胎龄、温度、磨损、滑移事件 | 是否需要改变驾驶方式或进站策略 |
+| 入弯速度、制动点、转向角、出弯油门 | 时间损失来自哪个驾驶阶段 |
+| 损伤字段、圈速变化、稳定性变化 | 是否需要修车、降低风险或改变目标 |
+
+这个层级是本文的核心概念。它把模拟赛车从“显示遥测”推进到“解释遥测”。
+
+### 5.5 策略管线与仲裁契约
+
+```mermaid
+flowchart TB
+    A["SessionState + history"] --> B["ContextProfile"]
+    B --> C["StateAssessment"]
+    C --> D["RiskProfile"]
+    D --> E["Rule Candidates"]
+    B --> F["StrategyActionModelRuntime top-k"]
+    A --> G["Resource / pressure / quality / trend sidecars"]
+    A --> H["SessionModeRouter"]
+    A --> I["UncertaintyLayer"]
+    A --> J["FallbackPolicy"]
+    A --> K["TacticalStateMachine"]
+    E --> L["strategy_arbiter_v2"]
+    F --> L
+    G --> L
+    H --> L
+    I --> L
+    J --> L
+    K --> L
+    L --> M["decision.messages"]
+    M --> N["HUD / Voice / Debug / Replay"]
+```
+
+`StrategyEngine.evaluate()` 体现了当前主链的实际调度：先构建 `ContextProfile`，再解析 `session_route`，然后生成 `StateAssessment` 与 `RiskProfile`，再构建规则候选、模型候选和 arbiter sidecar，最后由 `strategy_arbiter_v2` 统一生成最终消息。
+
+`strategy_arbiter_v2` 的输入契约包括：
+
+| 输入对象 | 作用 |
+| --- | --- |
+| `rule_candidates` | 规则引擎生成的候选动作 |
+| `model_candidates` | `strategy_action_model` 等模型生成的 top-k 候选 |
+| `tactical_context` | 当前战术状态、状态锁定和状态转移 |
+| `confidence_context` | 置信度、是否允许主链输出 |
+| `fallback_context` | rule-only、hud-only、voice_allowed 等回退控制 |
+| `output_control` | 冷却、上一动作和 suppression window |
+| `sidecar_scores` | 资源、压力、驾驶质量、趋势、进站和长周期规划分数 |
+
+输出契约包括 `final_hud_action`、`final_voice_action`、`final_strategy_stack`、`ordered_actions` 和 `suppressed_actions`。这使系统能够记录“为什么某个模型候选没有被播报”，而不是只保留最终一句话。
+
+### 5.6 模型矩阵与当前成熟度
+
+现有阶段二模型并非同等成熟。根据训练报告和状态看板，可分为主链候选、runtime debug sidecar、确定性 sidecar 和阻塞模型四类。
+
+| 类别 | 模型/模块 | 当前状态 | 指标或边界 |
+| --- | --- | --- | --- |
+| 主链候选 | `strategy_action_model` | 已接入 top-k 候选 | test `top1_accuracy=0.9967`，`top2_accuracy=1.0000`；适合 top-k，不适合无仲裁 top-1 直出 |
+| 主链候选 | `rear_threat_model` | 第一版可用 baseline | test accuracy `0.9990`，positive precision `0.8980`，positive recall `1.0000` |
+| 主链候选 | `attack_opportunity_model` | 第一版可用 baseline | test accuracy `0.9994`，positive precision `1.0000`，positive recall `0.7931` |
+| 主链候选 | `front_attack_commit_model` | 第一版可接受 baseline | test accuracy `0.9999`，positive precision `1.0000`，positive recall `0.9231` |
+| 资源 sidecar | `ers_risk_model`、`tyre_risk_model`、`dynamics_risk_model` | 第一版可用 | `r2=0.9609 / 0.9998 / 0.9541`；燃油模型当前受标签口径限制 |
+| 驾驶质量 sidecar | `entry_quality_model`、`apex_quality_model`、`exit_traction_model` | 已旁路接入 runtime debug | `r2=0.9961 / 0.9892 / 0.9968`，但仍是 proxy-distillation baseline |
+| 趋势 sidecar | `tyre_degradation_trend_model` | 第一版趋势基线成立 | `future_tyre_wear_delta r2=0.6131`，`future_grip_drop_score r2=0.5770` |
+| 长周期 sidecar | `pit_window_support_model`、`long_horizon_strategy_baseline` | 已接入 debug 与 arbiter 上下文 | 输出进站窗口、推荐进站圈、推荐配方、轮胎组可用性和策略置信度 |
+| 阻塞模型 | `counterattack_window_model` | 不应继续训练 | 正类样本近乎为空，继续训练会得到假模型 |
+| 阻塞模型 | `short_horizon_risk_forecast_model` | 暂不推进 | 3 秒风险预测 `r2=-3.16`，目标定义与时序特征不足 |
+| 阻塞模型 | `driver_style_model`、`pit_rejoin_traffic_model` | 暂不推进 | 长窗口样本不足、标签塌缩或 pit exit 样本不足 |
+
+这张表对论文很关键：它说明 Asurada Cyber System 不是“所有能力都完成”的结论，而是一个具有明确成熟度分层的系统。主链只允许成熟度足够、可回归、可仲裁的模型参与；未成熟模型只能作为 debug sidecar 或被明确阻塞。
+
+### 5.7 实时性能与 LLM 边界
+
+Asurada Core 的本地 LLM 承载量评估报告给出一个重要工程事实：当前 raw packet 约 `146-152 packet/s`，组帧后约 `10.1 frame/s`，组帧 timestamp gap median `97ms`、p95 `118ms`；当前内置模型与规则链总模型文件约 `13.54MB`，策略主链采样延迟 `pipeline p95=4.953ms`、`p99=5.775ms`，其中 strategy 阶段 `p95=3.475ms` [24]。
+
+这些数据决定了 LLM 的位置。若把 raw packet 或全量 debug state 交给 LLM，输入 token 吞吐会达到每秒数万至数十万 tokens 量级；若让 LLM 替代 10Hz 主循环，则每帧只有约 `100ms` 总预算，且还要与 ASR/TTS、schema 校验和输出仲裁共存。相比之下，现有规则与小模型链已经是毫秒级。
+
+因此，本文不是泛泛主张“大模型不适合实时”，而是基于当前项目负载提出结构性结论：
+
+```text
+实时主链：F125PacketDecoder + CaptureSnapshotAssembler + SessionState + rules + LightGBM + arbiter
+语音结构化查询：local state / strategy result / response_composer
+解释旁路：LLM explainer lane
+非比赛 companion：LLM sidecar 可选
+赛后报告：LLM + 结构化遥测摘要
+```
+
+当前语音路由也遵循同样原则：优先级固定为 `control -> structured -> explainer -> reject`。控制命令永不进 LLM；高频确定性状态查询走 structured lane；只有解释、总结和有限开放追问进入 explainer lane [20][21]。
+
+### 5.8 大语言模型的位置
+
+大语言模型适合处理自然语言解释、赛后报告和多轮问答，但不适合直接进入 10Hz 级实时驾驶主链。原因包括：
+
+- 延迟分布不可完全稳定。
+- 输出需要 schema 校验。
+- 生成式模型存在因数据不足而产生不可靠解释的风险。
+- 高频调用成本和能耗不适合边缘外设。
+- 赛事或训练场景需要可复现输出。
+
+因此，本文采用旁路架构：
+
+```text
+实时主链：规则 + 小模型 + 仲裁
+解释旁路：LLM
+赛后报告：LLM + 结构化遥测摘要
+```
+
+LLM 可以解释“为什么当前不建议进攻”，也可以在赛后总结弱项弯道；但它不得控制车辆、不得替代仲裁、不得补全缺失事实。
+
+## 6 功能分类
+
+### 6.1 状态感知
+
+状态感知功能包括：
+
+- 后车威胁识别。
+- 前车攻击窗口识别。
+- ERS 可用性和部署节奏识别。
+- 轮胎温度、磨损和滑移趋势识别。
+- 损伤等级和风险变化识别。
+- 天气、安全车、处罚、进站窗口变化识别。
+
+这些功能的目标不是增加信息量，而是减少使用者在高负荷状态下自行整合信息的负担。
+
+### 6.2 战术辅助
+
+战术辅助关注短时间窗口内的可执行判断：
+
+| 场景 | 系统判断 |
+| --- | --- |
+| 后车进入 DRS 威胁范围 | 提醒防守优先级、ERS 保留或释放 |
+| 前车轮胎衰退明显 | 提醒是否准备攻击 |
+| 进站窗口变化 | 提醒窗口打开、关闭或风险升高 |
+| 安全车/虚拟安全车 | 提醒策略重算 |
+| 损伤影响圈速 | 提醒是否降低风险或改变目标 |
+
+### 6.3 驾驶技术反馈
+
+驾驶技术反馈不应在高速比赛中长篇解释，而应在适当时机输出极短提示，并在赛后展开。分析对象包括：
+
+- 制动点早晚。
+- 入弯速度稳定性。
+- 转向输入峰值与持续时间。
+- 出弯油门打开时机。
+- 横向滑移与轮胎温度变化。
+- sector 和弯道级时间损失。
+
+### 6.4 赛后训练报告
+
+赛后报告应以结构化训练问题为中心，而不是以自然语言篇幅为中心：
+
+```text
+Post-session Report
+  - consistency
+  - top time-loss sectors
+  - top time-loss corners
+  - tyre management
+  - ERS deployment
+  - attack / defence decisions
+  - repeated errors
+  - next training objectives
+```
+
+### 6.5 长期画像
+
+长期画像记录同一使用者在不同赛道、轮胎、天气、车辆和比赛压力下的行为模式：
+
+- 弱项赛道和弱项弯道。
+- 制动风格。
+- 出弯牵引控制能力。
+- ERS 使用习惯。
+- 防守和进攻风险偏好。
+- 对提示频率、语音长度和 HUD 密度的偏好。
+
+这部分对应《高智能方程式赛车》中“驾驶员与 Cyber System 共同成长”的现实化表达。
+
+## 7 人机交互设计约束
+
+### 7.1 低干扰原则
+
+高负荷驾驶场景中的提示系统必须限制信息量。本文采用以下原则：
+
+- 比赛中不显示长文本。
+- 高速或近距离攻防中不发起复杂交互。
+- 优先语音、灯光、短 HUD，而非多层菜单。
+- 复杂解释进入赛后报告或低负荷区段。
+- 所有提示可静音、可重复、可关闭。
+- 输出必须有冷却时间，避免连续打断。
+
+### 7.2 输出优先级
+
+| 优先级 | 内容类型 | 示例 |
+| --- | --- | --- |
+| P0 | 规则与严重风险 | 红旗、安全车、严重损伤、处罚 |
+| P1 | 关键战术 | 后车 DRS 威胁、进站窗口关闭、ERS 严重不足 |
+| P2 | 驾驶质量 | 刹车点偏移、出弯滑移、轮胎过热 |
+| P3 | 简短解释 | 为什么当前不建议攻击 |
+| P4 | 非比赛问答 | 默认只在赛后或暂停时启用 |
+
+### 7.3 公平性与可审计性
+
+系统应记录所有提示、触发依据和输出时间。若用于线上联赛或电竞训练，应允许组织方检查：
+
+- 是否只使用官方遥测。
+- 是否存在自动输入。
+- 是否所有提示都可回放。
+- 是否有对特定使用者不公平的隐藏能力。
+
+## 8 现有实现成熟度与部署设计
+
+### 8.1 已成立的核心闭环
+
+现有 Asurada Core 已经具备一个可作为研究人工制品的核心闭环：
+
+- 真实抓包 JSONL 能够通过 `CaptureJsonlSource -> F125PacketDecoder -> CaptureSnapshotAssembler -> decode_snapshot()` 进入 `SessionState`。
+- live UDP 与 capture replay 已共用运行主链，降低了离线验证与实时运行之间的结构差异。
+- 高价值 packet 字段已进入 normalized snapshot 和 `raw`，包括 timing/gap、资源、轮胎、损伤、Motion/MotionEx、对手和赛道语义。
+- `StrategyEngine` 已经输出 `decision.messages`，并能在 debug payload 中保留规则候选、模型候选、仲裁结果、sidecar 分数和语音管线日志。
+- `strategy_arbiter_v2` 已消费真实 top-k 模型候选，并保留 suppressed actions 与 final strategy stack。
+
+因此，本文后续研究不应再以“是否能形成基础功能”为主要问题，而应转向三个更高阶问题：模型成熟度如何继续提升、实时语音与设备化如何硬化、训练效果如何通过被试实验验证。
+
+### 8.2 现有主链与旁路分工
+
+现有系统已经形成清晰的主链/旁路分工：
+
+| 层级 | 当前职责 | 是否允许阻塞实时主链 |
+| --- | --- | --- |
+| 协议与组帧 | UDP/capture 解码、组帧、状态标准化 | 是，必须低延迟完成 |
+| 规则主链 | 资源、攻防、轮胎、损伤、赛控等基础判断 | 是，主链核心 |
+| 小模型主链候选 | `strategy_action_model`、后车威胁、攻击机会、进攻投入等候选 | 有条件允许，必须被仲裁 |
+| runtime sidecar | 资源风险、压力、驾驶质量、胎耗趋势、进站窗口和长周期规划 | 不应直接阻塞主链 |
+| 语音 structured lane | 查询本地状态、策略结果和模板化响应 | 不应明显增加主链延迟 |
+| LLM explainer lane | 解释、总结、开放式追问 | 不允许阻塞主链 |
+| companion lane | 非比赛状态下的陪伴式问答 | 不属于比赛主链 |
+
+这种分工使系统可以在不同负载和故障状态下降级。例如 L2 完整模式保留双向语音、模型旁路和 dashboard；L1 实时保护模式关闭解释层和重分析；L0 最小保底模式只保留单向最高优先级告警 [20]。
+
+### 8.3 设备化部署路径
+
+外设化不是研究起点，而是系统稳定后的部署形态。部署形态包括：
+
+- PC 本地伴随程序：适合开发机、赛事训练营和高级使用者。
+- Raspberry Pi 5 / CM5 外设盒：适合独立外设，承担 UDP 接收、组帧、规则链、小模型推理、结构化语音和本地 TTS。
+- 小型屏幕、LED、物理按钮和语音输出：适合低干扰提示和状态确认。
+- watchdog、离线 fallback 和开机自检：用于设备侧稳定性和比赛环境降级。
+
+外设化的研究意义在于降低使用门槛，并使系统脱离开发环境后仍可被普通使用者稳定复现实验。当前仍未完全完成的部分包括 AEC/串音抑制、local ASR fallback、watchdog/recovery、Pi 5 / CM5 真机稳定性和部署硬化 [16][20]。
+
+### 8.4 模型选型
+
+实时主链优先采用：
+
+- 规则引擎。
+- LightGBM / CatBoost 等表格模型。
+- 小型时序模型，但仅在标签和短窗序列特征成立后引入。
+- 置信度估计与 fallback policy。
+
+解释旁路可采用：
+
+- 本地小模型：Qwen3-4B-Instruct、Gemma、Phi 类轻量模型 [13][14]。
+- 云端模型：OpenAI Realtime 用于语音原型，更强通用模型用于赛后报告 [12]。
+
+模型治理原则：
+
+- 输出必须通过 schema 校验。
+- 不得补全缺失遥测事实。
+- 必须保留触发依据、来源字段和置信度。
+- 模型输出不能绕过仲裁层。
+
+结合现有本地 LLM 评估，更严谨的模型分工是：`2B-3B` 级模型适合低风险摘要、companion 或 fallback；`3.8B-4.5B` 级模型可作为正式 explainer 下限；`7B/8B` 更适合桌面增强或赛后分析，不应被视为边缘实时主链的必要条件 [24]。
+
+## 9 评价设计
+
+### 9.1 评价层级
+
+设计科学研究中的评价不能只做使用者主观问卷。对 Asurada Cyber System 而言，评价应分为三层：
+
+| 层级 | 评价对象 | 核心问题 |
+| --- | --- | --- |
+| E1 工程人工制品评价 | 协议解码、组帧、状态、模型、仲裁、输出日志 | 系统是否可运行、可回放、可审计、可降级 |
+| E2 回放与消融评价 | 相同 capture / replay 输入下的策略输出 | top-k 仲裁、fallback、LLM 旁路是否真正改善稳定性 |
+| E3 人因与训练评价 | 使用者在训练和比赛任务中的表现与负荷 | 系统是否改善训练效率且不增加过度干扰 |
+
+E1 和 E2 是 E3 的前置条件。若系统不能在固定输入上稳定复现同一决策，或不能解释某个输出为何被播报，就不应直接进入被试训练实验。
+
+### 9.2 工程人工制品评价指标
+
+工程评价应覆盖从 UDP 到输出的完整链路：
+
+| 模块 | 指标 | 合格方向 |
+| --- | --- | --- |
+| 协议解码 | packet 覆盖率、未知 packet 率、字段缺失率、非法值过滤率 | 关键 hot-path packet 稳定解析，未验证字段不入主链 |
+| 组帧 | frame 产出率、required packet 缺失率、stale context 比例、frame gap p95/p99 | 组帧延迟可控，跨帧上下文不污染当前判断 |
+| 状态建模 | `SessionState` 必填字段完整率、gap 置信度分布、track segment 命中率 | 模型只消费稳定字段和稳定派生 |
+| 策略主链 | decode / assemble / strategy / output 分阶段 p50/p95/p99 延迟 | 10Hz 状态循环下保留充足时延余量 |
+| 模型运行时 | top-k accuracy、positive precision/recall、校准误差、跨赛道漂移 | 模型以候选形式进入仲裁，不绕过规则与置信度层 |
+| 仲裁层 | suppressed actions 覆盖率、suppression reason 完整率、cooldown 命中率、rule/model 冲突处理率 | 最终输出可追溯到候选、规则、置信度和回退状态 |
+| 语音与 LLM 旁路 | structured 命中率、LLM 超时率、schema invalid 率、主链阻塞次数 | 解释层不得阻塞 control / structured lane |
+| 设备化 | CPU/RAM 占用、热稳定、watchdog recovery、启动自检、音频串音抑制 | 外设形态在长时运行中可恢复、可降级 |
+
+现有 Asurada Core 已提供部分 E1 证据：raw packet 约 `146-152 packet/s`，组帧后约 `10.1 frame/s`，frame gap p95 约 `118ms`；当前策略主链 `pipeline p95=4.953ms`、`p99=5.775ms` [24]。这些指标说明实时主链具备工程可行性，但还不能证明训练效果。
+
+### 9.3 模型与仲裁评价
+
+模型评价不能只报告单一准确率。原因有三点：第一，攻防与风险事件存在类别不均衡；第二，部分模型来自规则或特征蒸馏标签，不能被解释为真实教练标签；第三，最终输出由 `strategy_arbiter_v2` 决定，单模型 top-1 不是系统真实行为。
+
+因此，应采用以下评价：
+
+| 评价项 | 方法 |
+| --- | --- |
+| top-k 候选有效性 | 比较 `top1_accuracy`、`top2_accuracy`、候选排序稳定性和 class threshold 影响 |
+| 稀有事件质量 | 对威胁、防守、攻击、失稳等正类报告 precision、recall、F1 和混淆矩阵 |
+| 仲裁消融 | 比较 rule-only、model top-1、model top-k + arbiter、top-k + fallback + tactical state |
+| 旁路模型约束 | 资源风险、驾驶质量、胎耗趋势只作为 sidecar 时，观察其对最终输出的贡献和误导风险 |
+| 失败样本审计 | 保存误报、漏报、suppressed action 和 fallback 触发样本，形成数据修正队列 |
+
+以现有报告为例，`strategy_action_model` 的 test `top1_accuracy=0.9967`、`top2_accuracy=1.0000` 支持其作为 top-k 候选；但该结果不能推出“模型可直接替代仲裁”。`rear_threat_model`、`attack_opportunity_model` 和 `front_attack_commit_model` 的正类召回与精度应结合人工标注和回放场景复核，而不是只依赖总体 accuracy。
+
+### 9.4 回放实验与一致性评价
+
+回放实验是该系统区别于普通对话智能体的关键评价方式。对同一 capture JSONL 或 normalized replay，系统应满足：
+
+- 相同版本、相同配置、相同输入下，`decision.messages` 与 debug payload 可复现。
+- 模型、规则、fallback、cooldown 和 tactical state 的每一次输出变化都有日志依据。
+- 禁用 LLM explainer lane 不应改变实时主链决策。
+- 禁用 sidecar debug 模型不应破坏基础风险告警。
+- 修改阈值或模型文件后，差异应能被 replay diff 定位到具体候选、分数或仲裁规则。
+
+该类实验可直接服务赛事审计和模型治理。若系统进入联赛训练或外设销售场景，回放一致性比自然语言解释的流畅程度更重要。
+
+### 9.5 人因与训练实验
+
+在人因层面，评价实验可采用被试内交叉设计。每名被试在相同赛道、车辆、天气和比赛条件下经历不同辅助条件，并随机化顺序以降低学习效应。
+
+| 条件 | 描述 |
+| --- | --- |
+| C0 | 原始 F1 25 HUD |
+| C1 | HUD + 普通遥测面板 |
+| C2 | HUD + Asurada 实时提示 |
+| C3 | HUD + Asurada 实时提示 + 赛后训练报告 |
+| C4 | HUD + Asurada 实时提示 + 赛后报告 + 长期画像 |
+
+被试应按经验分层：新手、中级、高级。分层目的不是比较谁更快，而是判断系统在哪类人群中产生何种效果。新手可能受益于错误模式识别；中级使用者可能受益于弯道级训练目标；高级使用者更需要攻防、ERS、轮胎和进站窗口的低干扰提示。
+
+### 9.6 人因指标与统计方法
+
+人因评价不应只以最快圈作为成功标准。指标体系应包括：
+
+| 维度 | 指标 |
+| --- | --- |
+| 表现 | 平均圈、最快圈、sector delta、弯道级 delta |
+| 稳定性 | 圈速标准差、失误率、出界次数、失控恢复时间 |
+| 战术 | ERS 使用效率、DRS 攻防成功率、进站窗口响应质量 |
+| 轮胎 | 胎耗增长、温度峰值、滑移事件、长 stint 稳定性 |
+| 负荷 | NASA-TLX、主观干扰评分、提示静音率 |
+| 学习 | 弱项弯道重复错误率变化、训练目标完成率 |
+| 信任 | 用户信任、提示采纳率、继续使用意愿 |
+| 公平性 | 提示日志可审计性、赛事组织接受度 |
+
+统计方法可采用混合效应模型处理个体差异，配对检验比较同一被试在不同条件下的表现，并按经验等级、赛道、天气、车辆和轮胎条件做分层分析。提示质量应通过人工标注和 replay log 计算误报率、漏报率与输出时机偏差。若 C2/C3 提升圈速却显著增加 NASA-TLX 或误操作次数，该系统不能被判定为成功。
+
+### 9.7 成功判据
+
+Asurada Cyber System 的成功判据应同时满足工程、人因和治理三类要求：
+
+- 工程上，关键 packet 解析、状态组帧、策略主链和输出日志可稳定回放。
+- 模型上，主链模型以候选形式参与仲裁，未成熟模型不会直接驱动实时提示。
+- 交互上，实时提示不显著增加主观认知负荷。
+- 训练上，圈速稳定性、弱项弯道重复错误率或战术响应质量出现可统计验证的改善。
+- 治理上，提示来源、触发依据、压制原因和回退状态可被审计。
+- 市场上，外设部署能在普通使用环境中稳定运行，而不是只在开发机演示中成立。
+
+## 10 应用意义
+
+### 10.1 对模拟赛车市场
+
+Asurada Cyber System 对模拟赛车市场的核心意义不是创造一个新的显示界面，而是把高门槛遥测分析能力下沉为可交互、可训练、可复盘的解释层。其影响主要表现为四个方面：
+
+1. 降低进入门槛：使用者不需要先学习复杂遥测工具，也能理解主要失误来源。
+2. 提高训练效率：系统把练习从“反复跑圈”转化为“有目标的弱项修正”。
+3. 延伸外设价值：屏幕、灯光、震动和语音不再只是沉浸效果，而成为战术和训练信号。
+4. 支持赛事生态：训练营、联赛、解说和赛后裁决可以使用同一套遥测语义和日志。
+
+更准确地说，该意义体现为一种数据解释基础设施：它把原本分散的遥测变量组织为可审计、可复盘、可实验比较的驾驶反馈。
+
+### 10.2 对模拟驾驶训练
+
+对模拟驾驶训练而言，系统的价值在于可控场景和即时反馈：
+
+- 速度控制训练。
+- 车道保持与线路稳定性训练。
+- 风险识别训练。
+- 注意力维持训练。
+- 情境判断训练。
+- 错误模式复盘。
+
+但该系统不能替代真实驾驶教育。真实道路迁移必须通过独立实验验证，并应区分模拟赛车技能、通用驾驶注意力能力和真实道路安全表现。
+
+### 10.3 对研究者
+
+该系统可作为人机协同驾驶研究平台。研究者可以通过统一日志记录比较不同提示策略、不同输出通道、不同模型架构和不同训练流程的效果。其研究价值在于：
+
+- 数据可记录。
+- 任务可复现。
+- 场景可控制。
+- 输出可审计。
+- 被试体验可量化。
+
+## 11 风险、伦理与法律边界
+
+### 11.1 平台和公平性风险
+
+即使系统只读，赛事组织仍需评估其公平性影响。因此，任何竞赛应用都应明确允许范围、记录提示日志，并提供禁用模式。
+
+### 11.2 人机负荷风险
+
+提示系统并不必然提升表现。过密、过长或时机错误的提示会造成注意力干扰。因此，输出仲裁层应被视为安全关键模块。
+
+### 11.3 训练迁移风险
+
+模拟环境中的效果不能自动迁移到真实道路。论文、系统说明和实验报告都必须避免将模拟表现提升等同于真实安全提升。
+
+### 11.4 知识产权风险
+
+Asurada 与《高智能方程式赛车》相关名称、图像、声音和设定涉及潜在版权与商标问题。非公开研究可以保留概念来源；公开发布或商业化部署应使用原创品牌或取得授权。
+
+## 12 局限
+
+本文存在以下局限：
+
+1. 现有证据主要证明 Asurada Core 的工程可行性、模型 baseline 和实时主链延迟，尚不能证明其已经改善使用者训练效果。
+2. 尚未完成被试实验、长期训练实验和赛事组织接受度研究。
+3. 阶段二部分模型使用规则标签、启发式标签或 proxy-distillation 标签，高准确率不能直接等同于真实教练判断质量。
+4. 训练数据仍受赛道、车辆、天气、比赛类型和使用者行为分布限制；跨版本、跨赛道和跨人群泛化仍需验证。
+5. F1 25 官方 UDP 字段会受到游戏版本更新影响，且官方暴露字段不能代表完整车辆物理状态或游戏内部 AI 状态。
+6. AEC/串音抑制、local ASR fallback、watchdog/recovery、Pi 5 / CM5 真机稳定性和设备侧部署硬化尚未完成。
+7. 对市场规模的判断来自公开行业报道，不能替代完整市场研究。
+8. 大语言模型选型会随模型版本、成本、推理框架和边缘硬件能力变化；本文讨论的是架构边界，而不是某个固定模型的长期优越性。
+9. 动画设定只能作为设计隐喻，不能作为系统能力证明；公开发布或商业化仍需处理命名、形象和授权问题。
+
+## 13 结论
+
+本文把 Asurada Cyber System 定义为一种基于 Asurada Core 的 F1 25 官方遥测实时解释智能体。与通用对话系统或普通遥测面板不同，该系统的研究重点不是生成更像人的话术，而是把可公开获取的遥测数据转化为可执行、低干扰、可回放、可审计和可降级的驾驶反馈。
+
+本文的核心论点是：模拟赛车生态下一阶段的重要缺口是遥测解释层。硬件已经提高了手感和沉浸感，官方遥测已经提供了大量状态变量，但多数使用者仍缺少在训练和比赛中理解这些变量的能力。Asurada Core 的现有架构表明，这一缺口不能靠“把遥测丢给大模型”解决，而需要协议解码、组帧、状态建模、短窗口特征、规则链、小模型候选、置信度、fallback、战术状态和输出仲裁共同构成实时主链。
+
+从系统价值看，该研究把模拟赛车外设从“输入与沉浸设备”扩展为“数据解释与训练反馈设备”。它可以降低遥测分析门槛，支持有目标的弱项训练，扩展语音、灯光、屏幕和物理按钮的功能边界，并为电竞训练、赛事复盘和外设生态提供统一的遥测语义与审计日志。对模拟驾驶训练，它可以作为可控场景中的反馈生成和实验平台，但不能替代真实道路训练。对研究者，它提供了一个能够记录、复现、审计和比较不同人机协同策略的系统框架。
+
+后续研究应优先完成四项工作：第一，扩大真实 capture 与赛道覆盖，提升模型泛化和标签质量；第二，完成回放一致性、仲裁消融和设备侧长时稳定性测试；第三，完成被试训练实验，验证系统是否真正改善稳定性、弱项修正和战术响应；第四，在赛事或训练机构场景中验证公平性、日志审计和接受度。只有当系统在工程稳定性、低干扰、人因效果和治理边界上同时通过验证，Asurada Cyber System 才能进入更广泛的市场、训练和赛事应用阶段。
+
+## 参考文献
+
+[1] FIA. *The inclusion of Esports in the International Sporting Code*. 2025.  
+https://api.fia.com/news/inclusion-esports-international-sporting-code-major-opportunity-development-future-discipline
+
+[2] FIA. *FIA launches Call for Proposal for FIA Esports Championships*. 2026.  
+https://api.fia.com/news/fia-launches-call-proposal-fia-esports-championships
+
+[3] Formula 1. *F1 Sim Racing*. 2026.  
+https://www.formula1.com/en/page/f1-sim-racing
+
+[4] EA Forums. *EA SPORTS F1 25 UDP Specification*.  
+https://forums.ea.com/blog/f1-games-game-info-hub-en/ea-sports%E2%84%A2-f1%C2%AE25-2026-season-pack-udp-specification/12187347
+
+[5] Performance Racing Industry. *Racing Simulator Market Projected to Reach $1.1 Billion by 2030*. 2024.  
+https://www.performanceracing.com/magazine/industry-news/03-05-2024/report-racing-simulator-market-projected-reach-11-billion-2030
+
+[6] Krasniuk, S., Toxopeus, R., Knott, M., McKeown, M., & Crizzle, A. M. *The effectiveness of driving simulator training on driving skills and safety in young novice drivers: A systematic review of interventions*. Journal of Safety Research, 2024.  
+https://trid.trb.org/View/2420337
+
+[7] Hojaji, F., Toth, A. J., Joyce, J. M., & Campbell, M. J. *AI-enabled prediction of sim racing performance using telemetry data*. Computers in Human Behavior Reports, 2024.  
+https://pure.ul.ie/en/publications/ai-enabled-prediction-of-sim-racing-performance-using-telemetry-d/
+
+[8] ISO. *ISO 15005:2017 Road vehicles - Ergonomic aspects of transportation and control systems - Dialogue management principles and compliance procedures*.  
+https://www.iso.org/standard/69238.html
+
+[9] U.S. Department of Transportation. *U.S. DOT Releases Guidelines to Minimize In-Vehicle Distractions*.  
+https://www.transportation.gov/briefing-room/us-dot-releases-guidelines-minimize-vehicle-distractions
+
+[10] Cyber Formula Official Web. *新世纪 GPX Cyber Formula official site*.  
+https://www.cyber-formula.net/
+
+[11] Sunrise World. *新世纪 GPX Cyber Formula TV work page*.  
+https://www.sunrise-world.net/titles/pickup_126.php
+
+[12] OpenAI. *Models documentation*.  
+https://platform.openai.com/docs/models
+
+[13] Qwen. *Qwen3-4B-Instruct-2507 model card*.  
+https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507
+
+[14] Google. *Gemma model documentation*.  
+https://ai.google.dev/gemma/docs/core
+
+[15] Asurada Core. *ARCHITECTURE.md*. Project internal engineering document, Asurada workspace.
+
+[16] Asurada. *PROJECT_PROGRESS.md* and Asurada Core status notes. Project internal progress and status documents, Asurada workspace.
+
+[17] Asurada Core. *CORE_WORKFLOW_CN.md*. Project internal workflow document, Asurada workspace.
+
+[18] Asurada Core. *PHASE2_MODEL_MATRIX_CN.md*. Project internal model matrix document, Asurada workspace.
+
+[19] Asurada Core. *Stage 2 training reports*. `strategy_action`, `rear_threat`, `attack_opportunity`, `front_attack_commit`, resource risk, driving quality and tyre trend reports, Asurada workspace.
+
+[20] Asurada Core. *REALTIME_VOICE_AND_MODEL_ARCHITECTURE_CN.md*. Project internal realtime voice and model architecture document, Asurada workspace.
+
+[21] Asurada Core. *STAGE3_LLM_EXPLAINER_BOUNDARY_CN.md* and *STAGE3_LLM_SIDECAR_ROUTING_CN.md*. Project internal LLM boundary and routing documents, Asurada workspace.
+
+[22] Asurada Core. *PACKET_FIELD_COVERAGE.md*. Project internal packet coverage document, Asurada workspace.
+
+[23] Asurada Core. *STAGE2_MODEL_INPUT_SCHEMA.md*. Project internal model input schema document, Asurada workspace.
+
+[24] Asurada Core. *LOCAL_LLM_MIN_PARAM_EVALUATION_CN.md*. Project internal LLM capacity and realtime load evaluation document, Asurada workspace.
