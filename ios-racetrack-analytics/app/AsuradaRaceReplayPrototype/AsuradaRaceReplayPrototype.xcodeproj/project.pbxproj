@@ -1,0 +1,593 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		2C14E421519C64BE04FC21A5 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E4F4F8C5F5BB3BCB043932 /* AppState.swift */; };
+		37C40F7160461CA13D883442 /* Charts.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6F8711E3991182D4BCBB6FBC /* Charts.framework */; };
+		3F1DEEEF42847888F21D6451 /* StatChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90102BD01246544A86ADDFB0 /* StatChip.swift */; };
+		40FF8B066B1F55222A20496A /* EventPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DB71956C23484F9E7E4552 /* EventPill.swift */; };
+		417B3F7EF35A11C1AB91A8B5 /* LapRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8F482335986C02C67C40FAA /* LapRow.swift */; };
+		42AE8AA3559EE71ADF9504C2 /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_5C1118C2-FC4F-4EF4-AAE3-6A34DD9DCB44" /* RootTabView.swift */; };
+		45284EAF89A417A6CC2B7889 /* PreviewModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4287D222A4EB7362B267AEC /* PreviewModels.swift */; };
+		47580C0BCA06C59626AFA20D /* SessionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75CCD9C6E17AD5E497945F9 /* SessionCard.swift */; };
+		489CC9E2DCEB08BDD4BC92D8 /* AsuradaRaceDamageWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3BF30795CF7615E18F4D0670 /* AsuradaRaceDamageWidgetExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		5CEABC4F1DAA026221F47169 /* SwiftData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D33639B790C5DED101CF338D /* SwiftData.framework */; };
+		5E9667FE6479ADA5153C3E9F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8839ABCE454A0B6AF4D29B2D /* Assets.xcassets */; };
+		66F3E40D5B53C1D3EE00C2F1 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 635A19E66F52306E10BB7D56 /* SwiftUI.framework */; };
+		87A6553D515B11CE50E06F77 /* SessionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A042EFA95A764CD46BA6E8E /* SessionDetailView.swift */; };
+		9876907A165460041D62B6CD /* ReplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2A705B7148F3D16D912CE33 /* ReplayView.swift */; };
+		991A4BE08BBF3F08BBAB808C /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E2E8DF40696D0DCA1DEEDB4E /* WidgetKit.framework */; };
+		9A57603B9ED60A9D7ACE0008 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BBE8CEA1B97951F37FB74B0 /* HomeView.swift */; };
+		9AE3D7BEB45CC18AD98D3666 /* SessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6F3390ABD5A35BA8498839D /* SessionsView.swift */; };
+		9E617F7B66D010F446E8F6E1 /* RaceDamageActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C958290E33FEAE22B32733FB /* RaceDamageActivityAttributes.swift */; };
+		A59719E3A8A82FDEB16BD2ED /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B0C7602FA8BADF697188A38B /* ActivityKit.framework */; };
+		BDD6E0B8EA7D68CEE0DE126E /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD2E6700CABD48B809FF490D /* ProfileView.swift */; };
+		C491AE8216E553B4F83D2CED /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 68DBD3DF71563C96C80C125A /* AVFoundation.framework */; };
+		C51EE46F03142E9A50583A48 /* RaceDamageActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C958290E33FEAE22B32733FB /* RaceDamageActivityAttributes.swift */; };
+		DB0DD1AB32AF78428E749D4B /* AsuradaRaceReplayPrototypeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_6DF5902B-865C-4F6A-B4AF-B9E64FF5F13E" /* AsuradaRaceReplayPrototypeApp.swift */; };
+		F0E708D5CAA2646C0B85E937 /* CompareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ABFFD445DE6B934F4F55B93 /* CompareView.swift */; };
+		F5F21481490557564E0EFFD8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8839ABCE454A0B6AF4D29B2D /* Assets.xcassets */; };
+		FD6726BC1FB0FB5D0C527CD7 /* AsuradaRaceDamageWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF28137598281ABE74FD67B8 /* AsuradaRaceDamageWidget.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		CB4F9BDE43F5EBC73396910F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E268677DA76F4F13A67BE980 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C7B4914512CC8824B90ECA30;
+			remoteInfo = AsuradaRaceDamageWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		8F8EA71EB329822E3C19F5D6 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				489CC9E2DCEB08BDD4BC92D8 /* AsuradaRaceDamageWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		3BF30795CF7615E18F4D0670 /* AsuradaRaceDamageWidgetExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = AsuradaRaceDamageWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		3E21885439A68905C86D87B6 /* AsuradaRaceReplayPrototype.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AsuradaRaceReplayPrototype.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4ABFFD445DE6B934F4F55B93 /* CompareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompareView.swift; sourceTree = "<group>"; };
+		4BBE8CEA1B97951F37FB74B0 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		635A19E66F52306E10BB7D56 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		68DBD3DF71563C96C80C125A /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		6F8711E3991182D4BCBB6FBC /* Charts.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Charts.framework; path = System/Library/Frameworks/Charts.framework; sourceTree = SDKROOT; };
+		8839ABCE454A0B6AF4D29B2D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8A042EFA95A764CD46BA6E8E /* SessionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDetailView.swift; sourceTree = "<group>"; };
+		90102BD01246544A86ADDFB0 /* StatChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatChip.swift; sourceTree = "<group>"; };
+		A4287D222A4EB7362B267AEC /* PreviewModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewModels.swift; sourceTree = "<group>"; };
+		A75CCD9C6E17AD5E497945F9 /* SessionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCard.swift; sourceTree = "<group>"; };
+		B0C7602FA8BADF697188A38B /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = SDKROOT; };
+		B2A705B7148F3D16D912CE33 /* ReplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplayView.swift; sourceTree = "<group>"; };
+		B6F3390ABD5A35BA8498839D /* SessionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionsView.swift; sourceTree = "<group>"; };
+		BF28137598281ABE74FD67B8 /* AsuradaRaceDamageWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsuradaRaceDamageWidget.swift; sourceTree = "<group>"; };
+		C958290E33FEAE22B32733FB /* RaceDamageActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceDamageActivityAttributes.swift; sourceTree = "<group>"; };
+		CD2E6700CABD48B809FF490D /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		D33639B790C5DED101CF338D /* SwiftData.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftData.framework; path = System/Library/Frameworks/SwiftData.framework; sourceTree = SDKROOT; };
+		D8F482335986C02C67C40FAA /* LapRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LapRow.swift; sourceTree = "<group>"; };
+		E0DB71956C23484F9E7E4552 /* EventPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventPill.swift; sourceTree = "<group>"; };
+		E2E8DF40696D0DCA1DEEDB4E /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		F1E4F4F8C5F5BB3BCB043932 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		FDB4851F945070BBC3A20D62 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		"TEMP_5C1118C2-FC4F-4EF4-AAE3-6A34DD9DCB44" /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
+		"TEMP_6DF5902B-865C-4F6A-B4AF-B9E64FF5F13E" /* AsuradaRaceReplayPrototypeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AsuradaRaceReplayPrototypeApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5B4E71711B683769FACC977C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A59719E3A8A82FDEB16BD2ED /* ActivityKit.framework in Frameworks */,
+				991A4BE08BBF3F08BBAB808C /* WidgetKit.framework in Frameworks */,
+				66F3E40D5B53C1D3EE00C2F1 /* SwiftUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B0D8AA3769B32A9A4A844ADE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				37C40F7160461CA13D883442 /* Charts.framework in Frameworks */,
+				C491AE8216E553B4F83D2CED /* AVFoundation.framework in Frameworks */,
+				5CEABC4F1DAA026221F47169 /* SwiftData.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		00B49FD337F5418A607A06CE /* Screens */ = {
+			isa = PBXGroup;
+			children = (
+				4ABFFD445DE6B934F4F55B93 /* CompareView.swift */,
+				4BBE8CEA1B97951F37FB74B0 /* HomeView.swift */,
+				CD2E6700CABD48B809FF490D /* ProfileView.swift */,
+				B2A705B7148F3D16D912CE33 /* ReplayView.swift */,
+				8A042EFA95A764CD46BA6E8E /* SessionDetailView.swift */,
+				B6F3390ABD5A35BA8498839D /* SessionsView.swift */,
+			);
+			path = Screens;
+			sourceTree = "<group>";
+		};
+		1ABB853F507D38B73461D52F /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				8839ABCE454A0B6AF4D29B2D /* Assets.xcassets */,
+				C958290E33FEAE22B32733FB /* RaceDamageActivityAttributes.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		21E3D9336D5EEBFFB8A8CA11 = {
+			isa = PBXGroup;
+			children = (
+				4E879B0C969C7BE99AEC2B42 /* AsuradaRaceDamageWidget */,
+				36232D11A8CDE3CA3879071E /* Components */,
+				A310C0F88F116783635BF40F /* Models */,
+				00B49FD337F5418A607A06CE /* Screens */,
+				1ABB853F507D38B73461D52F /* Shared */,
+				AD1ACD853BF49FCD8DD55735 /* Frameworks */,
+				F7AC841E9B8979060AA34BE6 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		36232D11A8CDE3CA3879071E /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				E0DB71956C23484F9E7E4552 /* EventPill.swift */,
+				D8F482335986C02C67C40FAA /* LapRow.swift */,
+				A75CCD9C6E17AD5E497945F9 /* SessionCard.swift */,
+				90102BD01246544A86ADDFB0 /* StatChip.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		4E879B0C969C7BE99AEC2B42 /* AsuradaRaceDamageWidget */ = {
+			isa = PBXGroup;
+			children = (
+				BF28137598281ABE74FD67B8 /* AsuradaRaceDamageWidget.swift */,
+				FDB4851F945070BBC3A20D62 /* Info.plist */,
+			);
+			path = AsuradaRaceDamageWidget;
+			sourceTree = "<group>";
+		};
+		A310C0F88F116783635BF40F /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				F1E4F4F8C5F5BB3BCB043932 /* AppState.swift */,
+				A4287D222A4EB7362B267AEC /* PreviewModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		AD1ACD853BF49FCD8DD55735 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				B0C7602FA8BADF697188A38B /* ActivityKit.framework */,
+				68DBD3DF71563C96C80C125A /* AVFoundation.framework */,
+				6F8711E3991182D4BCBB6FBC /* Charts.framework */,
+				D33639B790C5DED101CF338D /* SwiftData.framework */,
+				635A19E66F52306E10BB7D56 /* SwiftUI.framework */,
+				E2E8DF40696D0DCA1DEEDB4E /* WidgetKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		F7AC841E9B8979060AA34BE6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3BF30795CF7615E18F4D0670 /* AsuradaRaceDamageWidgetExtension.appex */,
+				3E21885439A68905C86D87B6 /* AsuradaRaceReplayPrototype.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		"TEMP_24C7B7AA-1300-460D-A9EC-9BB4958FCDFC" /* . */ = {
+			isa = PBXGroup;
+			children = (
+				"TEMP_6DF5902B-865C-4F6A-B4AF-B9E64FF5F13E" /* AsuradaRaceReplayPrototypeApp.swift */,
+				"TEMP_5C1118C2-FC4F-4EF4-AAE3-6A34DD9DCB44" /* RootTabView.swift */,
+				1ABB853F507D38B73461D52F /* Shared */,
+				A310C0F88F116783635BF40F /* Models */,
+				00B49FD337F5418A607A06CE /* Screens */,
+				36232D11A8CDE3CA3879071E /* Components */,
+			);
+			name = .;
+			path = .;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		9B80C02D77CCA672CD1DFE02 /* AsuradaRaceReplayPrototype */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7304393AE3FBF87093F7C44F /* Build configuration list for PBXNativeTarget "AsuradaRaceReplayPrototype" */;
+			buildPhases = (
+				13FE307DFCFFC7DF95FD5DC4 /* Sources */,
+				54F70E7670A0D32EC97C4912 /* Resources */,
+				B0D8AA3769B32A9A4A844ADE /* Frameworks */,
+				8F8EA71EB329822E3C19F5D6 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				312ECA61D165A26CD6E36397 /* PBXTargetDependency */,
+			);
+			name = AsuradaRaceReplayPrototype;
+			packageProductDependencies = (
+			);
+			productName = AsuradaRaceReplayPrototype;
+			productReference = 3E21885439A68905C86D87B6 /* AsuradaRaceReplayPrototype.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C7B4914512CC8824B90ECA30 /* AsuradaRaceDamageWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F36EC1E59D4F3B9192136E7E /* Build configuration list for PBXNativeTarget "AsuradaRaceDamageWidgetExtension" */;
+			buildPhases = (
+				F4426EDF94182A1EF2264FEA /* Sources */,
+				C963EF7045049B73892A864A /* Resources */,
+				5B4E71711B683769FACC977C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AsuradaRaceDamageWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = AsuradaRaceDamageWidgetExtension;
+			productReference = 3BF30795CF7615E18F4D0670 /* AsuradaRaceDamageWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E268677DA76F4F13A67BE980 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					9B80C02D77CCA672CD1DFE02 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					C7B4914512CC8824B90ECA30 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = BBEF82E1C34FBD328EB0B780 /* Build configuration list for PBXProject "AsuradaRaceReplayPrototype" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 21E3D9336D5EEBFFB8A8CA11;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = F7AC841E9B8979060AA34BE6 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C7B4914512CC8824B90ECA30 /* AsuradaRaceDamageWidgetExtension */,
+				9B80C02D77CCA672CD1DFE02 /* AsuradaRaceReplayPrototype */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		54F70E7670A0D32EC97C4912 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F5F21481490557564E0EFFD8 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C963EF7045049B73892A864A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5E9667FE6479ADA5153C3E9F /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		13FE307DFCFFC7DF95FD5DC4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2C14E421519C64BE04FC21A5 /* AppState.swift in Sources */,
+				DB0DD1AB32AF78428E749D4B /* AsuradaRaceReplayPrototypeApp.swift in Sources */,
+				F0E708D5CAA2646C0B85E937 /* CompareView.swift in Sources */,
+				40FF8B066B1F55222A20496A /* EventPill.swift in Sources */,
+				9A57603B9ED60A9D7ACE0008 /* HomeView.swift in Sources */,
+				417B3F7EF35A11C1AB91A8B5 /* LapRow.swift in Sources */,
+				45284EAF89A417A6CC2B7889 /* PreviewModels.swift in Sources */,
+				BDD6E0B8EA7D68CEE0DE126E /* ProfileView.swift in Sources */,
+				9E617F7B66D010F446E8F6E1 /* RaceDamageActivityAttributes.swift in Sources */,
+				9876907A165460041D62B6CD /* ReplayView.swift in Sources */,
+				42AE8AA3559EE71ADF9504C2 /* RootTabView.swift in Sources */,
+				47580C0BCA06C59626AFA20D /* SessionCard.swift in Sources */,
+				87A6553D515B11CE50E06F77 /* SessionDetailView.swift in Sources */,
+				9AE3D7BEB45CC18AD98D3666 /* SessionsView.swift in Sources */,
+				3F1DEEEF42847888F21D6451 /* StatChip.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F4426EDF94182A1EF2264FEA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FD6726BC1FB0FB5D0C527CD7 /* AsuradaRaceDamageWidget.swift in Sources */,
+				C51EE46F03142E9A50583A48 /* RaceDamageActivityAttributes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		312ECA61D165A26CD6E36397 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C7B4914512CC8824B90ECA30 /* AsuradaRaceDamageWidgetExtension */;
+			targetProxy = CB4F9BDE43F5EBC73396910F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		3FAE2172401DDC63404B4B72 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = AppInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6E5D9BCBEF5FD7633A9D895D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.asurada.AsuradaRaceReplayPrototype;
+				PRODUCT_NAME = AsuradaRaceReplayPrototype;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		8C7EC7675F48454388DBCFF0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.asurada.AsuradaRaceReplayPrototype;
+				PRODUCT_NAME = AsuradaRaceReplayPrototype;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A2082D858330EBFC74FA5699 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = AppInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BEBEE436C4401D5F23DD4F3C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = AsuradaRaceDamageWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.asurada.AsuradaRaceReplayPrototype.RaceDamageWidget;
+				PRODUCT_NAME = AsuradaRaceDamageWidgetExtension;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		FD4A1C987C5F2A11C10C0F21 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = AsuradaRaceDamageWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.asurada.AsuradaRaceReplayPrototype.RaceDamageWidget;
+				PRODUCT_NAME = AsuradaRaceDamageWidgetExtension;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		7304393AE3FBF87093F7C44F /* Build configuration list for PBXNativeTarget "AsuradaRaceReplayPrototype" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A2082D858330EBFC74FA5699 /* Debug */,
+				3FAE2172401DDC63404B4B72 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BBEF82E1C34FBD328EB0B780 /* Build configuration list for PBXProject "AsuradaRaceReplayPrototype" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8C7EC7675F48454388DBCFF0 /* Debug */,
+				6E5D9BCBEF5FD7633A9D895D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F36EC1E59D4F3B9192136E7E /* Build configuration list for PBXNativeTarget "AsuradaRaceDamageWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BEBEE436C4401D5F23DD4F3C /* Debug */,
+				FD4A1C987C5F2A11C10C0F21 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = E268677DA76F4F13A67BE980 /* Project object */;
+}

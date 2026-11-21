@@ -49,19 +49,298 @@
         backdrop-filter: blur(10px);
       }
       .status {
+        font-size: 12px;
+        color: #c8ffb2;
+      }
+      .status-stack {
         position: fixed;
         top: 16px;
         right: 16px;
-        font-size: 12px;
-        color: #c8ffb2;
+      }
+      .voice-indicator {
+        position: fixed;
+        top: 34px;
+        left: 10px;
+        width: clamp(220px, 26vw, 360px);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        pointer-events: none;
+        user-select: none;
+        z-index: 4;
+      }
+      .voice-indicator svg {
+        width: 100%;
+        height: auto;
+        display: block;
+        filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.34));
+      }
+      .voice-copy {
+        margin-left: 28px;
+        padding: 5px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.09);
+        background: rgba(4, 7, 16, 0.6);
+        backdrop-filter: blur(8px);
+      }
+      .voice-label {
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        color: rgba(246, 240, 220, 0.9);
+      }
+      .voice-detail {
+        margin-top: 2px;
+        font-size: 11px;
+        color: rgba(197, 204, 219, 0.74);
+      }
+      .voice-shell-main,
+      .voice-shell-side,
+      .voice-shell-lower,
+      .voice-shell-base,
+      .voice-core-outer,
+      .voice-core-inner,
+      .voice-port {
+        fill: url(#shellMetal);
+        stroke: rgba(16, 18, 28, 0.88);
+        stroke-width: 6;
+      }
+      .voice-shell-side {
+        stroke-width: 5;
+      }
+      .voice-shell-base {
+        fill: url(#shellShadow);
+      }
+      .voice-port {
+        fill: rgba(218, 225, 236, 0.92);
+      }
+      .voice-port-inner {
+        fill: rgba(237, 242, 248, 0.94);
+        stroke: rgba(22, 26, 36, 0.8);
+        stroke-width: 4;
+      }
+      .voice-port-shadow {
+        fill: rgba(38, 43, 56, 0.18);
+        stroke: none;
+      }
+      .voice-window-bg {
+        fill: #04070e;
+        stroke: rgba(255,255,255,0.18);
+        stroke-width: 4;
+      }
+      .voice-led {
+        fill: #641116;
+        opacity: 0.24;
+        stroke: rgba(255,255,255,0.08);
+        stroke-width: 2;
+        transition: fill 180ms ease, opacity 180ms ease, filter 180ms ease;
+      }
+      .voice-core-dot {
+        fill: rgba(143, 255, 104, 0.58);
+        stroke: rgba(20, 24, 34, 0.88);
+        stroke-width: 5;
+        transition: fill 180ms ease, opacity 180ms ease;
+      }
+      .voice-core-center {
+        fill: rgba(228, 234, 243, 0.9);
+      }
+      .voice-indicator.idle .voice-led {
+        opacity: 0.18;
+      }
+      .voice-indicator.pending .voice-led {
+        fill: #b36a18;
+        opacity: 0.34;
+      }
+      .voice-indicator.pending .voice-core-dot {
+        fill: rgba(143, 255, 104, 0.82);
+      }
+      .voice-indicator.pending .voice-copy {
+        border-color: rgba(255, 199, 87, 0.18);
+      }
+      .voice-indicator.boot .voice-led {
+        fill: #ff3f43;
+        opacity: 0.35;
+        filter: drop-shadow(0 0 10px rgba(255, 78, 82, 0.72));
+      }
+      .voice-indicator.boot .voice-led.l1 { animation: voice-led-latch-l1 1.35s linear infinite; }
+      .voice-indicator.boot .voice-led.l2 { animation: voice-led-latch-l2 1.35s linear infinite; }
+      .voice-indicator.boot .voice-led.l3 { animation: voice-led-latch-l3 1.35s linear infinite; }
+      .voice-indicator.boot .voice-led.l4 { animation: voice-led-latch-l4 1.35s linear infinite; }
+      .voice-indicator.boot .voice-led.l5 { animation: voice-led-latch-l5 1.35s linear infinite; }
+      .voice-indicator.boot .voice-led.l6 { animation: voice-led-latch-l6 1.35s linear infinite; }
+      .voice-indicator.boot .voice-core-dot {
+        fill: rgba(143, 255, 104, 0.94);
+        animation: voice-core-pulse 0.72s ease-in-out infinite;
+      }
+      .voice-indicator.boot .voice-copy {
+        border-color: rgba(255, 78, 82, 0.24);
+      }
+      .voice-indicator.active .voice-led {
+        opacity: 0.18;
+      }
+      .voice-indicator.active .voice-core-dot {
+        fill: rgba(143, 255, 104, 0.64);
+      }
+      .voice-indicator.active .voice-copy {
+        border-color: rgba(125, 255, 87, 0.2);
+      }
+      .voice-indicator.audio-reactive .voice-led,
+      .voice-indicator.audio-reactive .voice-core-dot {
+        animation: none !important;
+      }
+      @keyframes voice-led-latch-l1 {
+        0%, 100% {
+          opacity: 0.26;
+        }
+        8%, 96% {
+          opacity: 1;
+        }
+      }
+      @keyframes voice-led-latch-l2 {
+        0%, 100% {
+          opacity: 0.26;
+        }
+        20%, 96% {
+          opacity: 0.84;
+        }
+      }
+      @keyframes voice-led-latch-l3 {
+        0%, 100% {
+          opacity: 0.26;
+        }
+        32%, 96% {
+          opacity: 0.84;
+        }
+      }
+      @keyframes voice-led-latch-l4 {
+        0%, 100% {
+          opacity: 0.26;
+        }
+        44%, 96% {
+          opacity: 0.84;
+        }
+      }
+      @keyframes voice-led-latch-l5 {
+        0%, 100% {
+          opacity: 0.26;
+        }
+        56%, 96% {
+          opacity: 0.84;
+        }
+      }
+      @keyframes voice-led-latch-l6 {
+        0%, 100% {
+          opacity: 0.26;
+        }
+        68%, 96% {
+          opacity: 0.84;
+        }
+      }
+      @keyframes voice-boot-scan {
+        0%, 100% {
+          transform: scaleX(0.72);
+          opacity: 0.56;
+          filter: drop-shadow(0 0 7px rgba(255, 210, 86, 0.34));
+        }
+        50% {
+          transform: scaleX(1.04);
+          opacity: 1;
+          filter: drop-shadow(0 0 16px rgba(255, 210, 86, 0.9));
+        }
+      }
+      @keyframes voice-core-pulse {
+        0%, 100% {
+          opacity: 0.84;
+        }
+        50% {
+          opacity: 1;
+        }
       }
     </style>
   </head>
   <body>
+    <div class="voice-indicator idle" id="voice-indicator">
+      <svg viewBox="0 0 980 453" aria-hidden="true">
+        <defs>
+          <linearGradient id="shellMetal" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#f4f7fb" />
+            <stop offset="52%" stop-color="#dde5f0" />
+            <stop offset="100%" stop-color="#c0c8d5" />
+          </linearGradient>
+          <linearGradient id="shellShadow" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#d3dbe7" />
+            <stop offset="100%" stop-color="#acb6c3" />
+          </linearGradient>
+        </defs>
+        <g>
+          <path class="voice-shell-main" d="M160 170 C166 142 182 112 208 82 C238 48 276 22 322 2 C380 -28 435 -42 490 -42 C545 -42 600 -28 658 2 C704 22 742 48 772 82 C798 112 814 142 820 170 Z"></path>
+          <g transform="rotate(-28 296 72)">
+            <ellipse class="voice-port" cx="296" cy="72" rx="56" ry="24"></ellipse>
+            <ellipse class="voice-port-shadow" cx="303" cy="78" rx="34" ry="12"></ellipse>
+            <ellipse class="voice-port-inner" cx="296" cy="72" rx="40" ry="15"></ellipse>
+          </g>
+          <g>
+            <ellipse class="voice-port" cx="490" cy="28" rx="60" ry="20"></ellipse>
+            <ellipse class="voice-port-shadow" cx="498" cy="32" rx="37" ry="10"></ellipse>
+            <ellipse class="voice-port-inner" cx="490" cy="28" rx="44" ry="12"></ellipse>
+          </g>
+          <g transform="rotate(28 684 72)">
+            <ellipse class="voice-port" cx="684" cy="72" rx="56" ry="24"></ellipse>
+            <ellipse class="voice-port-shadow" cx="691" cy="78" rx="34" ry="12"></ellipse>
+            <ellipse class="voice-port-inner" cx="684" cy="72" rx="40" ry="15"></ellipse>
+          </g>
+
+          <rect class="voice-shell-side" x="18" y="166" width="358" height="124" rx="20"></rect>
+          <rect class="voice-shell-side" x="604" y="166" width="358" height="124" rx="20"></rect>
+
+          <rect class="voice-window-bg" x="40" y="186" width="312" height="84" rx="12"></rect>
+          <rect class="voice-window-bg" x="628" y="186" width="312" height="84" rx="12"></rect>
+
+          <rect class="voice-led l6" x="54" y="194" width="44" height="68" rx="7"></rect>
+          <rect class="voice-led l5" x="102" y="194" width="44" height="68" rx="7"></rect>
+          <rect class="voice-led l4" x="150" y="194" width="44" height="68" rx="7"></rect>
+          <rect class="voice-led l3" x="198" y="194" width="44" height="68" rx="7"></rect>
+          <rect class="voice-led l2" x="246" y="194" width="44" height="68" rx="7"></rect>
+          <rect class="voice-led l1" x="294" y="194" width="44" height="68" rx="7"></rect>
+
+          <rect class="voice-led l1" x="642" y="194" width="44" height="68" rx="7"></rect>
+          <rect class="voice-led l2" x="690" y="194" width="44" height="68" rx="7"></rect>
+          <rect class="voice-led l3" x="738" y="194" width="44" height="68" rx="7"></rect>
+          <rect class="voice-led l4" x="786" y="194" width="44" height="68" rx="7"></rect>
+          <rect class="voice-led l5" x="834" y="194" width="44" height="68" rx="7"></rect>
+          <rect class="voice-led l6" x="882" y="194" width="44" height="68" rx="7"></rect>
+
+          <path class="voice-shell-lower" d="M164 290 H372 C400 290 418 286 432 308 L446 330 C452 340 460 346 470 346 H510 C520 346 528 340 534 330 L548 308 C562 286 580 290 608 290 H816 L794 360 H186 Z"></path>
+          <path class="voice-shell-base" d="M206 354 H774 Q784 354 781 364 L770 392 Q767 402 756 402 H594 Q575 402 566 408 L560 414 Q556 418 548 418 H432 Q424 418 420 414 L414 408 Q405 402 386 402 H224 Q213 402 210 392 L199 364 Q196 354 206 354 Z"></path>
+
+          <circle class="voice-core-outer" cx="490" cy="226" r="120"></circle>
+          <circle class="voice-core-inner" cx="490" cy="226" r="88"></circle>
+          <circle class="voice-core-center" cx="490" cy="226" r="58"></circle>
+          <circle class="voice-core-dot" cx="452" cy="188" r="23"></circle>
+          <circle class="voice-core-dot" cx="528" cy="188" r="23"></circle>
+          <circle class="voice-core-dot" cx="452" cy="264" r="23"></circle>
+          <circle class="voice-core-dot" cx="528" cy="264" r="23"></circle>
+        </g>
+      </svg>
+      <div class="voice-copy">
+        <div class="voice-label" id="voice-label">VOICE IDLE</div>
+        <div class="voice-detail" id="voice-detail">standby</div>
+      </div>
+    </div>
     <div class="shell">
       <canvas id="cluster" width="1200" height="1200"></canvas>
     </div>
-    <div class="status" id="ws-status">Feed: connecting</div>
+    <div class="status-stack">
+      <div class="status" id="ws-status">Feed: connecting</div>
+      <div class="status" id="personality-status">人格状态未连接</div>
+      <label><input id="personality-quiet" type="checkbox" disabled> 安静模式</label>
+      <label>幽默
+        <select id="personality-humor" disabled>
+          <option value="off">关闭</option>
+          <option value="low">少量</option>
+          <option value="normal">正常</option>
+        </select>
+      </label>
+    </div>
     <div class="hud" id="meta">
       <div>Track: -</div>
       <div>Lap: - / -</div>

@@ -2,6 +2,58 @@ const canvas = document.getElementById('cluster');
 const ctx = canvas.getContext('2d');
 const meta = document.getElementById('meta');
 const statusEl = document.getElementById('ws-status');
+const voiceIndicatorEl = document.getElementById('voice-indicator');
+const voiceLabelEl = document.getElementById('voice-label');
+const voiceDetailEl = document.getElementById('voice-detail');
+const voiceLedGroups = [1, 2, 3, 4, 5, 6].map((level) => Array.from(document.querySelectorAll(`.voice-led.l${level}`)));
+const voiceCoreDotEls = Array.from(document.querySelectorAll('.voice-core-dot'));
+const personalityStatus = document.getElementById('personality-status');
+const personalityQuiet = document.getElementById('personality-quiet');
+const personalityHumor = document.getElementById('personality-humor');
+let personalityRequestActive = false;
+let queuedPersonalityChange = null;
+
+async function refreshPersonality(change = null) {
+  if (personalityRequestActive) {
+    if (change) queuedPersonalityChange = { ...queuedPersonalityChange, ...change };
+    return;
+  }
+  personalityRequestActive = true;
+  try {
+    const params = change ? `?${new URLSearchParams(change)}` : '';
+    const response = await fetch(`/api/personality${params}`, {
+      method: change ? 'POST' : 'GET',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(1200),
+    });
+    if (!response.ok) throw new Error('speech service unavailable');
+    const current = await response.json();
+    const stage = current.stage == null ? '档位未就绪' : `H${current.stage}`;
+    const mic = { listening: '监听中', idle: '待命' }[current.microphone] || '状态未知';
+    const playback = { playing: '播报中', idle: '待命' }[current.playback] || '状态未知';
+    personalityStatus.textContent = `${stage} · 麦克风${mic} · 电台${playback}`;
+    personalityQuiet.checked = current.quiet;
+    personalityHumor.value = current.humor;
+    personalityQuiet.disabled = false;
+    personalityHumor.disabled = false;
+  } catch {
+    personalityStatus.textContent = '人格状态未连接';
+    personalityQuiet.disabled = true;
+    personalityHumor.disabled = true;
+  } finally {
+    personalityRequestActive = false;
+    if (queuedPersonalityChange) {
+      const next = queuedPersonalityChange;
+      queuedPersonalityChange = null;
+      refreshPersonality(next);
+    }
+  }
+}
+
+personalityQuiet.addEventListener('change', () => refreshPersonality({ quiet: personalityQuiet.checked }));
+personalityHumor.addEventListener('change', () => refreshPersonality({ humor: personalityHumor.value }));
+setInterval(refreshPersonality, 1000);
+refreshPersonality();
 
 const state = {
   current: null,
@@ -11,6 +63,13 @@ const state = {
   smoothFuel: 0,
   hasSeededLiveValues: false,
   boot: { active: false, progress: 1, elapsedMs: 0 },
+  voiceMeterTarget: 0,
+  voiceMeterPeakTarget: 0,
+  voiceMeterLevel: 0,
+  voiceMeterPeakLevel: 0,
+  voiceBeatPulseTarget: 0,
+  voiceBeatPulseLevel: 0,
+  voiceBeatTriggeredAtMs: 0,
 };
 
 const demoPayload = {
@@ -19,6 +78,23 @@ const demoPayload = {
   tyres: { wear_pct_corners: [0, 0, 0, 0], surface_temperature_c: [0, 0, 0, 0], inner_temperature_c: [0, 0, 0, 0] },
   damage: { body_damage_pct: 0, powertrain_damage_pct: 0 },
   gaps: { ahead_s: null, behind_s: null, ahead_source: 'missing', behind_source: 'missing', front_rival_name: '-', rear_rival_name: '-' },
+  voice: {
+    state: 'idle',
+    active: false,
+    pending: false,
+    action_code: null,
+    source_kind: null,
+    llm_sidecar_used: false,
+    llm_sidecar_status: null,
+    amplitude_level: 0,
+    amplitude_peak: 0,
+    amplitude_rms: null,
+    amplitude_updated_at_ms: 0,
+    amplitude_source: null,
+    amplitude_playback_active: false,
+    beat_pulse: 0,
+    beat_updated_at_ms: 0,
+  },
   strategy: { primary_action: 'NONE', title: 'Standby', detail: '', priority: 0 },
 };
 
@@ -27,9 +103,47 @@ const SPEED_SCALE_BLEND = 0.6;
 const SHIFT_LIGHT_START_RPM = 10800;
 const SHIFT_LIGHT_PEAK_RPM = 13400;
 const SHIFT_LIGHT_PULSE_RPM = 13000;
-const FEED_POLL_MS = 80;
+const FEED_POLL_MS = 16;
+const BOOT_DURATION_MS = 2200;
 let pollTimer = null;
+let ws = null;
+let wsRetryTimer = null;
 let lastPayloadTimestamp = 0;
+
+function renderFeedStatus(transport, payload) {
+  const source = (payload.source_status || {}).status || 'unavailable';
+  statusEl.textContent = `Feed: ${transport} / ${source}`;
+}
+
+function applyIncomingPayload(payload) {
+  state.current = payload;
+  state.voiceMeterTarget = clamp01(Number((payload.voice || {}).amplitude_level || 0));
+  state.voiceMeterPeakTarget = clamp01(Number((payload.voice || {}).amplitude_peak || 0));
+  const voicePayload = payload.voice || {};
+  const playbackActive = Boolean(voicePayload.amplitude_playback_active);
+  const beatPulse = playbackActive ? clamp01(Number(voicePayload.beat_pulse || 0)) : 0;
+  const beatUpdatedAtMs = Number((payload.voice || {}).beat_updated_at_ms || 0);
+  if (beatPulse > 0 && beatUpdatedAtMs > state.voiceBeatTriggeredAtMs) {
+    state.voiceBeatTriggeredAtMs = beatUpdatedAtMs;
+    state.voiceBeatPulseTarget = Math.max(state.voiceBeatPulseTarget, beatPulse);
+  }
+  if (!playbackActive) {
+    state.voiceBeatPulseTarget = 0;
+  }
+  if (!state.hasSeededLiveValues && Number(payload.timestamp_ms || 0) > 0) {
+    state.smoothSpeed = payload.car.speed_kph || 0;
+    state.smoothRpm = payload.car.rpm || 0;
+    state.smoothErs = payload.car.ers_pct || 0;
+    state.smoothFuel = payload.car.fuel_laps_remaining || 0;
+    state.hasSeededLiveValues = true;
+  }
+  renderMeta();
+  renderVoiceIndicator();
+  const timestamp = Number(payload.timestamp_ms || 0);
+  if (timestamp > 0 && timestamp !== lastPayloadTimestamp) {
+    lastPayloadTimestamp = timestamp;
+  }
+}
 
 async function pollLatest() {
   try {
@@ -38,27 +152,68 @@ async function pollLatest() {
       throw new Error(`HTTP ${response.status}`);
     }
     const payload = await response.json();
-    state.current = payload;
-    if (!state.hasSeededLiveValues && Number(payload.timestamp_ms || 0) > 0) {
-      state.smoothSpeed = payload.car.speed_kph || 0;
-      state.smoothRpm = payload.car.rpm || 0;
-      state.smoothErs = payload.car.ers_pct || 0;
-      state.smoothFuel = payload.car.fuel_laps_remaining || 0;
-      state.hasSeededLiveValues = true;
-    }
-    renderMeta();
-    const timestamp = Number(payload.timestamp_ms || 0);
-    if (timestamp > 0 && timestamp !== lastPayloadTimestamp) {
-      lastPayloadTimestamp = timestamp;
-      statusEl.textContent = 'Feed: live';
-    } else {
-      statusEl.textContent = 'Feed: waiting';
-    }
+    applyIncomingPayload(payload);
+    renderFeedStatus('http', payload);
   } catch (_err) {
     statusEl.textContent = 'Feed: reconnecting';
   } finally {
     pollTimer = setTimeout(pollLatest, FEED_POLL_MS);
   }
+}
+
+function scheduleWsReconnect() {
+  if (wsRetryTimer) {
+    return;
+  }
+  wsRetryTimer = setTimeout(() => {
+    wsRetryTimer = null;
+    connectDashboardSocket();
+  }, 500);
+}
+
+function connectDashboardSocket() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const port = 8765;
+  ws = new WebSocket(`${protocol}//${window.location.hostname}:${port}`);
+  statusEl.textContent = 'Feed: ws connecting';
+  ws.onopen = () => {
+    statusEl.textContent = 'Feed: ws / waiting';
+    if (pollTimer) {
+      clearTimeout(pollTimer);
+      pollTimer = null;
+    }
+  };
+  ws.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      applyIncomingPayload(payload);
+      renderFeedStatus('ws', payload);
+    } catch (_err) {
+      return;
+    }
+  };
+  ws.onerror = () => {
+    statusEl.textContent = 'Feed: ws error';
+  };
+  ws.onclose = () => {
+    statusEl.textContent = 'Feed: fallback http';
+    if (!pollTimer) {
+      pollLatest();
+    }
+    scheduleWsReconnect();
+  };
+}
+
+function startBootSequence() {
+  state.boot = {
+    active: true,
+    progress: 0,
+    elapsedMs: 0,
+    startedAtMs: performance.now(),
+  };
 }
 
 function lerp(current, target, alpha) {
@@ -86,6 +241,10 @@ function easeInOutCubic(t) {
 
 function lerpNumber(a, b, t) {
   return a + (b - a) * t;
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
 }
 
 function lerpPoint(a, b, t) {
@@ -143,11 +302,34 @@ function bootIndicatorAlpha(seed) {
 }
 
 function draw() {
-  const p = state.current || demoPayload;
+  const sourcePayload = state.current || demoPayload;
+  updateBootState();
+  const p = applyBootPayload(sourcePayload);
   state.smoothSpeed = smoothTowards(state.smoothSpeed, p.car.speed_kph || 0, 0.022, 0.05, 150);
   state.smoothRpm = smoothTowards(state.smoothRpm, p.car.rpm || 0, 0.028, 0.065, 5500);
   state.smoothErs = smoothTowards(state.smoothErs, p.car.ers_pct || 0, 0.03, 0.05, 24);
   state.smoothFuel = smoothTowards(state.smoothFuel, p.car.fuel_laps_remaining || 0, 0.028, 0.04, 5);
+  const voiceState = ((p.voice || {}).state || 'idle');
+  const playbackActive = Boolean((p.voice || {}).amplitude_playback_active);
+  const targetVoiceMeter = voiceState === 'active' ? state.voiceMeterTarget : 0;
+  const targetVoicePeak = voiceState === 'active' ? state.voiceMeterPeakTarget : 0;
+  state.voiceMeterLevel = targetVoiceMeter;
+  state.voiceMeterPeakLevel = lerp(state.voiceMeterPeakLevel, targetVoicePeak, targetVoicePeak >= state.voiceMeterPeakLevel ? 0.92 : 0.6);
+  if (voiceState !== 'active' || !playbackActive) {
+    state.voiceBeatPulseTarget = 0;
+    state.voiceBeatPulseLevel = lerp(state.voiceBeatPulseLevel, 0, 0.9);
+  } else {
+    const elapsedSinceBeatMs = state.voiceBeatTriggeredAtMs > 0 ? Date.now() - state.voiceBeatTriggeredAtMs : 9999;
+    if (elapsedSinceBeatMs > 160) {
+      state.voiceBeatPulseTarget = 0;
+    }
+    state.voiceBeatPulseLevel = lerp(
+      state.voiceBeatPulseLevel,
+      state.voiceBeatPulseTarget,
+      state.voiceBeatPulseTarget >= state.voiceBeatPulseLevel ? 0.96 : 0.72,
+    );
+    state.voiceBeatPulseTarget *= 0.52;
+  }
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawBackground();
@@ -160,7 +342,52 @@ function draw() {
   drawResourcePanel(p);
   drawCenterColumn(p);
   drawBottomLabels(p);
+  drawBootOverlay();
+  renderVoiceIndicator();
   requestAnimationFrame(draw);
+}
+
+function updateBootState() {
+  if (!state.boot || !state.boot.active) {
+    return;
+  }
+  const elapsedMs = performance.now() - state.boot.startedAtMs;
+  const progress = Math.max(0, Math.min(1, elapsedMs / BOOT_DURATION_MS));
+  state.boot.elapsedMs = elapsedMs;
+  state.boot.progress = progress;
+  if (progress >= 1) {
+    state.boot.active = false;
+  }
+}
+
+function applyBootPayload(payload) {
+  if (!state.boot || !state.boot.active) {
+    return payload;
+  }
+  const t = easeInOutCubic(state.boot.progress);
+  const speedWave = Math.sin(t * Math.PI * 1.08);
+  const ersWave = Math.sin(t * Math.PI);
+  const rpmSweep = Math.sin(Math.min(1, t * 1.18) * Math.PI);
+  return {
+    ...payload,
+    session: {
+      ...payload.session,
+      track: 'SYSTEM CHECK',
+    },
+    car: {
+      ...payload.car,
+      speed_kph: Math.max(payload.car.speed_kph || 0, 320 * speedWave),
+      rpm: Math.max(payload.car.rpm || 0, Math.round(14500 * rpmSweep)),
+      ers_pct: Math.max(payload.car.ers_pct || 0, Math.round(100 * ersWave)),
+      fuel_laps_remaining: Math.max(payload.car.fuel_laps_remaining || 0, 9.9),
+    },
+    strategy: {
+      ...payload.strategy,
+      primary_action: 'SELF_TEST',
+      title: 'System Check',
+      detail: 'Cluster boot sequence',
+    },
+  };
 }
 
 function drawBackground() {
@@ -309,13 +536,13 @@ function drawMainDial(p) {
   const needleOuter = polar(centerX, centerY, radius - 10, speedAngle);
   ctx.moveTo(needleInner.x, needleInner.y);
   ctx.lineTo(needleOuter.x, needleOuter.y);
-  ctx.stroke();
+  if (Number.isFinite(p.car.speed_kph)) ctx.stroke();
   ctx.restore();
 
   ctx.fillStyle = '#efe8d8';
   ctx.font = '42px Helvetica Neue';
   ctx.textAlign = 'center';
-  ctx.fillText('KPH', centerX, centerY - 52);
+  ctx.fillText(Number.isFinite(p.car.speed_kph) ? 'KPH' : 'KPH —', centerX, centerY - 52);
 
   ctx.fillStyle = '#ff5a42';
   ctx.beginPath();
@@ -380,7 +607,16 @@ function drawTyrePanel(p) {
     { x: x + 8, y: y + 8 },
   ];
   segments.forEach((segment, idx) => {
-    const temp = temps[idx] || 0;
+    if (!Number.isFinite(wear[idx]) || !Number.isFinite(temps[idx])) {
+      ctx.fillStyle = '#666';
+      roundRect(ctx, segment.x, segment.y, 64, 104, 10, true, false);
+      ctx.fillStyle = '#fff';
+      ctx.font = '22px Helvetica Neue';
+      ctx.textAlign = 'center';
+      ctx.fillText('—', segment.x + 32, segment.y + 60);
+      return;
+    }
+    const temp = temps[idx];
     const segmentWear = Math.max(0, Math.min(100, wear[idx] || 0));
     const maxHeight = 104;
     const fillHeight = Math.max(0, maxHeight * (1 - segmentWear / 100));
@@ -415,8 +651,8 @@ function drawResourcePanel(p) {
 
   const ersAngle = -Math.PI / 2 + Math.PI * 2 * (state.smoothErs / 100);
   const fuelAngle = Math.PI + Math.PI * Math.min((state.smoothFuel || 0) / 20, 1);
-  drawSpokeGauge(x, y, r - 12, ersAngle, '#79ff53');
-  drawSpokeGauge(x, y, r - 48, fuelAngle, '#79ff53');
+  if (Number.isFinite(p.car.ers_pct)) drawSpokeGauge(x, y, r - 12, ersAngle, '#79ff53');
+  if (Number.isFinite(p.car.fuel_laps_remaining)) drawSpokeGauge(x, y, r - 48, fuelAngle, '#79ff53');
   drawSpokeGauge(x, y, r - 82, Math.PI * 1.58, '#79ff53');
   ctx.fillStyle = '#efe8d8';
   ctx.font = '18px Helvetica Neue';
@@ -424,8 +660,8 @@ function drawResourcePanel(p) {
   ctx.fillText('E', x - 110, y + 8);
   ctx.textAlign = 'right';
   ctx.fillText('H', x + 110, y - 88);
-  drawSmallLabel(x, y + 170, `ERS ${Math.round(state.smoothErs)}%`);
-  drawSmallLabel(x, y + 198, `FUEL ${state.smoothFuel.toFixed(1)}LAP`);
+  drawSmallLabel(x, y + 170, Number.isFinite(p.car.ers_pct) ? `ERS ${Math.round(state.smoothErs)}%` : 'ERS —');
+  drawSmallLabel(x, y + 198, Number.isFinite(p.car.fuel_laps_remaining) ? `FUEL ${state.smoothFuel.toFixed(1)}LAP` : 'FUEL —');
   drawSmallLabel(x, y + 226, `${p.car.drs_open ? 'DRS OPEN' : 'DRS OFF'}`);
   ctx.restore();
 }
@@ -433,10 +669,11 @@ function drawResourcePanel(p) {
 function drawCenterColumn(p) {
   const x = 600;
   const y = 760;
-  const bodyDamage = Number((p.damage && p.damage.body_damage_pct) || 0);
-  const powertrainDamage = Number((p.damage && p.damage.powertrain_damage_pct) || 0);
+  const bodyDamage = (p.damage || {}).body_damage_pct;
+  const powertrainDamage = (p.damage || {}).powertrain_damage_pct;
+  const damageKnown = Number.isFinite(bodyDamage) && Number.isFinite(powertrainDamage);
   const damageScore = Math.max(bodyDamage, powertrainDamage);
-  const topLampColor = damageScore >= 55 ? '#ff4343' : damageScore >= 18 ? '#ff9b3a' : '#7aff5d';
+  const topLampColor = !damageKnown ? '#777' : damageScore >= 55 ? '#ff4343' : damageScore >= 18 ? '#ff9b3a' : '#7aff5d';
   const topLampBlink = damageScore >= 55 ? 0.7 + Math.abs(Math.sin(Date.now() / 130)) * 0.3 : 1;
   const primaryAction = (p.strategy && p.strategy.primary_action) || 'NONE';
   const mainStatus = ((p.strategy && p.strategy.title) || 'Standby').toUpperCase();
@@ -944,18 +1181,206 @@ function formatGap(value) {
 
 function renderMeta() {
   const p = state.current || demoPayload;
+  const voice = p.voice || demoPayload.voice;
+  const voiceState = voice.state || 'idle';
+  const voiceAction = voice.action_code || '-';
+  const bootLine = state.boot && state.boot.active
+    ? `<div>Boot: ${Math.round((state.boot.progress || 0) * 100)}%</div>`
+    : '';
   meta.innerHTML = `
     <div>Track: ${p.session.track}</div>
     <div>Lap: ${p.session.lap_number} / ${p.session.total_laps}</div>
     <div>Pos: P${p.session.position}</div>
     <div>Strategy: ${p.strategy.primary_action}</div>
     <div>Weather: ${p.session.weather ?? '-'}</div>
+    <div>Voice: ${voiceState.toUpperCase()} / ${voiceAction}</div>
+    ${bootLine}
     <div>Feed Ts: ${p.timestamp_ms || 0}</div>
-    <div>Temps: ${(p.tyres.surface_temperature_c || []).join(' / ') || '-'}</div>
+    <div>Temps: ${(p.tyres.surface_temperature_c || []).map(value => value ?? '-').join(' / ') || '-'}</div>
     <div>Damage: body ${p.damage.body_damage_pct ?? '-'} / power ${p.damage.powertrain_damage_pct ?? '-'}</div>
   `;
+  const grid = p.strategy.starting_grid;
+  if (grid) {
+    for (const [stops, route] of Object.entries(grid.routes)) {
+      const line = document.createElement('div');
+      line.textContent = `${stops} 停　${route.stints.map(s => s.compound + ' × ' + s.laps + '圈').join(' → ')}`;
+      meta.appendChild(line);
+    }
+    if (grid.if_start_can_change) {
+      const free = grid.if_start_can_change;
+      for (const [stops, route] of Object.entries(free.routes)) {
+        if (grid.routes[stops]?.stints[0].compound === route.stints[0].compound) continue;
+        const line = document.createElement('div');
+        line.textContent = `可重选起步胎 · ${stops} 停　${route.stints.map(s => s.compound + ' × ' + s.laps + '圈').join(' → ')}`;
+        meta.appendChild(line);
+      }
+    }
+    if (Number.isFinite(grid.one_two_break_even_s)) {
+      const line = document.createElement('div');
+      line.textContent = grid.one_two_break_even_s > 0
+        ? `保持起步胎 · 两停回本上限 ${grid.one_two_break_even_s.toFixed(2)} 秒（当前天气持续）`
+        : '保持起步胎 · 额外停车代价为正时，一停快于两停';
+      meta.appendChild(line);
+    }
+  }
 }
 
+function renderVoiceIndicator() {
+  const p = state.current || demoPayload;
+  const voice = p.voice || demoPayload.voice;
+  const hasAudioMeter = voice.amplitude_playback_active === true;
+  const hasVisibleAudioEnergy = hasAudioMeter && (
+    Number(voice.amplitude_level || 0) >= 0.11
+    || Number(voice.amplitude_peak || 0) >= 0.16
+    || state.voiceBeatPulseLevel >= 0.16
+  );
+  const stateName = hasVisibleAudioEnergy ? 'active' : (voice.pending ? 'pending' : 'idle');
+  if (state.boot && state.boot.active) {
+    voiceIndicatorEl.classList.remove('active', 'pending', 'idle');
+    voiceIndicatorEl.classList.remove('audio-reactive');
+    voiceIndicatorEl.classList.add('boot');
+    voiceLabelEl.textContent = 'VOICE CHECK';
+    voiceDetailEl.textContent = `boot ${(Math.max(0, Math.min(1, state.boot.progress || 0)) * 100).toFixed(0)}%`;
+    voiceIndicatorEl.title = 'voice self-test active';
+    resetVoiceMeterStyles();
+    return;
+  }
+
+  const stateClass = ['active', 'pending'].includes(stateName) ? stateName : 'idle';
+  const actionCode = voice.action_code || '';
+  const sourceKind = voice.source_kind || '';
+  const llmStatus = voice.llm_sidecar_status || '';
+
+  voiceIndicatorEl.classList.remove('boot', 'active', 'pending', 'idle');
+  voiceIndicatorEl.classList.add(stateClass);
+
+  if (stateClass === 'active') {
+    const meterLevel = clamp01(Math.max(state.voiceMeterLevel, state.voiceMeterPeakLevel * 0.2));
+    if (hasVisibleAudioEnergy) {
+      voiceIndicatorEl.classList.add('audio-reactive');
+      applyVoiceMeter(meterLevel);
+    } else {
+      voiceIndicatorEl.classList.remove('audio-reactive');
+      resetVoiceMeterStyles();
+    }
+    voiceLabelEl.textContent = 'VOICE LIVE';
+    voiceDetailEl.textContent = actionCode || sourceKind || 'output active';
+    voiceIndicatorEl.title = sourceKind ? `source=${sourceKind}` : 'voice output active';
+    return;
+  }
+
+  voiceIndicatorEl.classList.remove('audio-reactive');
+  resetVoiceMeterStyles();
+  if (stateClass === 'pending') {
+    voiceLabelEl.textContent = 'VOICE QUEUED';
+    voiceDetailEl.textContent = actionCode || sourceKind || 'output queued';
+    voiceIndicatorEl.title = sourceKind ? `source=${sourceKind}` : 'voice output queued';
+    return;
+  }
+
+  voiceLabelEl.textContent = 'VOICE IDLE';
+  voiceDetailEl.textContent = llmStatus || 'standby';
+  voiceIndicatorEl.title = 'voice output idle';
+}
+
+function applyVoiceMeter(level) {
+  const shaped = 0.08 + Math.pow(clamp01(level), 0.48) * 0.92;
+  const stepped = shaped * (voiceLedGroups.length + 0.55);
+  const solidCount = Math.floor(stepped);
+  const fractional = clamp01(stepped - solidCount);
+  const beatPulse = clamp01(state.voiceBeatPulseLevel);
+  const beatElapsedMs = state.voiceBeatTriggeredAtMs > 0 ? Date.now() - state.voiceBeatTriggeredAtMs : 9999;
+  const beatProgress = clamp01(beatElapsedMs / 280);
+  const beatHead = beatProgress * (voiceLedGroups.length - 0.15);
+  voiceLedGroups.forEach((group, index) => {
+    let local = 0;
+    if (index < solidCount) {
+      local = 1;
+    } else if (index === solidCount) {
+      local = 0.22 + fractional * 0.78;
+    } else if (index === solidCount + 1 && fractional > 0.62) {
+      local = 0.16 + (fractional - 0.62) * 0.9;
+    }
+    let beatBoost = 0;
+    if (beatPulse > 0.01) {
+      const distance = Math.abs(index - beatHead);
+      if (distance < 0.95) {
+        beatBoost = (1 - distance / 0.95) * beatPulse;
+      }
+    }
+    const ringBias = 1 - index / Math.max(voiceLedGroups.length - 1, 1);
+    const combined = clamp01(local + beatBoost * 0.95);
+    const opacity = 0.08 + combined * (0.84 + ringBias * 0.08);
+    const blurPx = 7 + combined * (18 + ringBias * 8);
+    const glowAlpha = 0.18 + combined * (0.7 + ringBias * 0.1);
+    const baseFill = combined > 0.02 ? '#ff474b' : '#541015';
+    group.forEach((el) => {
+      el.style.opacity = opacity.toFixed(3);
+      el.style.fill = baseFill;
+      el.style.filter = combined > 0.03
+        ? `drop-shadow(0 0 ${blurPx.toFixed(1)}px rgba(255, 78, 82, ${glowAlpha.toFixed(3)}))`
+        : 'none';
+    });
+  });
+  const coreLevel = 0.68 + shaped * 0.32;
+  voiceCoreDotEls.forEach((el) => {
+    el.style.opacity = coreLevel.toFixed(3);
+    el.style.fill = `rgba(143, 255, 104, ${(0.72 + shaped * 0.24).toFixed(3)})`;
+    el.style.filter = `drop-shadow(0 0 ${(14 + shaped * 20).toFixed(1)}px rgba(143, 255, 104, ${(0.44 + shaped * 0.36).toFixed(3)}))`;
+  });
+}
+
+function resetVoiceMeterStyles() {
+  voiceLedGroups.flat().forEach((el) => {
+    el.style.opacity = '';
+    el.style.fill = '';
+    el.style.filter = '';
+  });
+  voiceCoreDotEls.forEach((el) => {
+    el.style.opacity = '';
+    el.style.fill = '';
+    el.style.filter = '';
+  });
+}
+
+function drawBootOverlay() {
+  if (!state.boot || !state.boot.active) {
+    return;
+  }
+  const progress = Math.max(0, Math.min(1, state.boot.progress || 0));
+  const width = 320;
+  const height = 88;
+  const x = 600 - width / 2;
+  const y = 126;
+  const alpha = 0.7 + (1 - progress) * 0.25;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(5, 8, 20, 0.88)';
+  ctx.strokeStyle = 'rgba(245, 240, 224, 0.42)';
+  ctx.lineWidth = 2;
+  roundRect(ctx, x, y, width, height, 14, true, true);
+
+  ctx.fillStyle = '#f7f1dc';
+  ctx.font = 'bold 24px Helvetica Neue';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('SYSTEM CHECK', 600, y + 26);
+
+  ctx.fillStyle = '#b5ff71';
+  ctx.font = '14px Helvetica Neue';
+  ctx.fillText(`BOOT ${(progress * 100).toFixed(0)}%`, 600, y + 50);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  roundRect(ctx, x + 28, y + 60, width - 56, 10, 5, true, false);
+  ctx.fillStyle = '#8eff64';
+  roundRect(ctx, x + 28, y + 60, (width - 56) * progress, 10, 5, true, false);
+  ctx.restore();
+}
+
+connectDashboardSocket();
 pollLatest();
+startBootSequence();
 renderMeta();
+renderVoiceIndicator();
 draw();

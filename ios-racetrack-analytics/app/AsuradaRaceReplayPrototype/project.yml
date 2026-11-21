@@ -1,0 +1,100 @@
+name: AsuradaRaceReplayPrototype
+
+options:
+  bundleIdPrefix: com.asurada
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  xcodeVersion: "26.0"
+
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: com.asurada.AsuradaRaceReplayPrototype
+    PRODUCT_NAME: AsuradaRaceReplayPrototype
+    SWIFT_VERSION: "6.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+
+targets:
+  AsuradaRaceReplayPrototype:
+    type: application
+    platform: iOS
+    info:
+      path: AppInfo.plist
+      properties:
+        CFBundleDisplayName: Asurada
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UILaunchScreen: {}
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
+        NSLocationWhenInUseUsageDescription: Telemetry replay can use location-aware track data for future session import features.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    sources:
+      - path: .
+        excludes:
+          - AsuradaRaceReplayPrototype.xcodeproj
+          - README.md
+          - project.yml
+          - scripts
+          - AsuradaRaceDamageWidget
+          - AppInfo.plist
+    dependencies:
+      - sdk: Charts.framework
+      - sdk: AVFoundation.framework
+      - sdk: SwiftData.framework
+      - target: AsuradaRaceDamageWidgetExtension
+        embed: true
+        codeSign: true
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+
+  AsuradaRaceDamageWidgetExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: AsuradaRaceDamageWidget
+      - path: Shared
+    dependencies:
+      - sdk: ActivityKit.framework
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    info:
+      path: AsuradaRaceDamageWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Asurada Damage
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.asurada.AsuradaRaceReplayPrototype.RaceDamageWidget
+        PRODUCT_NAME: AsuradaRaceDamageWidgetExtension
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+
+schemes:
+  AsuradaRaceReplayPrototype:
+    build:
+      targets:
+        AsuradaRaceReplayPrototype: all
+        AsuradaRaceDamageWidgetExtension: all
+    run:
+      config: Debug
+    archive:
+      config: Release

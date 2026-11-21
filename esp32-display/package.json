@@ -1,0 +1,1 @@
+{"name":"asurada-network-display","private":true,"type":"module","dependencies":{"playwright":"1.58.2"},"scripts":{"start":"node stream.mjs"}}
