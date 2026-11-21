@@ -1,0 +1,70 @@
+name: Regression contracts
+
+on:
+  pull_request:
+    paths:
+      - 'asurada-core/**'
+      - 'live-dashboard/**'
+      - 'tools/**'
+      - '.github/workflows/regressions.yml'
+  push:
+    branches: [main, master]
+    paths:
+      - 'asurada-core/**'
+      - 'live-dashboard/**'
+      - 'tools/**'
+      - '.github/workflows/regressions.yml'
+  schedule:
+    - cron: '23 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regressions-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: '3.9'
+          - os: macos-latest
+            python: '3.11'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: asurada-core
+    env:
+      OMP_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: asurada-core/pyproject.toml
+      - name: Install macOS model runtime
+        if: runner.os == 'macOS'
+        run: brew install libomp
+      - name: Install test and optional contract dependencies
+        run: python -m pip install -e '.[dev,training,http-voice,dashboard,realtime-asr]'
+      - name: Critical PR contracts
+        if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
+        run: python -m pytest -n 2 tests/ --regression-suite critical --regression-output runtime_logs/ci --junitxml runtime_logs/ci/junit.xml
+      - name: Complete discovered contracts
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: python -m pytest -n 2 tests/ --regression-suite contracts --regression-timeout 300 --regression-output runtime_logs/ci --junitxml runtime_logs/ci/junit.xml
+      - name: Preserve assertions and subprocess output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contracts-${{ matrix.os }}-py${{ matrix.python }}
+          path: asurada-core/runtime_logs/ci/
+          retention-days: 14

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(PROJECT_ROOT / "src"))
+from asurada.training_partition import session_partitions
 DEFAULT_DATASET = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "tactical_features_v1.csv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "training" / "reports" / "counterattack_window_baseline"
 
@@ -41,7 +44,6 @@ def main() -> int:
         import lightgbm as lgb  # type: ignore
         import pandas as pd  # type: ignore
         from sklearn.metrics import classification_report, confusion_matrix  # type: ignore
-        from sklearn.model_selection import train_test_split  # type: ignore
     except ModuleNotFoundError as exc:
         missing = exc.name or "required dependency"
         raise SystemExit(
@@ -49,7 +51,7 @@ def main() -> int:
         )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    df = pd.read_csv(args.dataset)
+    df = pd.read_csv(args.dataset, dtype={"session_uid": str})
     if df.empty:
         raise SystemExit("No tactical rows available for training.")
 
@@ -99,9 +101,8 @@ def main() -> int:
     for column in categorical_features:
         df[column] = df[column].fillna("UNKNOWN").astype("category")
 
-    train_df = df[df["split"] == "train"].copy()
-    val_df = df[df["split"] == "val"].copy()
-    test_df = df[df["split"] == "test"].copy()
+    generated_holdout_val = not (df["split"] == "val").any()
+    train_df, val_df, test_df, partition_manifest = session_partitions(df)
 
     split_positive_counts = {
         "train": int((train_df[target_column] == 1).sum()),
@@ -127,6 +128,7 @@ def main() -> int:
             "dataset": str(args.dataset),
             "target": target_column,
             "status": "blocked_insufficient_positive_samples",
+            "partition": partition_manifest,
             "rows": split_counts,
             "positive_rows": split_positive_counts,
             "required_positive_rows": {
@@ -145,24 +147,6 @@ def main() -> int:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
-    generated_holdout_val = False
-    generated_holdout_test = False
-    if val_df.empty:
-        generated_holdout_val = True
-        train_df, val_df = train_test_split(
-            train_df,
-            test_size=0.2,
-            random_state=42,
-            stratify=train_df[target_column],
-        )
-    if test_df.empty:
-        generated_holdout_test = True
-        train_df, test_df = train_test_split(
-            train_df,
-            test_size=0.2,
-            random_state=42,
-            stratify=train_df[target_column],
-        )
 
     feature_columns = numeric_features + categorical_features
     negative_count = max(1, int((train_df[target_column] == 0).sum()))
@@ -225,12 +209,13 @@ def main() -> int:
         "positive_rows": split_positive_counts,
         "features": feature_columns,
         "best_iteration": int(best_iteration),
-        "validation_source": "train_holdout_split" if generated_holdout_val else "exported_val_split",
-        "test_source": "train_holdout_split" if generated_holdout_test else "exported_test_split",
+        "validation_source": "whole_session_holdout" if generated_holdout_val else "exported_session_split",
+        "partition": partition_manifest,
+        "test_source": "exported_session_split",
         "classification_report": report,
         "confusion_matrix": confusion,
         "top_feature_importance": importance[:20],
-        "model_path": str(model_path),
+        "model_path": model_path.name,
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))

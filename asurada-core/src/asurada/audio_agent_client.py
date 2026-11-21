@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from .playback_control import PlaybackControl, PlaybackCancelled
+
+from contextlib import closing, contextmanager
+from .task_runtime import TaskContext, TaskCancelled
+from .cancellable_http import iter_http_lines, HttpStatusError
 import base64
 from dataclasses import dataclass
 import json
@@ -40,16 +45,27 @@ from .voice_sidecar_protocol import (
     parse_tts_stream_start_envelope,
 )
 from .voice_meter import VoiceMeterWriter
+from .tts_stream_validation import TtsStreamValidator
 
 
 class VoiceSidecarClientError(RuntimeError):
     pass
 
 
+@contextmanager
+def _client_tts_lines(*args, **kwargs):
+    try:
+        with closing(iter_http_lines(*args, **kwargs)) as lines:
+            yield lines
+    except HttpStatusError as exc:
+        raise VoiceSidecarClientError(str(exc)) from exc
+
+
 @dataclass(frozen=True)
 class VoiceSidecarClientConfig:
     base_url: str
     timeout_ms: int = 2_500
+    playback_timeout_ms: int = 60_000
 
 
 @dataclass(frozen=True)
@@ -89,6 +105,7 @@ class _VoiceMeterPlaybackStreamer:
         self.startup_delay_ms = max(int(startup_delay_ms), 0)
         self._queue: queue.Queue[tuple[int, int, dict[str, Any]] | None] = queue.Queue()
         self._thread = threading.Thread(target=self._run, name="voice-meter-streamer", daemon=True)
+        self._aborted = threading.Event()
         self._started = False
         self._prev_level = 0.0
 
@@ -126,15 +143,22 @@ class _VoiceMeterPlaybackStreamer:
         self._thread.join(timeout=5.0)
         self.writer.clear(metadata=metadata)
 
+    def abort(self) -> None:
+        self._aborted.set()
+        self._queue.put(None)
+        self._thread.join(timeout=.2)
+        self.writer.clear(metadata={"reason":"playback_cancelled"})
+
     def _run(self) -> None:
         first_window = True
         while True:
             item = self._queue.get()
-            if item is None:
+            if item is None or self._aborted.is_set():
                 return
             rms, duration_ms, metadata = item
             if first_window and self.startup_delay_ms > 0:
-                time.sleep(self.startup_delay_ms / 1000.0)
+                if self._aborted.wait(self.startup_delay_ms / 1000.0):
+                    return
                 first_window = False
             level = _rms_to_level(rms)
             beat_pulse = _detect_onset(level=level, prev_level=self._prev_level)
@@ -149,7 +173,8 @@ class _VoiceMeterPlaybackStreamer:
                 metadata=metadata,
                 force=True,
             )
-            time.sleep(max(duration_ms, 1) / 1000.0)
+            if self._aborted.wait(max(duration_ms, 1) / 1000.0):
+                return
 
 
 class VoiceSidecarClient:
@@ -161,7 +186,9 @@ class VoiceSidecarClient:
     def from_env(cls) -> "VoiceSidecarClient":
         base_url = str(os.getenv("ASURADA_VOICE_SIDECAR_BASE_URL") or "http://127.0.0.1:8788").strip()
         timeout_ms = int(os.getenv("ASURADA_VOICE_SIDECAR_TIMEOUT_MS") or "2500")
-        return cls(VoiceSidecarClientConfig(base_url=base_url.rstrip("/"), timeout_ms=max(timeout_ms, 1)))
+        playback_timeout_ms = int(os.getenv("ASURADA_VOICE_SIDECAR_PLAYBACK_TIMEOUT_MS") or "60000")
+        return cls(VoiceSidecarClientConfig(base_url=base_url.rstrip("/"), timeout_ms=max(timeout_ms, 1),
+                                          playback_timeout_ms=max(playback_timeout_ms, 1)))
 
     def healthz(self) -> VoiceSidecarHealth:
         payload = self._request_json("GET", "/healthz", None, timeout_ms=self.config.timeout_ms)
@@ -174,30 +201,34 @@ class VoiceSidecarClient:
             metadata=dict(body.get("metadata") or {}),
         )
 
-    def explain(self, *, request: LlmExplainerRequest, timeout_ms: int | None = None) -> LlmExplainerResult:
+    def explain(self, *, request: LlmExplainerRequest, timeout_ms: int | None = None, context=None) -> LlmExplainerResult:
         payload = self._request_json(
             "POST",
             "/v1/explainer",
             build_explainer_request_envelope(request).to_dict(),
             timeout_ms=timeout_ms or request.timeout_ms or self.config.timeout_ms,
+            context=context,
         )
         return parse_explainer_result_envelope(payload)
 
-    def transcribe_asr(self, *, request: AsrTranscribeRequest, timeout_ms: int | None = None) -> AsrTranscribeResponse:
+    def transcribe_asr(self, *, request: AsrTranscribeRequest, timeout_ms: int | None = None, context=None) -> AsrTranscribeResponse:
         payload = self._request_json(
             "POST",
             "/v1/asr/transcribe",
             build_asr_transcribe_request_envelope(request).to_dict(),
             timeout_ms=timeout_ms or self.config.timeout_ms,
+            context=context,
         )
         return parse_asr_transcribe_response_envelope(payload)
 
-    def render_tts(self, *, request: TtsRenderRequest, timeout_ms: int | None = None) -> TtsRenderResponse:
+    def render_tts(self, *, request: TtsRenderRequest, timeout_ms: int | None = None, context=None) -> TtsRenderResponse:
+        context = context or TaskContext.start("tts-render", timeout_ms or self.config.timeout_ms)
         payload = self._request_json(
             "POST",
             "/v1/tts/render",
             build_tts_render_request_envelope(request).to_dict(),
             timeout_ms=timeout_ms or self.config.timeout_ms,
+            context=context,
         )
         return parse_tts_render_response_envelope(payload)
 
@@ -206,24 +237,39 @@ class VoiceSidecarClient:
         *,
         request: TtsRenderRequest,
         timeout_ms: int | None = None,
+        cancellation: PlaybackControl | None = None,
     ) -> AudioPlaybackResult:
-        return self.play_streamed_tts(request=request, timeout_ms=timeout_ms)
+        return self.play_streamed_tts(request=request, timeout_ms=timeout_ms, cancellation=cancellation)
 
     def play_streamed_tts(
         self,
         *,
         request: TtsRenderRequest,
         timeout_ms: int | None = None,
+        cancellation: PlaybackControl | None = None,
     ) -> AudioPlaybackResult:
-        req = urllib_request.Request(
-            url=f"{self.config.base_url}/v1/tts/stream",
-            data=json.dumps(build_tts_render_request_envelope(request).to_dict(), ensure_ascii=False).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        timeout_s = max(float(timeout_ms or self.config.timeout_ms), 1.0) / 1000.0
+        cancellation = cancellation or PlaybackControl()
+        cancellation.check()
+        meter_streamer = None
+        budget = timeout_ms if timeout_ms is not None else self.config.playback_timeout_ms
+        if isinstance(budget, bool) or budget <= 0:
+            raise ValueError('invalid_playback_budget')
+        context = TaskContext('tts-playback', time.monotonic()+budget/1000, cancellation.event)
+        finished = threading.Event()
+        def expire_playback():
+            while not finished.wait(.02):
+                try: context.remaining()
+                except (TaskCancelled, TimeoutError):
+                    cancellation.cancel()
+                    return
+        watcher = threading.Thread(target=expire_playback, daemon=True, name='tts-playback-deadline')
+        watcher.start()
         try:
-            with urllib_request.urlopen(req, timeout=timeout_s) as response:
+            with _client_tts_lines(f'{self.config.base_url}/v1/tts/stream',
+                    body=build_tts_render_request_envelope(request).to_dict(), headers={}, context=context,
+                    propagate_budget=True, trust_env=False,
+                    connect_timeout_s=self.config.timeout_ms/1000,
+                    read_timeout_s=self.config.timeout_ms/1000) as response:
                 start: TtsStreamStart | None = None
                 end: TtsStreamEnd | None = None
                 chunks: list[bytes] = []
@@ -235,11 +281,14 @@ class VoiceSidecarClient:
                 meter_streamer: _VoiceMeterPlaybackStreamer | None = None
                 stream_preroll_ms = 0
 
+                validator = TtsStreamValidator()
                 for raw_line in response:
+                    cancellation.check()
                     line = raw_line.decode("utf-8").strip()
                     if not line:
                         continue
                     payload = json.loads(line)
+                    validator.accept(payload)
                     message_type = str(payload.get("message_type") or "")
                     if message_type == "tts_stream_start":
                         start = parse_tts_stream_start_envelope(payload)
@@ -274,6 +323,7 @@ class VoiceSidecarClient:
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL,
                             )
+                            cancellation.attach_player(stream_proc)
                             preroll = _build_stream_preroll_bytes(
                                 audio_format=start.audio_format,
                                 sample_rate_hz=start.sample_rate_hz,
@@ -338,6 +388,8 @@ class VoiceSidecarClient:
                     elif message_type == "tts_stream_end":
                         end = parse_tts_stream_end_envelope(payload)
 
+                cancellation.check()
+                validator.finish()
                 if start is None or end is None:
                     raise VoiceSidecarClientError("voice_sidecar_stream_incomplete")
 
@@ -347,6 +399,7 @@ class VoiceSidecarClient:
                     except BrokenPipeError:
                         stream_failed = True
                     return_code = stream_proc.wait()
+                    cancellation.check()
                     if return_code != 0:
                         stream_failed = True
 
@@ -385,7 +438,7 @@ class VoiceSidecarClient:
                     )
 
                 buffered = self._build_stream_response(start=start, end=end, chunks=chunks)
-                playback = self.play_rendered_tts(response=buffered)
+                playback = self.play_rendered_tts(response=buffered, cancellation=cancellation)
                 if meter_streamer is not None:
                     meter_streamer.finish(
                         metadata={
@@ -410,6 +463,10 @@ class VoiceSidecarClient:
                         "playback_mode": "buffered_fallback",
                     },
                 )
+        except (TaskCancelled, TimeoutError) as exc:
+            cancellation.cancel()
+            self.voice_meter.clear(metadata={"reason": "stream_cancelled_or_expired"})
+            raise PlaybackCancelled('playback_cancelled_or_expired') from exc
         except urllib_error.HTTPError as exc:
             self.voice_meter.clear(metadata={"reason": "stream_http_error"})
             detail = exc.read().decode("utf-8", errors="replace")
@@ -421,59 +478,64 @@ class VoiceSidecarClient:
             self.voice_meter.clear(metadata={"reason": "stream_unknown_error"})
             raise
 
+        finally:
+            finished.set(); watcher.join(timeout=.2)
+            cancellation.cleanup_players()
+            if meter_streamer is not None and meter_streamer._thread.is_alive():
+                meter_streamer.abort()
+
     def stream_tts(
         self,
         *,
         request: TtsRenderRequest,
         timeout_ms: int | None = None,
+        context=None,
     ) -> tuple[TtsStreamStart, list[TtsAudioFrame], TtsStreamEnd]:
-        req = urllib_request.Request(
-            url=f"{self.config.base_url}/v1/tts/stream",
-            data=json.dumps(build_tts_render_request_envelope(request).to_dict(), ensure_ascii=False).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        timeout_s = max(float(timeout_ms or self.config.timeout_ms), 1.0) / 1000.0
-        try:
-            with urllib_request.urlopen(req, timeout=timeout_s) as response:
-                start: TtsStreamStart | None = None
-                frames: list[TtsAudioFrame] = []
-                end: TtsStreamEnd | None = None
-                for raw_line in response:
-                    line = raw_line.decode("utf-8").strip()
-                    if not line:
-                        continue
-                    payload = json.loads(line)
-                    message_type = str(payload.get("message_type") or "")
-                    if message_type == "tts_stream_start":
-                        start = parse_tts_stream_start_envelope(payload)
-                    elif message_type == "tts_audio_frame":
-                        frames.append(parse_tts_audio_frame_envelope(payload))
-                    elif message_type == "tts_stream_end":
-                        end = parse_tts_stream_end_envelope(payload)
-                if start is None or end is None:
-                    raise VoiceSidecarClientError("voice_sidecar_stream_incomplete")
-                return start, frames, end
-        except urllib_error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise VoiceSidecarClientError(f"voice_sidecar_stream_http_error:{exc.code}:{detail}") from exc
-        except urllib_error.URLError as exc:
-            raise VoiceSidecarClientError(f"voice_sidecar_stream_network_error:{exc.reason}") from exc
+        budget = timeout_ms or self.config.timeout_ms
+        parent = context or TaskContext.start('tts-stream', budget)
+        context = TaskContext(parent.task_id, min(parent.deadline, time.monotonic()+budget/1000), parent.cancellation)
+        with _client_tts_lines(f'{self.config.base_url}/v1/tts/stream',
+            body=build_tts_render_request_envelope(request).to_dict(), headers={}, context=context,
+            propagate_budget=True, trust_env=False) as response:
+            start: TtsStreamStart | None = None
+            frames: list[TtsAudioFrame] = []
+            end: TtsStreamEnd | None = None
+            validator = TtsStreamValidator()
+            for raw_line in response:
+                line = raw_line.decode("utf-8").strip()
+                if not line:
+                    continue
+                payload = json.loads(line)
+                validator.accept(payload)
+                message_type = str(payload.get("message_type") or "")
+                if message_type == "tts_stream_start":
+                    start = parse_tts_stream_start_envelope(payload)
+                elif message_type == "tts_audio_frame":
+                    frames.append(parse_tts_audio_frame_envelope(payload))
+                elif message_type == "tts_stream_end":
+                    end = parse_tts_stream_end_envelope(payload)
+            validator.finish()
+            if start is None or end is None:
+                raise VoiceSidecarClientError("voice_sidecar_stream_incomplete")
+            return start, frames, end
 
     def collect_streamed_tts(
         self,
         *,
         request: TtsRenderRequest,
         timeout_ms: int | None = None,
+        context=None,
     ) -> TtsRenderResponse:
-        start, frames, end = self.stream_tts(request=request, timeout_ms=timeout_ms)
+        start, frames, end = self.stream_tts(request=request, timeout_ms=timeout_ms, context=context)
         return self._build_stream_response(
             start=start,
             end=end,
             chunks=[base64.b64decode(frame.audio_base64) for frame in frames],
         )
 
-    def play_rendered_tts(self, *, response: TtsRenderResponse) -> AudioPlaybackResult:
+    def play_rendered_tts(self, *, response: TtsRenderResponse, cancellation: PlaybackControl | None = None) -> AudioPlaybackResult:
+        cancellation = cancellation or PlaybackControl()
+        cancellation.check()
         if response.status != "completed" or not response.audio_base64:
             self.voice_meter.clear(metadata={"reason": "tts_not_playable"})
             return AudioPlaybackResult(
@@ -513,13 +575,17 @@ class VoiceSidecarClient:
             audio_path = Path(tmpdir) / f"sidecar_tts{suffix}"
             audio_path.write_bytes(audio_bytes)
             try:
-                subprocess.run(
+                player = subprocess.Popen(
                     [player_binary, *player_args, str(audio_path)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    check=True,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
+                cancellation.attach_player(player)
+                code = player.wait()
+                cancellation.check()
+                if code:
+                    raise subprocess.CalledProcessError(code, player.args)
             finally:
+                cancellation.cleanup_players()
                 self.voice_meter.clear(metadata={"player_binary": player_binary, "playback_mode": "buffered"})
         return AudioPlaybackResult(
             status="played",
@@ -557,7 +623,15 @@ class VoiceSidecarClient:
         body: dict[str, Any] | None,
         *,
         timeout_ms: int,
+        context=None,
     ) -> dict[str, Any]:
+        if context is not None:
+            from .cancellable_http import request_json, HttpStatusError
+            try:
+                return request_json(f'{self.config.base_url}{path}',method=method,body=body,
+                                    context=context,timeout_ms=timeout_ms)
+            except HttpStatusError as exc:
+                raise VoiceSidecarClientError(str(exc)) from exc
         data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
         req = urllib_request.Request(
             url=f"{self.config.base_url}{path}",

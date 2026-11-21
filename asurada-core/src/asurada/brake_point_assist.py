@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .paths import RUNTIME_ROOT
+
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -249,7 +251,7 @@ class BrakePointAssistController:
         raw_value = os.getenv("ASURADA_BRAKE_POINT_ASSIST_STATE_PATH")
         if raw_value:
             return Path(raw_value).expanduser().resolve()
-        return Path(__file__).resolve().parents[2] / "runtime_logs" / "brake_point_assist_state.json"
+        return RUNTIME_ROOT / "brake_point_assist_state.json"
 
     def _load_state(self) -> None:
         path = self._state_path

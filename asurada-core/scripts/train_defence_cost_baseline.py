@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import math
 from dataclasses import dataclass
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(PROJECT_ROOT / "src"))
+from asurada.training_join import join_training_labels
+from asurada.training_partition import session_partitions, exported_row_split, validate_session_frame
+from asurada.training_provenance import training_provenance
 DEFAULT_FEATURES = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "features.csv"
 DEFAULT_LABELS = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "labels.csv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "training" / "reports" / "defence_cost_baseline"
@@ -88,13 +93,11 @@ def main() -> int:
 
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    features_df = pd.read_csv(args.features, low_memory=False)
-    labels_df = pd.read_csv(args.labels, low_memory=False)
-    merged = features_df.merge(
-        labels_df[["record_id", "primary_action_label"]],
-        on="record_id",
-        how="inner",
-    )
+    provenance = training_provenance(args.features, args.labels)
+    features_df = pd.read_csv(args.features, low_memory=False, dtype={"session_uid":str})
+    features_df = validate_session_frame(features_df)
+    labels_df = pd.read_csv(args.labels, low_memory=False, dtype={"session_uid":str})
+    merged,join_manifest = join_training_labels(features_df,labels_df,targets=["primary_action_label"])
 
     merged = filter_tactical_rows(merged)
     if merged.empty:
@@ -110,9 +113,7 @@ def main() -> int:
         if column in merged.columns:
             merged[column] = merged[column].fillna("UNKNOWN").astype("category")
 
-    train_df = merged[merged["split"] == "train"].copy()
-    val_df = merged[merged["split"] == "val"].copy()
-    test_df = merged[merged["split"] == "test"].copy()
+    train_df, val_df, test_df, partition_manifest = session_partitions(merged, split_column="split")
     if train_df.empty or val_df.empty or test_df.empty:
         raise SystemExit("defence_cost baseline requires deterministic train/val/test rows.")
 
@@ -166,6 +167,10 @@ def main() -> int:
 
     model_path = args.output_dir / "defence_cost_model_baseline.txt"
     report = {
+        "training_provenance": provenance,
+        "context_window_version": provenance.get('context_window_version'),
+        "label_provenance": {'kind': 'formula_proxy', 'human_validated': False},
+        "label_join": join_manifest,
         "model": MODEL_SPEC.name,
         "target": MODEL_SPEC.target,
         "label_source": "defence_cost_proxy_recomputed_from_features",
@@ -173,8 +178,9 @@ def main() -> int:
         "features_path": str(args.features),
         "labels_path": str(args.labels),
         "filter": "official_preferred race-like tactical rows",
-        "validation_source": "exported_val_split",
-        "test_source": "exported_test_split",
+        "validation_source": "whole_session_partition",
+        "partition": partition_manifest,
+        "test_source": "exported_session_split",
         "train_rows": int(len(train_df)),
         "val_rows": int(len(val_df)),
         "test_rows": int(len(test_df)),
@@ -186,7 +192,7 @@ def main() -> int:
         "top_feature_importance": importance_df.to_dict(orient="records"),
         "top_features": importance_df.to_dict(orient="records"),
         "feature_columns": feature_columns,
-        "model_path": str(model_path),
+        "model_path": model_path.name,
     }
 
     model.booster_.save_model(str(model_path))
@@ -208,13 +214,7 @@ def filter_tactical_rows(df):
 
 
 def derive_defence_cost_split(row) -> str:
-    session_type = str(row.get("session_type") or "")
-    lap_number = int(row.get("lap_number") or 0)
-    if "FeatureRaceLike" in session_type:
-        return "test"
-    if "SprintRaceLike" in session_type and lap_number == 2:
-        return "val"
-    return "train"
+    return exported_row_split(row)
 
 
 def compute_defence_cost_target(row) -> float:

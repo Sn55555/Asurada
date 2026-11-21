@@ -1,0 +1,45 @@
+{
+  "critical": [
+    "regression_contract_regression",
+    "regression_runner_regression",
+    "source_file_size_regression",
+    "snapshot_contract_regression",
+    "session_lifecycle_regression",
+    "task_runtime_regression",
+    "capability_voice_deadline_regression",
+    "domain_assessment_regression",
+    "model_admission_regression",
+    "fuel_live_acceptance_regression",
+    "capability_executor_regression",
+    "capability_output_contract_regression",
+    "workflow_store_regression",
+    "workflow_cancellation_regression",
+    "training_partition_regression",
+    "training_plans_regression",
+    "review_finish_transition_regression",
+    "session_packet_layout_regression",
+    "dashboard_source_contract_regression",
+    "dashboard_shutdown_regression",
+    "speech_session_regression",
+    "speech_submission_regression",
+    "voice_loop_recovery_regression",
+    "http_asr_cancellation_regression",
+    "sidecar_stream_lifecycle_regression",
+    "phase3_voice_sidecar_server_regression"
+  ],
+  "serial": {
+    "model_encoding_regression": "Loads 28 real model runtimes and scans external captures when present; reserve the process/memory budget.",
+    "phase1_regression": "External full-capture replay is expensive and outside the self-contained contracts suite.",
+    "phase3_voice_sidecar_server_regression": "Legacy HTTP fixture binds fixed TCP port 18788.",
+    "phase3_voice_sidecar_stream_regression": "Legacy HTTP fixture binds fixed TCP port 18790.",
+    "phase3_voice_sidecar_realtime_asr_regression": "Legacy fixtures bind fixed TCP ports 18798 and 18799.",
+    "sidecar_asr_execution_regression": "Short real-clock deadline fixture must run without suite CPU contention.",
+    "phase3_piper_backend_regression": "Fake Piper/player subprocess completion has a four-second assertion window; isolate from xdist CPU contention.",
+    "regression_runner_regression": "Spawns nested runner fixtures with timing and process-group assertions."
+  },
+  "serial_name_contains": {
+    "model_encoding": "Real model parity loads many runtimes; reserve the process and memory budget.",
+    "cancellation": "Real-clock cancellation latency and child-process cleanup assertions need low contention.",
+    "deadline": "Real-clock deadline assertions need low contention."
+  }
+}

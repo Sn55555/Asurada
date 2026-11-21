@@ -1,0 +1,162 @@
+{
+  "target": "risk_forecast_3s",
+  "rows": {
+    "train": 2146,
+    "val": 1019,
+    "test": 5070
+  },
+  "feature_columns": [
+    "lap_number",
+    "session_time_s",
+    "player_position",
+    "official_gap_ahead_s",
+    "official_gap_behind_s",
+    "gap_closing_rate_ahead",
+    "gap_closing_rate_behind",
+    "speed_kph",
+    "throttle",
+    "brake",
+    "steer",
+    "fuel_in_tank",
+    "fuel_laps_remaining",
+    "ers_pct",
+    "tyre_wear_pct",
+    "recent_unstable_ratio",
+    "recent_front_overload_ratio",
+    "front_rival_speed_delta",
+    "rear_rival_speed_delta",
+    "current_risk_score",
+    "fuel_risk_label",
+    "tyre_risk_label",
+    "ers_risk_label",
+    "dynamics_risk_label",
+    "attack_opportunity_label",
+    "defend_risk_label",
+    "session_type",
+    "track",
+    "track_zone",
+    "track_segment",
+    "track_usage",
+    "next_track_segment",
+    "next_track_usage",
+    "driving_mode",
+    "primary_action_label"
+  ],
+  "categorical_features": [
+    "session_type",
+    "track",
+    "track_zone",
+    "track_segment",
+    "track_usage",
+    "next_track_segment",
+    "next_track_usage",
+    "driving_mode",
+    "primary_action_label"
+  ],
+  "validation_source": "exported_val_split",
+  "test_source": "exported_test_split",
+  "best_iteration": 11,
+  "metrics": {
+    "mae": 25.141864011241672,
+    "rmse": 26.93769355437656,
+    "r2": -3.1625638511830036
+  },
+  "top_feature_importance": [
+    {
+      "feature": "official_gap_behind_s",
+      "importance": 1662239
+    },
+    {
+      "feature": "session_time_s",
+      "importance": 730074
+    },
+    {
+      "feature": "fuel_laps_remaining",
+      "importance": 331443
+    },
+    {
+      "feature": "track_segment",
+      "importance": 322223
+    },
+    {
+      "feature": "front_rival_speed_delta",
+      "importance": 308122
+    },
+    {
+      "feature": "track_usage",
+      "importance": 258703
+    },
+    {
+      "feature": "speed_kph",
+      "importance": 180002
+    },
+    {
+      "feature": "official_gap_ahead_s",
+      "importance": 179096
+    },
+    {
+      "feature": "fuel_in_tank",
+      "importance": 176821
+    },
+    {
+      "feature": "next_track_segment",
+      "importance": 126758
+    },
+    {
+      "feature": "steer",
+      "importance": 98331
+    },
+    {
+      "feature": "tyre_wear_pct",
+      "importance": 88051
+    },
+    {
+      "feature": "rear_rival_speed_delta",
+      "importance": 70588
+    },
+    {
+      "feature": "current_risk_score",
+      "importance": 60298
+    },
+    {
+      "feature": "player_position",
+      "importance": 28460
+    },
+    {
+      "feature": "gap_closing_rate_behind",
+      "importance": 19448
+    },
+    {
+      "feature": "next_track_usage",
+      "importance": 13723
+    },
+    {
+      "feature": "dynamics_risk_label",
+      "importance": 12986
+    },
+    {
+      "feature": "ers_pct",
+      "importance": 7628
+    },
+    {
+      "feature": "ers_risk_label",
+      "importance": 7553
+    }
+  ],
+  "model_path": "risk_forecast_3s_baseline.txt",
+  "asset_manifest": {
+    "version": "model-asset-v1",
+    "model_sha256": "231e37b0f71defc2b74aed9bc9ae5d4ae44a3124854fc151ad6b415cd74a41c4",
+    "feature_schema_sha256": "dceec1841b3f71a43cccc840ce3afa88a4d76e12ca3623fdc09abec57659b081"
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

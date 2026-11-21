@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 from dataclasses import asdict
 from typing import Any
 
@@ -82,4 +84,4 @@ def run_phase3_audio_regression() -> dict[str, Any]:
 if __name__ == "__main__":
     import json
 
-    print(json.dumps(run_phase3_audio_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_audio_regression())

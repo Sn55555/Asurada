@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from .limits import TTS_AUDIO_MAX_BYTES
+
+from contextlib import closing
+from .cancellable_http import iter_http_lines
 import base64
+from io import BytesIO
 from dataclasses import dataclass
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -14,6 +18,8 @@ import uuid
 import wave
 from typing import Any, Iterable, Protocol
 
+from .task_runtime import TaskContext
+from .capture_process import command_json_text
 from .persona_registry import get_voice_profile
 from .tts_backends import PiperBackend
 from .voice_sidecar_protocol import TtsRenderRequest, TtsRenderResponse
@@ -45,6 +51,7 @@ class VoiceSidecarTtsRenderer(Protocol):
 
 class MacOSSaySidecarTtsRenderer:
     name = "macos_say_sidecar_tts_renderer"
+    supports_task_context = True
 
     def __init__(
         self,
@@ -72,8 +79,8 @@ class MacOSSaySidecarTtsRenderer:
     def env_ready(cls) -> bool:
         return sys.platform == "darwin" and shutil.which("say") is not None and shutil.which("afconvert") is not None
 
-    def render(self, request: TtsRenderRequest) -> TtsRenderResponse:
-        audio_bytes, metadata = self._synthesize_wav(request)
+    def render(self, request: TtsRenderRequest, *, context=None) -> TtsRenderResponse:
+        audio_bytes, metadata = self._synthesize_wav(request, context=context)
         return TtsRenderResponse(
             status="completed",
             audio_base64=base64.b64encode(audio_bytes).decode("ascii"),
@@ -82,8 +89,8 @@ class MacOSSaySidecarTtsRenderer:
             metadata=metadata,
         )
 
-    def stream_render(self, request: TtsRenderRequest, *, frame_size_bytes: int) -> TtsStreamRender:
-        wav_bytes, metadata = self._synthesize_wav(request)
+    def stream_render(self, request: TtsRenderRequest, *, frame_size_bytes: int, context=None) -> TtsStreamRender:
+        wav_bytes, metadata = self._synthesize_wav(request, context=context)
         if _is_pcm_stream_format(request.audio_format):
             pcm_bytes = _extract_wav_pcm_bytes(wav_bytes)
             return TtsStreamRender(
@@ -105,7 +112,9 @@ class MacOSSaySidecarTtsRenderer:
             frame_size_bytes=frame_size_bytes,
         )
 
-    def _synthesize_wav(self, request: TtsRenderRequest) -> tuple[bytes, dict[str, Any]]:
+    def _synthesize_wav(self, request: TtsRenderRequest, *, context=None) -> tuple[bytes, dict[str, Any]]:
+        context = context or TaskContext.start("tts-synthesis", 15000)
+        context.remaining()
         voice_profile = get_voice_profile(request.voice_profile_id)
         words_per_minute = max(int(round(self.base_wpm * voice_profile.speaking_rate)), 90)
         voice_name = self.voice_name or voice_profile.macos_say_voice_name
@@ -116,13 +125,8 @@ class MacOSSaySidecarTtsRenderer:
             if voice_name:
                 say_cmd.extend(["-v", voice_name])
             say_cmd.extend(["-r", str(words_per_minute), "-o", str(aiff_path), request.text])
-            subprocess.run(
-                say_cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=True,
-            )
-            subprocess.run(
+            command_json_text(say_cmd, timeout_s=context.remaining(), context=context)
+            command_json_text(
                 [
                     self.afconvert_binary,
                     "-f",
@@ -134,11 +138,14 @@ class MacOSSaySidecarTtsRenderer:
                     str(aiff_path),
                     str(wav_path),
                 ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=True,
+                timeout_s=context.remaining(), context=context,
             )
+            context.remaining()
+            if wav_path.stat().st_size > TTS_AUDIO_MAX_BYTES:
+                raise ValueError('tts_audio_too_large')
             audio_bytes = wav_path.read_bytes()
+            context.remaining()
+            validate_wav_audio(audio_bytes, sample_rate_hz=request.sample_rate_hz)
         return audio_bytes, {
             "renderer": self.name,
             "voice_profile_id": voice_profile.voice_profile_id,
@@ -151,6 +158,7 @@ class MacOSSaySidecarTtsRenderer:
 @dataclass(frozen=True)
 class PiperSidecarTtsRenderer:
     name: str = "piper_sidecar_tts_renderer"
+    supports_task_context = True
 
     @classmethod
     def from_env(cls) -> "PiperSidecarTtsRenderer":
@@ -162,8 +170,8 @@ class PiperSidecarTtsRenderer:
     def env_ready(cls) -> bool:
         return PiperBackend.env_ready()
 
-    def render(self, request: TtsRenderRequest) -> TtsRenderResponse:
-        audio_bytes, metadata = self._synthesize_wav(request)
+    def render(self, request: TtsRenderRequest, *, context=None) -> TtsRenderResponse:
+        audio_bytes, metadata = self._synthesize_wav(request, context=context)
         return TtsRenderResponse(
             status="completed",
             audio_base64=base64.b64encode(audio_bytes).decode("ascii"),
@@ -172,8 +180,8 @@ class PiperSidecarTtsRenderer:
             metadata=metadata,
         )
 
-    def stream_render(self, request: TtsRenderRequest, *, frame_size_bytes: int) -> TtsStreamRender:
-        wav_bytes, metadata = self._synthesize_wav(request)
+    def stream_render(self, request: TtsRenderRequest, *, frame_size_bytes: int, context=None) -> TtsStreamRender:
+        wav_bytes, metadata = self._synthesize_wav(request, context=context)
         if _is_pcm_stream_format(request.audio_format):
             pcm_bytes = _extract_wav_pcm_bytes(wav_bytes)
             return TtsStreamRender(
@@ -195,7 +203,9 @@ class PiperSidecarTtsRenderer:
             frame_size_bytes=frame_size_bytes,
         )
 
-    def _synthesize_wav(self, request: TtsRenderRequest) -> tuple[bytes, dict[str, Any]]:
+    def _synthesize_wav(self, request: TtsRenderRequest, *, context=None) -> tuple[bytes, dict[str, Any]]:
+        context = context or TaskContext.start("tts-synthesis", 15000)
+        context.remaining()
         cfg = PiperBackend.from_env().config
         with tempfile.TemporaryDirectory(prefix="asurada-sidecar-piper-") as tmpdir:
             wav_path = Path(tmpdir) / "speech.wav"
@@ -203,15 +213,13 @@ class PiperSidecarTtsRenderer:
             if cfg.config_path:
                 synth_cmd.extend(["--config", cfg.config_path])
             synth_cmd.extend(["--output_file", str(wav_path)])
-            subprocess.run(
-                synth_cmd,
-                input=request.text,
-                text=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=True,
-            )
+            command_json_text(synth_cmd, input_bytes=request.text.encode('utf-8'),
+                              timeout_s=context.remaining(), context=context)
+            context.remaining()
+            if wav_path.stat().st_size > TTS_AUDIO_MAX_BYTES:
+                raise ValueError('tts_audio_too_large')
             audio_bytes = wav_path.read_bytes()
+            context.remaining()
         return audio_bytes, {
             "renderer": self.name,
             "voice_profile_id": request.voice_profile_id,
@@ -277,8 +285,7 @@ class DoubaoStreamingHttpSidecarTtsRenderer:
     @classmethod
     def env_ready(cls) -> bool:
         return bool(
-            importlib.util.find_spec("requests")
-            and _env_first("ASURADA_DOUBAO_TTS_APP_ID", "ASURADA_VOLC_TTS_APP_ID")
+            _env_first("ASURADA_DOUBAO_TTS_APP_ID", "ASURADA_VOLC_TTS_APP_ID")
             and _env_first(
                 "ASURADA_DOUBAO_TTS_ACCESS_KEY",
                 "ASURADA_DOUBAO_TTS_API_KEY",
@@ -289,8 +296,10 @@ class DoubaoStreamingHttpSidecarTtsRenderer:
             )
         )
 
-    def render(self, request: TtsRenderRequest) -> TtsRenderResponse:
-        stream_render = self.stream_render(request, frame_size_bytes=8192)
+    supports_task_context = True
+
+    def render(self, request: TtsRenderRequest, *, context=None) -> TtsRenderResponse:
+        stream_render = self.stream_render(request, frame_size_bytes=8192, context=context)
         pcm_bytes = b"".join(tuple(stream_render.iter_chunks()))
         wav_bytes = _wrap_pcm_as_wav(pcm_bytes, sample_rate_hz=request.sample_rate_hz)
         return TtsRenderResponse(
@@ -301,7 +310,11 @@ class DoubaoStreamingHttpSidecarTtsRenderer:
             metadata=dict(stream_render.metadata),
         )
 
-    def stream_render(self, request: TtsRenderRequest, *, frame_size_bytes: int) -> TtsStreamRender:
+    def stream_render(self, request: TtsRenderRequest, *, frame_size_bytes: int, context=None) -> TtsStreamRender:
+        context = context or TaskContext.start("cloud-tts", 15000)
+        context.remaining()
+        if self.request_format != "pcm":
+            raise ValueError('doubao_streaming_requires_pcm')
         voice_profile = get_voice_profile(request.voice_profile_id)
         speaker = self._resolve_speaker(voice_profile)
         return TtsStreamRender(
@@ -319,11 +332,10 @@ class DoubaoStreamingHttpSidecarTtsRenderer:
             },
             chunks=(),
             total_audio_bytes=0,
-            chunk_iter=self._iter_pcm_chunks(request=request, frame_size_bytes=frame_size_bytes),
+            chunk_iter=self._iter_pcm_chunks(request=request, frame_size_bytes=frame_size_bytes, context=context),
         )
 
-    def _iter_pcm_chunks(self, *, request: TtsRenderRequest, frame_size_bytes: int) -> Iterable[bytes]:
-        import requests
+    def _iter_pcm_chunks(self, *, request: TtsRenderRequest, frame_size_bytes: int, context) -> Iterable[bytes]:
 
         voice_profile = get_voice_profile(request.voice_profile_id)
         speaker = self._resolve_speaker(voice_profile)
@@ -347,20 +359,18 @@ class DoubaoStreamingHttpSidecarTtsRenderer:
                 },
             },
         }
-        with requests.post(
-            self.stream_url,
-            headers=headers,
-            json=payload,
-            timeout=(self.connect_timeout_s, self.read_timeout_s),
-            stream=True,
-        ) as response:
-            response.raise_for_status()
-            for event_payload in _iter_sse_json_events(response.iter_lines(decode_unicode=False)):
+        total_audio = 0
+        finished = False
+        pending_sample = b''
+        pcm_frame_size = max(int(frame_size_bytes), 512)
+        pcm_frame_size -= pcm_frame_size % 2
+        with closing(iter_http_lines(self.stream_url, headers=headers, body=payload, context=context,
+                connect_timeout_s=self.connect_timeout_s, read_timeout_s=self.read_timeout_s)) as lines:
+            for event_payload in _iter_sse_json_events(lines):
+                context.remaining()
                 event_code = int(event_payload.get("event") or event_payload.get("_sse_event") or 0)
                 provider_code = int(event_payload.get("code") or 0)
-                allowed_codes = {0}
-                if event_code == 152:
-                    allowed_codes.add(20_000_000)
+                allowed_codes = {20_000_000} if event_code == 152 else {0}
                 if provider_code not in allowed_codes:
                     raise RuntimeError(
                         f"doubao_tts_http_error:{event_payload.get('code')}:{event_payload.get('message')}"
@@ -369,17 +379,31 @@ class DoubaoStreamingHttpSidecarTtsRenderer:
                     audio_b64 = str(event_payload.get("data") or "")
                     if not audio_b64:
                         continue
-                    decoded = base64.b64decode(audio_b64)
-                    yield from split_audio_chunks(decoded, frame_size_bytes=frame_size_bytes)
+                    decoded = base64.b64decode(audio_b64, validate=True)
+                    total_audio += len(decoded)
+                    if total_audio > TTS_AUDIO_MAX_BYTES:
+                        raise ValueError('tts_audio_too_large')
+                    combined = pending_sample + decoded
+                    complete_bytes = len(combined) - len(combined) % 2
+                    pending_sample = combined[complete_bytes:]
+                    yield from split_audio_chunks(combined[:complete_bytes], frame_size_bytes=pcm_frame_size)
                     continue
                 if event_code in {152, 351}:
                     if event_code == 351:
                         continue
+                    finished = True
                     break
-                if event_code == 153:
+                if event_code in {151, 153}:
                     raise RuntimeError(
                         f"doubao_tts_http_error:{event_payload.get('code')}:{event_payload.get('message')}"
                     )
+            context.remaining()
+            if not finished:
+                raise RuntimeError('doubao_tts_stream_incomplete')
+            if total_audio == 0:
+                raise ValueError('tts_audio_empty')
+            if pending_sample:
+                raise ValueError('tts_pcm_sample_truncated')
 
     def _resolve_speaker(self, voice_profile) -> str:
         env_speaker = _env_first(
@@ -452,10 +476,9 @@ def _iter_sse_json_events(lines: Iterable[str | bytes]) -> Iterable[dict[str, An
         data_lines = []
         if not raw_data or raw_data == "[DONE]":
             return None
-        try:
-            payload = json.loads(raw_data)
-        except json.JSONDecodeError:
-            payload = json.loads("".join(data_lines).strip())
+        payload = json.loads(raw_data)
+        if not isinstance(payload, dict):
+            raise ValueError('tts_sse_event_must_be_object')
         if current_event:
             payload.setdefault("_sse_event", current_event)
         return payload
@@ -464,7 +487,7 @@ def _iter_sse_json_events(lines: Iterable[str | bytes]) -> Iterable[dict[str, An
         if raw_line is None:
             continue
         if isinstance(raw_line, bytes):
-            line = raw_line.decode("utf-8", errors="replace").strip()
+            line = raw_line.decode("utf-8").strip()
         else:
             line = str(raw_line).strip()
         if not line:
@@ -521,3 +544,16 @@ def resolve_voice_sidecar_tts_renderer():
     if PiperSidecarTtsRenderer.env_ready():
         return PiperSidecarTtsRenderer.from_env()
     return None
+
+
+def validate_wav_audio(audio_bytes: bytes, *, sample_rate_hz: int) -> None:
+    """A successful converter exit is not proof that usable speech was produced."""
+    try:
+        with wave.open(BytesIO(audio_bytes), 'rb') as audio:
+            frames = audio.getnframes()
+            if audio.getnchannels() != 1 or audio.getsampwidth() != 2 or audio.getframerate() != sample_rate_hz:
+                raise ValueError('tts_audio_format_mismatch')
+            if frames <= 0 or len(audio.readframes(frames)) != frames * 2:
+                raise ValueError('tts_audio_empty_or_truncated')
+    except (wave.Error, EOFError) as exc:
+        raise ValueError('tts_audio_invalid_wav') from exc

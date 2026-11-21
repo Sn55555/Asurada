@@ -15,12 +15,25 @@ if str(SRC_ROOT) not in sys.path:
 
 from asurada.capture_ingest import CaptureJsonlSource
 from asurada.config import AppConfig
+from asurada.context_window import CONTEXT_WINDOW_SECONDS
 from asurada.decode import decode_snapshot
 from asurada.packet_snapshot import CaptureSnapshotAssembler
+from asurada.packet_decode_diagnostics import PacketDecodeDiagnostics
 from asurada.pdu_decoder import F125PacketDecoder, PacketDecodeError
 from asurada.state import UnifiedStateStore
 from asurada.strategy import StrategyEngine
 from asurada.track_model import load_track_profile
+from asurada.model_temporal_features import preview_segments, closing_rate_from_recent_history
+from asurada.training_partition import export_session_assignments, exported_row_split
+from asurada.wheel_telemetry import WHEEL_ORDER_VERSION, wheel_value
+
+
+def training_record_id(state) -> str:
+    raw=state.raw
+    frame=raw.get('frame_identifier')
+    overall=raw.get('overall_frame_identifier')
+    if overall is None:overall='time-'+str(state.source_timestamp_ms)
+    return f"{state.session_uid}:{state.session_epoch}:{overall}:{frame}"
 
 
 def default_export_config() -> Path:
@@ -39,6 +52,7 @@ FEATURE_COLUMNS = [
     "split",
     "sample_name",
     "session_uid",
+    "session_epoch",
     "frame_identifier",
     "overall_frame_identifier",
     "source_timestamp_ms",
@@ -138,10 +152,13 @@ FEATURE_COLUMNS = [
 ]
 
 LABEL_COLUMNS = [
+    "label_origin",
+    "label_rule_version",
     "record_id",
     "split",
     "sample_name",
     "session_uid",
+    "session_epoch",
     "frame_identifier",
     "session_type",
     "timing_support_level",
@@ -173,6 +190,7 @@ TACTICAL_FEATURE_COLUMNS = [
     "split",
     "sample_name",
     "session_uid",
+    "session_epoch",
     "frame_identifier",
     "session_time_s",
     "lap_number",
@@ -237,6 +255,7 @@ EVENT_FEATURE_COLUMNS = [
     "split",
     "sample_name",
     "session_uid",
+    "session_epoch",
     "frame_identifier",
     "session_time_s",
     "session_type",
@@ -272,9 +291,11 @@ EVENT_FEATURE_COLUMNS = [
 
 ATTACK_FEATURE_COLUMNS = [
     "record_id",
+    "source_record_id",
     "split",
     "sample_name",
     "session_uid",
+    "session_epoch",
     "frame_identifier",
     "actor_view",
     "session_time_s",
@@ -306,6 +327,11 @@ ATTACK_FEATURE_COLUMNS = [
     "g_force_longitudinal",
     "track_segment",
     "track_usage",
+    "corner_overtake_class",
+    "attack_setup_method",
+    "attack_commit_method",
+    "attack_setup_flag",
+    "attack_commit_flag",
     "next_track_segment",
     "next_track_usage",
     "next_two_segments",
@@ -324,6 +350,7 @@ STRATEGY_ACTION_FEATURE_COLUMNS = [
     "split",
     "sample_name",
     "session_uid",
+    "session_epoch",
     "frame_identifier",
     "session_time_s",
     "session_type",
@@ -415,6 +442,7 @@ def export_dataset(
 
     metadata = json.loads(sample_metadata_path.read_text(encoding="utf-8"))
     samples = list(metadata.get("samples", []))
+    session_assignments = export_session_assignments(samples, sample_splits)
 
     features_path = output_dir / "features.csv"
     labels_path = output_dir / "labels.csv"
@@ -462,7 +490,7 @@ def export_dataset(
 
         for sample in samples:
             sample_name = sample["sample_name"]
-            split = sample_splits.get(sample_name, "train")
+            split = session_assignments[str(sample["session_uid"])]
             summary = export_sample(
                 sample=sample,
                 split=split,
@@ -495,7 +523,15 @@ def export_dataset(
 
     return {
         "dataset_name": output_dir.name,
+        "record_identity_version": "session-epoch-overall-frame-v1",
+        "context_window_version": "source-time-weighted-v1",
+        "wheel_order_version": WHEEL_ORDER_VERSION,
+        "context_window_seconds": CONTEXT_WINDOW_SECONDS,
+        "label_provenance": {"kind": "rule_derived", "human_validated": False},
+        "label_quality_tier": "rule_derived",
+        "not_for_mainline": True,
         "sample_metadata_path": str(sample_metadata_path),
+        "partition": {"version":"export-session-split-v1", "unit":"session_uid", "assignments":session_assignments, "label_independent":True},
         "features_path": str(features_path),
         "labels_path": str(labels_path),
         "tactical_features_path": str(tactical_features_path),
@@ -518,6 +554,7 @@ def export_dataset(
         "event_impact_counts": dict(event_impact_counts.most_common()),
         "attack_commit_counts": dict(attack_commit_counts.most_common()),
         "samples": sample_summaries,
+        "decode_errors": sum(item["decode_errors"] for item in sample_summaries),
         "notes": {
             "timing_policy": "official_only_in_main_features",
             "estimated_fields": "debug_only",
@@ -525,8 +562,8 @@ def export_dataset(
             "tactical_rows": "official timing only, filtered for rear-threat/defence/counterattack work",
             "event_rows": "event transition only, excluding debug-only button events",
             "attack_rows": "official front-gap rows in race-like sessions, filtered for attack-opportunity and attack-commit work",
-            "attack_split_policy": "uid15 lap 2 reserved as exported val for attack-chain models; uid15 lap 1/3 remain train; uid16 remains test",
-            "strategy_action_split_policy": "uid15 lap 2 plus uid13 lap 1 reserved as exported val for strategy-action baseline; uid16 remains test; uid8 excluded",
+            "attack_split_policy": "same configured whole-session assignment as main features; no frame/lap/label reassignment",
+            "strategy_action_split_policy": "same configured whole-session assignment as main features; ShortResultLike LOW_FUEL filter retained",
         },
     }
 
@@ -549,7 +586,9 @@ def export_sample(
 
     config = AppConfig()
     strategy = StrategyEngine(config.thresholds, config.usage_hooks_path)
-    state_store = UnifiedStateStore(maxlen=max_history_frames)
+    # max_history_frames remains accepted for old export callers. History now
+    # follows the runtime's source-time window and default retention capacity.
+    state_store = UnifiedStateStore()
     source = CaptureJsonlSource(Path(sample["file_path"]))
     decoder = F125PacketDecoder()
     assembler = CaptureSnapshotAssembler()
@@ -577,10 +616,12 @@ def export_sample(
     attack_indices: list[int] = []
     strategy_action_indices: list[int] = []
 
+    decode_diagnostics = PacketDecodeDiagnostics()
     for packet in source:
         try:
             envelope = decoder.decode_raw(packet)
-        except PacketDecodeError:
+        except PacketDecodeError as exc:
+            decode_diagnostics.record(exc)
             continue
 
         normalized = assembler.push(envelope)
@@ -588,8 +629,11 @@ def export_sample(
             continue
 
         state = decode_snapshot(normalized)
-        state_store.update(state)
-        recent_states = state_store.recent(max_history_frames)
+        if str(state.session_uid)!=str(sample["session_uid"]):
+            raise ValueError("capture_session_does_not_match_metadata")
+        if not state_store.update(state):
+            continue
+        recent_states = state_store.recent_seconds(CONTEXT_WINDOW_SECONDS)
         decision = strategy.evaluate(state, recent_states)
         previous_state = state_store.previous()
         if track_profile is None:
@@ -695,6 +739,8 @@ def export_sample(
     return {
         "sample_name": sample["sample_name"],
         "split": split,
+        "decode_errors": decode_diagnostics.count,
+        "decode_diagnostics": decode_diagnostics.snapshot(),
         "records": records,
         "tactical_records": tactical_records,
         "event_records": event_records,
@@ -800,7 +846,15 @@ def build_feature_row(
 
     wheel_slip = list(raw.get("wheel_slip_ratio", []))
     rear_threat_zone_flag = int((context.get("track_zone") or "") == "braking_entry")
-    attack_zone_flag = int((context.get("track_usage") or "") in {"primary_overtake_deploy", "overtake_setup", "primary_ers_deploy"})
+    attack_setup_method = str(context.get("attack_setup_method") or "none")
+    attack_commit_method = str(context.get("attack_commit_method") or "none")
+    attack_setup_flag = int(attack_setup_method != "none")
+    attack_commit_flag = int(attack_commit_method != "none")
+    attack_zone_flag = int(
+        (context.get("track_usage") or "") in {"primary_overtake_deploy", "overtake_setup", "primary_ers_deploy"}
+        or attack_setup_flag == 1
+        or attack_commit_flag == 1
+    )
     counterattack_zone_flag = int(next_usage in {"primary_overtake_deploy", "overtake_setup", "ers_prepare"})
     drs_recovery_window = int(
         optional_float(raw.get("official_gap_ahead_s")) is not None
@@ -823,7 +877,7 @@ def build_feature_row(
     event_code = raw.get("event_code")
     previous_event_code = previous_state.raw.get("event_code") if previous_state is not None else None
     event_code_started = int(bool(event_code) and event_code != "NONE" and event_code != previous_event_code)
-    record_id = f"{state.session_uid}:{raw.get('frame_identifier', 0)}"
+    record_id = training_record_id(state)
     completed_laps = max(int(state.lap_number) - 1, 0)
     remaining_race_laps = max(int(state.total_laps) - completed_laps, 0)
     derived_fuel_laps_remaining = optional_float(raw.get("derived_fuel_laps_remaining"))
@@ -874,6 +928,7 @@ def build_feature_row(
         "split": split,
         "sample_name": sample["sample_name"],
         "session_uid": state.session_uid,
+        "session_epoch": state.session_epoch,
         "frame_identifier": raw.get("frame_identifier"),
         "overall_frame_identifier": raw.get("overall_frame_identifier"),
         "source_timestamp_ms": state.source_timestamp_ms,
@@ -941,13 +996,18 @@ def build_feature_row(
         "yaw": raw.get("yaw"),
         "pitch": raw.get("pitch"),
         "roll": raw.get("roll"),
-        "wheel_slip_ratio_fl": array_item(wheel_slip, 0),
-        "wheel_slip_ratio_fr": array_item(wheel_slip, 1),
-        "wheel_slip_ratio_rl": array_item(wheel_slip, 2),
-        "wheel_slip_ratio_rr": array_item(wheel_slip, 3),
+        "wheel_slip_ratio_fl": wheel_value(wheel_slip, "fl"),
+        "wheel_slip_ratio_fr": wheel_value(wheel_slip, "fr"),
+        "wheel_slip_ratio_rl": wheel_value(wheel_slip, "rl"),
+        "wheel_slip_ratio_rr": wheel_value(wheel_slip, "rr"),
         "track_zone": context.get("track_zone"),
         "track_segment": context.get("track_segment"),
         "track_usage": context.get("track_usage"),
+        "corner_overtake_class": context.get("corner_overtake_class"),
+        "attack_setup_method": attack_setup_method,
+        "attack_commit_method": attack_commit_method,
+        "attack_setup_flag": attack_setup_flag,
+        "attack_commit_flag": attack_commit_flag,
         "next_track_segment": next_segment,
         "next_track_usage": next_usage,
         "next_two_segments": next_two_segments,
@@ -1000,13 +1060,16 @@ def build_label_row(
     action_codes = [item.code if hasattr(item, "code") else item.get("code") for item in messages]
     primary_action = action_codes[0] if action_codes else "NONE"
     raw = state.raw
-    record_id = f"{state.session_uid}:{raw.get('frame_identifier', 0)}"
+    record_id = training_record_id(state)
 
     return {
+        "label_origin": "rule_pseudo_label",
+        "label_rule_version": decision.record.assessment.rule_version if decision.record is not None else "legacy_rules",
         "record_id": record_id,
         "split": split,
         "sample_name": sample["sample_name"],
         "session_uid": state.session_uid,
+        "session_epoch": state.session_epoch,
         "frame_identifier": raw.get("frame_identifier"),
         "session_type": raw.get("session_type"),
         "timing_support_level": raw.get("timing_support_level"),
@@ -1069,27 +1132,7 @@ def build_tactical_feature_row(
 
 
 def derive_tactical_split(feature_row: dict[str, Any]) -> str:
-    """Assign deterministic exported splits for tactical-chain models.
-
-    备注:
-    当前战术链样本主要来自 `uid15`，但 `uid16` 也有少量可用防守帧。
-    为避免继续依赖训练时随机 holdout，这里固定使用：
-    - `uid15` 第 2 圈 -> val
-    - `uid16` -> test
-    - 其余 race-like tactical 行 -> train
-    """
-
-    base_split = str(feature_row.get("split") or "train")
-    session_type = str(feature_row.get("session_type") or "")
-    lap_number = int(feature_row.get("lap_number") or 0)
-
-    if "FeatureRaceLike" in session_type:
-        return "test"
-    if "SprintRaceLike" in session_type and lap_number == 2:
-        return "val"
-    if base_split == "train":
-        return "train"
-    return base_split
+    return exported_row_split(feature_row)
 
 
 def build_event_feature_row(
@@ -1197,6 +1240,8 @@ def build_single_attack_feature_row(
         actor_view=actor_view,
     )
     row = {column: actor_feature.get(column) for column in ATTACK_FEATURE_COLUMNS if column in actor_feature}
+    row["source_record_id"] = feature_row["record_id"]
+    row["record_id"] = f"{feature_row['record_id']}:{actor_view}"
     row["split"] = derive_attack_split(
         feature_row=actor_feature,
         attack_opportunity_binary_label=attack_opportunity_binary_label,
@@ -1220,77 +1265,14 @@ def derive_attack_split(
     feature_row: dict[str, Any],
     attack_opportunity_binary_label: int,
 ) -> str:
-    """Assign a deterministic exported split for attack-chain models.
-
-    备注:
-    扩展数据集里，导出常常只覆盖样本前段；如果继续依赖“第 2 圈固定进 val”，
-    会导致 exported val 缺失。这里改成基于已算出的攻击代理标签做 deterministic 抽样：
-    - 正类按较高比例抽进 val，确保 exported val 稳定包含 attack positives
-    - 负类只在攻击区或固定步长下抽样，避免 val 被背景帧淹没
-    - metadata 明确标成 test 的样本仍保持 test
-    """
-
-    base_split = str(feature_row.get("split") or "train")
-    if base_split != "train":
-        return base_split
-
-    frame_identifier = int(feature_row.get("frame_identifier") or 0)
-    attack_zone_flag = int(feature_row.get("attack_zone_flag") or 0)
-
-    if attack_opportunity_binary_label == 1 and frame_identifier % 13 == 0:
-        return "val"
-    if attack_zone_flag == 1 and frame_identifier % 29 == 0:
-        return "val"
-    if frame_identifier % 73 == 0:
-        return "val"
-    return "train"
+    return exported_row_split(feature_row)
 
 
 def derive_strategy_action_split(feature_row: dict[str, Any], label_row: dict[str, Any]) -> str:
-    """Assign deterministic exported splits for strategy-action modeling.
-
-    备注:
-    `LOW_FUEL / DYNAMICS_UNSTABLE` 主要在 `uid13` 中出现，
-    `DEFEND_WINDOW` 主要在 `uid15` 中出现。
-    为避免继续依赖随机 holdout，这里固定使用：
-    - `uid13` 第 1 圈 -> val
-    - `uid15` 第 2 圈 -> val
-    - `SprintRaceLike` 第 1 圈里再抽一小部分 `DEFEND_WINDOW` -> val，确保 exported val 覆盖防守类
-    - `uid16` 保持 test
-    - `uid8` 仅作为 `LOW_FUEL` 校准样本进入 strategy-action 导出，并按 deterministic 规则分到 train/val/test
-    """
-
-    base_split = str(feature_row.get("split") or "train")
-    session_type = str(feature_row.get("session_type") or "")
-    lap_number = int(feature_row.get("lap_number") or 0)
-    primary_action_label = str(label_row.get("primary_action_label") or "NONE")
-    frame_identifier = int(feature_row.get("frame_identifier") or 0)
-
-    if "FeatureRaceLike" in session_type:
-        return "test"
-    if "ShortResultLike" in session_type:
-        if primary_action_label != "LOW_FUEL":
-            return "skip"
-        bucket = frame_identifier % 10
-        if bucket == 0:
-            return "test"
-        if bucket in {1, 2}:
-            return "val"
-        return "train"
-    if "QualifyingLike" in session_type and lap_number == 1:
-        return "val"
-    if "SprintRaceLike" in session_type and lap_number == 2:
-        return "val"
-    if (
-        "SprintRaceLike" in session_type
-        and lap_number == 1
-        and primary_action_label == "DEFEND_WINDOW"
-        and frame_identifier % 11 == 0
-    ):
-        return "val"
-    if base_split == "train":
-        return "train"
-    return base_split
+    # Preserve the eligibility filter, not the old per-frame holdout policy.
+    if "ShortResultLike" in str(feature_row.get("session_type") or "") and label_row.get("primary_action_label")!="LOW_FUEL":
+        return "skip"
+    return exported_row_split(feature_row)
 
 
 def should_include_tactical_row(*, feature_row: dict[str, Any], label_row: dict[str, Any]) -> tuple[bool, str]:
@@ -1522,8 +1504,16 @@ def derive_front_attack_commit_labels(
     drs_available = int(feature_row.get("drs_available") or 0)
     tyre_wear_pct = optional_float(feature_row.get("tyre_wear_pct")) or 0.0
     unstable_ratio = optional_float(feature_row.get("recent_unstable_ratio")) or 0.0
+    attack_setup_method = str(feature_row.get("attack_setup_method") or "none")
+    attack_commit_method = str(feature_row.get("attack_commit_method") or "none")
+    attack_setup_flag = int(feature_row.get("attack_setup_flag") or 0)
+    attack_commit_flag = int(feature_row.get("attack_commit_flag") or 0)
     next_usage = feature_row.get("next_track_usage") or ""
-    next_usage_commit = next_usage in {"primary_overtake_deploy", "overtake_setup", "primary_ers_deploy"}
+    next_usage_commit = (
+        next_usage in {"primary_overtake_deploy", "overtake_setup", "primary_ers_deploy"}
+        or attack_setup_method in {"drs_tow", "traction_pass"}
+        or attack_commit_method in {"inside_outbrake", "late_braking_lunge", "switchback", "traction_pass"}
+    )
 
     hard_commit_setup = (
         gap_ahead <= 0.7
@@ -1531,7 +1521,7 @@ def derive_front_attack_commit_labels(
         and ers_pct >= 32.0
         and tyre_wear_pct <= 58.0
         and unstable_ratio <= 0.32
-        and (drs_available == 1 or next_usage_commit)
+        and (drs_available == 1 or next_usage_commit or attack_commit_flag == 1)
     )
     if outcome["gained_position_soon"] and hard_commit_setup:
         return 1, "commit"
@@ -1542,7 +1532,7 @@ def derive_front_attack_commit_labels(
         and ers_pct >= 28.0
         and tyre_wear_pct <= 62.0
         and unstable_ratio <= 0.35
-        and (drs_available == 1 or next_usage_commit)
+        and (drs_available == 1 or next_usage_commit or attack_commit_flag == 1)
     )
     if (
         commit_followthrough_setup
@@ -1575,8 +1565,16 @@ def derive_attack_opportunity_labels(
     ers_pct = optional_float(feature_row.get("ers_pct")) or 0.0
     unstable_ratio = optional_float(feature_row.get("recent_unstable_ratio")) or 0.0
     attack_zone_flag = int(feature_row.get("attack_zone_flag") or 0)
+    attack_setup_method = str(feature_row.get("attack_setup_method") or "none")
+    attack_commit_method = str(feature_row.get("attack_commit_method") or "none")
+    attack_setup_flag = int(feature_row.get("attack_setup_flag") or 0)
+    attack_commit_flag = int(feature_row.get("attack_commit_flag") or 0)
     drs_available = int(feature_row.get("drs_available") or 0)
     next_usage = feature_row.get("next_track_usage") or ""
+    method_supports_attack = (
+        attack_setup_method in {"drs_tow", "pressure_build", "traction_pass"}
+        or attack_commit_method in {"inside_outbrake", "late_braking_lunge", "outside_carry", "switchback", "traction_pass"}
+    )
 
     if outcome["gained_position_soon"]:
         return 1, "immediate"
@@ -1586,7 +1584,14 @@ def derive_attack_opportunity_labels(
         and speed_delta >= 3.0
         and ers_pct >= 30.0
         and unstable_ratio <= 0.35
-        and (attack_zone_flag == 1 or drs_available == 1 or next_usage in {"primary_overtake_deploy", "overtake_setup", "primary_ers_deploy"})
+        and (
+            attack_zone_flag == 1
+            or drs_available == 1
+            or attack_setup_flag == 1
+            or attack_commit_flag == 1
+            or method_supports_attack
+            or next_usage in {"primary_overtake_deploy", "overtake_setup", "primary_ers_deploy"}
+        )
     )
     if outcome["closed_gap_strongly"] and strong_setup and gap_ahead <= 0.8:
         return 1, "building"
@@ -1901,20 +1906,6 @@ def closest_rival(state, *, offset: int) -> dict[str, Any]:
     return {}
 
 
-def preview_segments(*, track_profile, lap_distance_m: float, offsets: list[float]) -> tuple[str | None, str | None, str]:
-    """Preview the next one or two semantic segments from the current lap distance."""
-
-    if track_profile is None:
-        return None, None, ""
-    next_segment = track_profile.next_segment(lap_distance_m)
-    classifications = [track_profile.classify(lap_distance_m + offset) for offset in offsets]
-    combined = " > ".join(item.zone_name for item in classifications if item.zone_name)
-    return (
-        next_segment.zone_name,
-        next_segment.usage,
-        combined,
-    )
-
 
 def closing_rate(previous_gap: float | None, current_gap: float | None, delta_t: float | None) -> float | None:
     """Return positive values when the gap is shrinking."""
@@ -1923,36 +1914,6 @@ def closing_rate(previous_gap: float | None, current_gap: float | None, delta_t:
         return None
     return (previous_gap - current_gap) / delta_t
 
-
-def closing_rate_from_recent_history(
-    *,
-    recent_states: list[Any],
-    current_gap: float | None,
-    current_session_time_s: float | None,
-    gap_side: str,
-) -> float | None:
-    """Estimate closing rate from a short official-gap window instead of a single-frame delta.
-
-    备注:
-    官方 gap 在逐帧上会出现长段重复值，单帧差分几乎全是 0。
-    这里回看最近几帧，找最早的有效官方 gap 作为参考点，计算短窗口斜率。
-    """
-
-    if current_gap is None or current_session_time_s is None or len(recent_states) < 2:
-        return None
-
-    for candidate in reversed(recent_states[:-1]):
-        candidate_session_time_s = optional_float(candidate.raw.get("session_time_s"))
-        if candidate_session_time_s is None or candidate_session_time_s >= current_session_time_s:
-            continue
-        candidate_gap = candidate.player.gap_ahead_s if gap_side == "ahead" else candidate.player.gap_behind_s
-        if candidate_gap is None:
-            continue
-        delta_t = current_session_time_s - candidate_session_time_s
-        if delta_t <= 0:
-            continue
-        return (float(candidate_gap) - float(current_gap)) / delta_t
-    return None
 
 
 def recently_in_pit_window(
@@ -2028,12 +1989,6 @@ def compute_rear_rival_pressure_proxy(
 
 def optional_float(value: Any) -> float | None:
     return None if value is None else float(value)
-
-
-def array_item(values: list[Any], index: int) -> float | None:
-    if index >= len(values):
-        return None
-    return optional_float(values[index])
 
 
 if __name__ == "__main__":

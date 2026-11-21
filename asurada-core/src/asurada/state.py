@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 
 from .models import SessionState
+from .session_lifecycle import SessionLifecycle, SessionTransition
 
 
 class UnifiedStateStore:
@@ -10,14 +11,39 @@ class UnifiedStateStore:
 
     def __init__(self, maxlen: int = 120) -> None:
         self._history: deque[SessionState] = deque(maxlen=maxlen)
+        self.lifecycle = SessionLifecycle()
+        self.last_transition: SessionTransition | None = None
         self.latest: SessionState | None = None
+        self._session_event: dict | None = None
 
-    def update(self, state: SessionState) -> None:
-        # 备注:
-        # 状态仓只维护短窗口历史，给趋势、上下文和回放调试使用，
-        # 不承担长期存储职责。
+    def update(self, state: SessionState) -> bool:
+        self.last_transition = self.lifecycle.observe(state)
+        if not self.last_transition.accepted:
+            return False
+        if self.last_transition.changed:
+            self._history.clear()
+            self._session_event = {
+                'contract_version': 'session-event-v1',
+                'type': 'telemetry_scope_changed',
+                'reason': self.last_transition.reason,
+                'session_uid': str(state.session_uid),
+                'session_epoch': state.session_epoch,
+                'source_timestamp_ms': state.source_timestamp_ms,
+                'previous': None if self.latest is None else {
+                    'session_uid': str(self.latest.session_uid),
+                    'session_epoch': self.latest.session_epoch},
+            }
+        state.session_event = self._session_event
         self.latest = state
         self._history.append(state)
+        return True
+
+    def recent_seconds(self, seconds: float) -> list[SessionState]:
+        """Window in source receive time, suitable for live and recorded replay."""
+        if self.latest is None or seconds <= 0:
+            return []
+        cutoff = self.latest.source_timestamp_ms - seconds * 1000
+        return [state for state in self._history if cutoff <= state.source_timestamp_ms <= self.latest.source_timestamp_ms]
 
     def history(self) -> list[SessionState]:
         """Return the full in-memory rolling history."""

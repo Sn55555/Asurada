@@ -11,13 +11,21 @@ from dataclasses import dataclass
 from typing import Any
 
 from .interaction import SpeechJob
+from .playback_control import PlaybackControl
 from .voice_sidecar_protocol import TtsRenderRequest
 
 
 class SpeechBackend:
     """Abstract speech backend used by the unified output coordinator."""
 
+    audible = True
+
     def start(self, job: SpeechJob) -> Any:
+        """Return an owned handle, or raise after cleaning up any started resources.
+
+        A successful return transfers playback ownership to the coordinator.
+        Asynchronous errors after returning belong to the returned handle.
+        """
         raise NotImplementedError
 
     def is_active(self, handle: Any) -> bool:
@@ -26,9 +34,15 @@ class SpeechBackend:
     def stop(self, handle: Any) -> None:
         raise NotImplementedError
 
+    def completion_error(self, handle: Any) -> str | None:
+        """Inspect an inactive handle; None means no backend error reported."""
+        return None
+
 
 class NullSpeechBackend(SpeechBackend):
     """Fallback backend used when real TTS is unavailable."""
+
+    audible = False
 
     def start(self, job: SpeechJob) -> Any:
         return None
@@ -56,6 +70,10 @@ class MacOSSayBackend(SpeechBackend):
 
     def is_active(self, handle: subprocess.Popen[str] | None) -> bool:
         return handle is not None and handle.poll() is None
+
+    def completion_error(self, handle) -> str | None:
+        code = handle.poll() if handle is not None else None
+        return None if code == 0 else 'player_exit_unsuccessful'
 
     def stop(self, handle: subprocess.Popen[str] | None) -> None:
         if handle is None or handle.poll() is not None:
@@ -132,6 +150,10 @@ class PiperBackend(SpeechBackend):
     def is_active(self, handle: subprocess.Popen[str] | None) -> bool:
         return handle is not None and handle.poll() is None
 
+    def completion_error(self, handle) -> str | None:
+        code = handle.poll() if handle is not None else None
+        return None if code == 0 else 'player_exit_unsuccessful'
+
     def stop(self, handle: subprocess.Popen[str] | None) -> None:
         if handle is None or handle.poll() is not None:
             return
@@ -159,6 +181,7 @@ class PiperBackend(SpeechBackend):
 class _VoiceSidecarSpeechHandle:
     thread: threading.Thread
     state: dict[str, Any]
+    cancellation: PlaybackControl
 
 
 class VoiceSidecarSpeechBackend(SpeechBackend):
@@ -171,10 +194,12 @@ class VoiceSidecarSpeechBackend(SpeechBackend):
 
     def start(self, job: SpeechJob) -> _VoiceSidecarSpeechHandle:
         state: dict[str, Any] = {"done": False, "error": None}
+        cancellation = PlaybackControl()
 
         def _run() -> None:
             try:
-                self._client.play_tts(
+                result = self._client.play_tts(
+                    cancellation=cancellation,
                     request=TtsRenderRequest(
                         text=job.speak_text,
                         persona_id=job.persona_id or "",
@@ -188,6 +213,13 @@ class VoiceSidecarSpeechBackend(SpeechBackend):
                         },
                     )
                 )
+                from .audio_agent_client import AudioPlaybackResult
+                if not isinstance(result, AudioPlaybackResult):
+                    state['error'] = 'invalid_playback_result'
+                elif result.status != 'played':
+                    state['error'] = 'playback_not_confirmed'
+                elif isinstance(result.audio_bytes, bool) or not isinstance(result.audio_bytes, int) or result.audio_bytes <= 0:
+                    state['error'] = 'empty_or_invalid_playback'
             except Exception as exc:  # pragma: no cover - surfaced through state
                 state["error"] = str(exc)
             finally:
@@ -195,17 +227,32 @@ class VoiceSidecarSpeechBackend(SpeechBackend):
 
         thread = threading.Thread(target=_run, name=f"voice-sidecar-speech:{job.output_event_id}", daemon=True)
         thread.start()
-        return _VoiceSidecarSpeechHandle(thread=thread, state=state)
+        return _VoiceSidecarSpeechHandle(thread=thread, state=state, cancellation=cancellation)
 
     def is_active(self, handle: _VoiceSidecarSpeechHandle | None) -> bool:
         return handle is not None and handle.thread.is_alive()
 
+    def completion_error(self, handle) -> str | None:
+        if handle is None or not handle.state.get('done'):
+            return 'sidecar_result_unavailable'
+        return 'sidecar_playback_failed' if handle.state.get('error') is not None else None
+
     def stop(self, handle: _VoiceSidecarSpeechHandle | None) -> None:
-        # The current sidecar playback path is not interruptible from this thread wrapper.
-        return None
+        if handle is not None:
+            handle.cancellation.cancel()
 
 
 def resolve_default_speech_backend() -> SpeechBackend:
+    backend = _resolve_platform_speech_backend()
+    root = os.getenv("ASURADA_PERSONALITY_VOICE_DIR")
+    if root and backend.audible:
+        from pathlib import Path
+        from .personality_voice import AsuradaPersonalityVoice
+        return AsuradaPersonalityVoice(Path(root), backend)
+    return backend
+
+
+def _resolve_platform_speech_backend() -> SpeechBackend:
     forced_backend = str(os.getenv("ASURADA_TTS_BACKEND") or "").strip().lower()
     if forced_backend == "null":
         return NullSpeechBackend()

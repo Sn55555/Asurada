@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import math
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(PROJECT_ROOT / "src"))
+from asurada.training_partition import session_partitions, exported_row_split, validate_session_frame
 DEFAULT_DATASET = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "features.csv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "training" / "reports" / "driver_style_baseline"
 
@@ -42,7 +45,8 @@ def main() -> int:
         )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    df = pd.read_csv(args.dataset, low_memory=False)
+    df = pd.read_csv(args.dataset, low_memory=False, dtype={"session_uid":str})
+    df = validate_session_frame(df)
     if df.empty:
         raise SystemExit("No feature rows available for training.")
 
@@ -91,6 +95,7 @@ def main() -> int:
 
     grouped = []
     agg_map = {
+        "split": "first",
         "sample_name": "first",
         "session_uid": "first",
         "session_type": "first",
@@ -117,6 +122,7 @@ def main() -> int:
     aggregated = df.groupby(["session_uid", "window_id"], sort=False).agg(agg_map)
     aggregated.columns = ["_".join(part for part in col if part).strip("_") for col in aggregated.columns.to_flat_index()]
     aggregated = aggregated.reset_index(drop=True)
+    aggregated["session_uid"] = aggregated["session_uid_first"]
     if aggregated.empty:
         raise SystemExit("No windowed rows available after aggregation.")
 
@@ -158,13 +164,12 @@ def main() -> int:
     for column in categorical_features:
         aggregated[column] = aggregated[column].fillna("UNKNOWN").astype("category")
 
-    train_df = aggregated[aggregated["style_split"] == "train"].copy()
-    val_df = aggregated[aggregated["style_split"] == "val"].copy()
-    test_df = aggregated[aggregated["style_split"] == "test"].copy()
+    train_df, val_df, test_df, partition_manifest = session_partitions(aggregated, split_column="style_split")
     if train_df.empty or val_df.empty or test_df.empty:
         raise SystemExit("Insufficient train/val/test rows for driver-style baseline.")
 
     summary = {
+        "partition": partition_manifest,
         "dataset": str(args.dataset),
         "window_s": args.window_s,
         "rows": {
@@ -266,13 +271,7 @@ def assign_style_tag(row) -> str:
 
 
 def assign_style_split(row) -> str:
-    session_type = str(row.get("session_type_first") or "")
-    lap_number = int(row.get("lap_number_first") or 0)
-    if "FeatureRaceLike" in session_type:
-        return "test"
-    if "SprintRaceLike" in session_type and lap_number == 2:
-        return "val"
-    return "train"
+    return exported_row_split({'split':row.get('split_first')})
 
 
 def train_regressor(*, name, feature_columns, categorical_features, train_df, val_df, test_df, target_column, output_dir, lgb, metrics):
@@ -331,7 +330,7 @@ def train_regressor(*, name, feature_columns, categorical_features, train_df, va
         "rmse": round(rmse, 4),
         "r2": round(r2, 4),
         "top_feature_importance": importance[:20],
-        "model_path": str(model_path),
+        "model_path": model_path.name,
     }
     report_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
@@ -408,7 +407,7 @@ def train_classifier(*, feature_columns, categorical_features, train_df, val_df,
         "classification_report": report,
         "label_map": label_map,
         "top_feature_importance": importance[:20],
-        "model_path": str(model_path),
+        "model_path": model_path.name,
     }
     report_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary

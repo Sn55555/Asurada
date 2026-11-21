@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Asurada Offline Debug Dashboard</title>
+  <style>__DASHBOARD_STYLE__</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="page-header">
+      <div>
+        <h1>Asurada Offline Debug Dashboard</h1>
+        <p>围绕单帧和短时回放检查状态、策略、仲裁和模型输出。页面只保留离线复盘需要的核心信息，不再承担实时 HUD 观察职责。</p>
+      </div>
+      <div class="meta-strip" id="meta-strip"></div>
+    </header>
+
+    <section class="panel">
+      <div class="controls">
+        <div class="field">
+          <label for="lap-filter">圈数</label>
+          <select id="lap-filter"></select>
+        </div>
+        <div class="field">
+          <label for="frame-slider">时间轴</label>
+          <input id="frame-slider" type="range" min="0" max="0" step="1">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="prev-frame">上一帧</button>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="play-toggle">播放</button>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="next-frame">下一帧</button>
+        </div>
+        <div class="field">
+          <label>当前索引</label>
+          <div class="meta-chip" id="frame-index">0 / 0</div>
+        </div>
+      </div>
+
+      <div class="timeline-summary">
+        <div class="kv"><small>当前帧</small><strong id="timeline-frame">-</strong><div class="subtext" id="timeline-time">-</div></div>
+        <div class="kv"><small>赛道段</small><strong id="timeline-track">-</strong><div class="subtext" id="timeline-usage">-</div></div>
+        <div class="kv"><small>当前输出</small><strong id="timeline-message">-</strong><div class="subtext" id="timeline-priority">-</div></div>
+      </div>
+    </section>
+
+    <main class="layout">
+      <div class="stack">
+        <section class="panel">
+          <div class="section-title"><h2>Decision Trace</h2><span>策略、仲裁、输出</span></div>
+          <div class="trace-list" id="decision-trace"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title"><h2>Current Frame</h2><span>状态快照</span></div>
+          <div class="kv-grid" id="current-frame-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title"><h2>Nearby Frames</h2><span>前后帧对照</span></div>
+          <table class="event-table">
+            <thead>
+              <tr><th>位置</th><th>帧</th><th>时间</th><th>策略</th><th>速度</th><th>后车差距</th></tr>
+            </thead>
+            <tbody id="neighbor-rows"></tbody>
+          </table>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="panel">
+          <div class="section-title"><h2>Model Signals</h2><span>参与判断的模型信号</span></div>
+          <div class="signal-list" id="model-signals"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title"><h2>Front / Rear Rival</h2><span>相邻车辆状态</span></div>
+          <div class="rival-grid" id="rival-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title"><h2>Track Context</h2><span>当前赛段与赛道语义</span></div>
+          <div class="track-context-wrap">
+            <div class="track-bar">
+              <div class="track-segments" id="track-segments"></div>
+              <div class="track-marker" id="track-marker"></div>
+            </div>
+            <div class="track-legend">
+              <span><i style="background:#0b63ce"></i>玩家位置</span>
+              <span><i style="background:#b33d3f"></i>制动分段</span>
+              <span><i style="background:#a45a00"></i>弯道分段</span>
+              <span><i style="background:#117a5a"></i>部署直道</span>
+            </div>
+            <div class="track-meta" id="trajectory-meta"></div>
+            <div class="track-context-grid" id="track-context-grid"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title"><h2>Raw Debug</h2><span>原始调试信息</span></div>
+          <div class="json-block"><pre id="debug-json">-</pre></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>__DASHBOARD_SCRIPT__</script>
+</body>
+</html>

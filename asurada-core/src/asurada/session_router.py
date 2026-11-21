@@ -22,6 +22,7 @@ class SessionModeRouter:
     _RACE_ACTIONS = {
         "NONE",
         "SAFETY_CAR",
+        "LOCAL_YELLOW",
         "LOW_FUEL",
         "BOX_WINDOW",
         "TYRE_MANAGE",
@@ -29,19 +30,25 @@ class SessionModeRouter:
         "ATTACK_WINDOW",
         "DEFEND_WINDOW",
         "DYNAMICS_UNSTABLE",
-        "FRONT_LOAD",
+        "TYRE_DAMAGE",
+        "TYRE_WEAR_ALERT",
+        "FRONT_WING_DAMAGE",
     }
     _RACE_NO_TIMING = {
         "NONE",
         "SAFETY_CAR",
+        "LOCAL_YELLOW",
         "LOW_FUEL",
         "BOX_WINDOW",
         "TYRE_MANAGE",
         "ERS_LOW",
         "DYNAMICS_UNSTABLE",
-        "FRONT_LOAD",
+        "TYRE_DAMAGE",
+        "TYRE_WEAR_ALERT",
+        "FRONT_WING_DAMAGE",
     }
-    _QUALI_ACTIONS = {"NONE", "DYNAMICS_UNSTABLE", "FRONT_LOAD"}
+    _QUALI_ACTIONS = {"NONE", "LOCAL_YELLOW", "DYNAMICS_UNSTABLE", "TYRE_DAMAGE", "TYRE_WEAR_ALERT", "FRONT_WING_DAMAGE"}
+    _RESULT_LIKE_ACTIONS = {"NONE"}
 
     def resolve(self, state: SessionState) -> SessionRoute:
         raw = state.raw
@@ -56,6 +63,14 @@ class SessionModeRouter:
                 allow_timing_actions=True,
                 allow_race_resource_actions=True,
                 route_reason="race_like_official",
+            )
+        if timing_mode == "result_like":
+            return SessionRoute(
+                session_mode=f"{session_type}:{timing_mode}",
+                allowed_action_codes=set(self._RESULT_LIKE_ACTIONS),
+                allow_timing_actions=False,
+                allow_race_resource_actions=False,
+                route_reason="result_like_non_actionable",
             )
         if timing_mode == "session_type_estimated":
             return SessionRoute(

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from .paths import ASSET_ROOT
+from .capture_process import command_json_text
+
 import json
 import os
 import shutil
@@ -34,6 +37,7 @@ class MacOSAudioCaptureResult:
 
 
 class MacOSAudioCapture:
+    supports_task_context = True
     """Development-only macOS microphone capture for local ASR backends."""
 
     def __init__(self, config: MacOSAudioCaptureConfig | None = None) -> None:
@@ -42,7 +46,7 @@ class MacOSAudioCapture:
     @classmethod
     def from_env(cls) -> "MacOSAudioCapture":
         script_path = os.getenv("ASURADA_MACOS_AUDIO_CAPTURE_SCRIPT") or str(
-            Path(__file__).resolve().parents[2] / "scripts" / "macos_audio_capture.swift"
+            ASSET_ROOT / "scripts" / "macos_audio_capture.swift"
         )
         swift_binary = os.getenv("ASURADA_SWIFT_BINARY") or shutil.which("swift") or "/usr/bin/swift"
         return cls(
@@ -62,24 +66,27 @@ class MacOSAudioCapture:
             return False
         swift_binary = os.getenv("ASURADA_SWIFT_BINARY") or "swift"
         script_path = os.getenv("ASURADA_MACOS_AUDIO_CAPTURE_SCRIPT") or str(
-            Path(__file__).resolve().parents[2] / "scripts" / "macos_audio_capture.swift"
+            ASSET_ROOT / "scripts" / "macos_audio_capture.swift"
         )
         return shutil.which(swift_binary) is not None and Path(script_path).exists()
 
-    def capture_once(self) -> MacOSAudioCaptureResult:
-        completed = subprocess.run(
-            self._command(),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=self.config.command_timeout_s,
-        )
-        stdout = completed.stdout.strip()
-        if completed.returncode != 0:
-            raise RuntimeError(
-                "macOS audio capture failed: "
-                f"code={completed.returncode} stderr={completed.stderr.strip()}"
+    def capture_once(self, *, context=None) -> MacOSAudioCaptureResult:
+        if context is not None:
+            stdout = command_json_text(self._command(), timeout_s=self.config.command_timeout_s, context=context).strip()
+        else:
+            completed = subprocess.run(
+                self._command(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=self.config.command_timeout_s,
             )
+            stdout = completed.stdout.strip()
+            if completed.returncode != 0:
+                raise RuntimeError(
+                    "macOS audio capture failed: "
+                    f"code={completed.returncode} stderr={completed.stderr.strip()}"
+                )
         if not stdout:
             raise RuntimeError("macOS audio capture returned empty stdout")
         payload = json.loads(stdout)

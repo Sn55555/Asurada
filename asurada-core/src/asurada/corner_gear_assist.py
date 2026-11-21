@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .paths import RUNTIME_ROOT
+
 import json
 import os
 import tempfile
@@ -200,7 +202,7 @@ class CornerGearAssistController:
         raw_value = os.getenv("ASURADA_CORNER_GEAR_ASSIST_STATE_PATH")
         if raw_value:
             return Path(raw_value).expanduser().resolve()
-        return Path(__file__).resolve().parents[2] / "runtime_logs" / "corner_gear_assist_state.json"
+        return RUNTIME_ROOT / "corner_gear_assist_state.json"
 
     def _load_state(self) -> None:
         try:

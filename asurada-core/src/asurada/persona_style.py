@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .race_control import race_control_active
+
 import re
 
 from .persona_registry import get_persona
@@ -82,6 +84,8 @@ def render_not_supported_answer(
 
 def render_overall_primary_posture(
     *,
+    attack_state: str,
+    defend_state: str,
     primary_code: str | None,
     primary_detail: str | None,
     gap_ahead_s: float | None,
@@ -92,21 +96,25 @@ def render_overall_primary_posture(
         return f"当前整体先以防守为主，因为 {primary_detail}"
     if primary_code == "ATTACK_WINDOW" and primary_detail:
         return f"当前整体先以进攻施压为主，因为 {primary_detail}"
-    if gap_behind_s is not None and gap_behind_s <= 1.2:
+    if defend_state == "urgent":
         return f"当前整体更偏向防守，后车只落后 {gap_behind_s:.3f} 秒。"
-    if gap_ahead_s is not None and gap_ahead_s <= 1.0 and drs_available:
+    if attack_state == "available":
         return f"当前整体更偏向进攻，前车只领先 {gap_ahead_s:.3f} 秒且 DRS 可用。"
     return "当前整体以中性管理为主。"
 
 
 def render_overall_main_risk(
     *,
+    tyre_state: str,
+    defend_state: str,
     primary_code: str | None,
     primary_detail: str | None,
     drive_through: int,
     stop_go: int,
     should_serve_penalty: bool,
     fuel_laps_remaining: float,
+    fuel_verdict: str = "unavailable",
+    fuel_detail: str = "",
     tyre_wear_pct: float,
     gap_behind_s: float | None,
     safety_car: str,
@@ -115,24 +123,27 @@ def render_overall_main_risk(
         return f"最大风险还是处罚处理，当前穿越维修区 {drive_through} 条，stop-go {stop_go} 条。"
     if primary_code == "DEFEND_WINDOW" and primary_detail:
         return f"最大风险是后车压力，{primary_detail}"
-    if gap_behind_s is not None and gap_behind_s <= 1.1:
+    if defend_state == "urgent":
         return f"最大风险是后车逼近，当前差距只有 {gap_behind_s:.3f} 秒。"
-    if fuel_laps_remaining <= 3.0:
-        return f"最大风险是燃油偏紧，预计只剩 {fuel_laps_remaining:.1f} 圈。"
-    if tyre_wear_pct >= 65.0:
+    if fuel_verdict == "critical":
+        return f"最大风险是燃油偏紧。{fuel_detail}"
+    if tyre_state in {"manage", "box_now"}:
         return f"最大风险是轮胎磨损偏高，已经到 {tyre_wear_pct:.1f}%。"
-    if safety_car != "NONE":
+    if race_control_active(safety_car):
         return f"当前最大变量是赛道管制，赛道处于 {safety_car} 阶段。"
     return "当前没有单一压倒性风险。"
 
 
 def render_overall_next_focus(
     *,
+    tyre_state: str,
     primary_code: str | None,
     drive_through: int,
     stop_go: int,
     should_serve_penalty: bool,
     fuel_laps_remaining: float,
+    fuel_verdict: str = "unavailable",
+    fuel_detail: str = "",
     tyre_wear_pct: float,
     safety_car: str,
 ) -> str:
@@ -142,11 +153,11 @@ def render_overall_next_focus(
         return "下一步优先守住后车 DRS 线并稳住出弯。"
     if primary_code == "ATTACK_WINDOW":
         return "下一步优先盯前车差距和 DRS 兑现，别在资源不足时硬上。"
-    if fuel_laps_remaining <= 3.0:
+    if fuel_verdict == "critical":
         return "下一步优先控燃油。"
-    if tyre_wear_pct >= 65.0:
+    if tyre_state in {"manage", "box_now"}:
         return "下一步优先保护轮胎。"
-    if safety_car != "NONE":
+    if race_control_active(safety_car):
         return "下一步优先看赛道管制是否变化。"
     return "下一步优先稳住前后车差距和资源消耗。"
 
@@ -237,42 +248,19 @@ def render_tyre_wear_outlook(
     age_laps: int,
     active_attack: bool,
     active_defend: bool,
+    tyre_state: str,
 ) -> str:
-    active_duel = active_attack or active_defend
-    if wear_pct >= 70.0:
-        return (
-            f"当前轮胎已经在高磨损区，磨损 {wear_pct:.1f}%。接下来一到两圈损耗还会继续放大，"
-            "不适合再用高强度攻防去硬扛。"
-        )
-    if wear_pct >= 50.0 and active_duel:
-        return (
-            f"当前轮胎磨损已经到 {wear_pct:.1f}%，而且你还在直接攻防窗口里。接下来两三圈损耗会明显加快，"
-            "更适合尽快把节奏收回到可控区间。"
-        )
-    if wear_pct >= 50.0:
-        return (
-            f"当前轮胎磨损在 {wear_pct:.1f}% 的中高位。接下来两三圈会继续往高风险区走，"
-            "虽然还能撑一段，但不适合继续额外消耗。"
-        )
-    if wear_pct >= 30.0 and active_duel:
-        return (
-            f"当前轮胎磨损 {wear_pct:.1f}%，基础窗口还在，但如果继续维持现在的攻防强度，"
-            "未来两三圈损耗会比正常管理明显更快。"
-        )
-    if wear_pct >= 30.0:
-        return (
-            f"当前轮胎磨损 {wear_pct:.1f}%，还在可控区间。未来两三圈会稳定上升，"
-            "但只要节奏别继续拉高，暂时不会突然掉出窗口。"
-        )
-    if active_duel:
-        return (
-            f"当前轮胎还比较新，磨损 {wear_pct:.1f}%。未来几圈基础损耗可控，"
-            "但如果继续保持当前攻防强度，磨损会上升得比平时更快。"
-        )
-    return (
-        f"当前轮胎状态还健康，磨损 {wear_pct:.1f}%，胎龄 {age_laps} 圈。"
-        "未来两三圈损耗预计仍然可控，窗口暂时比较稳定。"
-    )
+    if tyre_state == "unavailable":
+        return "轮胎磨损数据不可用，暂不能预测磨损变化。"
+    if tyre_state == "box_now":
+        detail = f"当前轮胎磨损 {wear_pct:.1f}%，已经触发进站磨损阈值，不适合继续高强度攻防。"
+    elif tyre_state == "manage":
+        detail = f"当前轮胎磨损 {wear_pct:.1f}%，已经触发保胎阈值，建议先控制额外消耗。"
+    else:
+        detail = f"当前轮胎磨损 {wear_pct:.1f}%，胎龄 {age_laps} 圈，尚未触发保胎阈值。"
+    if active_attack or active_defend:
+        detail += " 当前还在直接攻防窗口，持续对抗可能增加轮胎消耗。"
+    return detail + " 仅凭当前磨损无法准确预测未来可跑圈数，需要结合连续圈的实际磨损变化。"
 
 
 def render_llm_sidecar_text(answer_text: str, *, persona_id: str | None = None) -> str:

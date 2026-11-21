@@ -772,7 +772,8 @@
   - 后续项：真实联机样本验证
   - 不阻塞阶段一封板
 - [x] 标准 `Event` union detail 结构化
-- [ ] 基于剩余未知 session code 与 `session_type 8` 的 timing 最终验证
+- [ ] 基于剩余未知 session code 的 timing 最终验证
+  - `session_type 8` 已收口为 `result_like / disabled / non-actionable`
 
 优化空间：
 

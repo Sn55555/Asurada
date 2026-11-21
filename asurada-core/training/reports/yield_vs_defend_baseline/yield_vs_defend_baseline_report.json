@@ -1,0 +1,316 @@
+{
+  "dataset": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v2_extended/tactical_features_v1.csv",
+  "rows": {
+    "all": 2211,
+    "train": 1285,
+    "val": 655,
+    "test": 271
+  },
+  "target": "target_yield_and_counter",
+  "label_source": "yield_vs_fight_proxy_label",
+  "features": [
+    "official_gap_behind_s",
+    "gap_closing_rate_behind",
+    "rear_rival_speed_kph",
+    "rear_rival_ers_pct",
+    "rear_rival_speed_delta",
+    "speed_kph",
+    "throttle",
+    "brake",
+    "steer",
+    "fuel_laps_remaining",
+    "ers_pct",
+    "tyre_wear_pct",
+    "tyre_age_laps",
+    "recent_unstable_ratio",
+    "recent_front_overload_ratio",
+    "g_force_lateral",
+    "g_force_longitudinal",
+    "wheel_slip_ratio_rl",
+    "wheel_slip_ratio_rr",
+    "rear_threat_zone_flag",
+    "counterattack_zone_flag",
+    "drs_recovery_window",
+    "track_zone",
+    "track_segment",
+    "track_usage",
+    "next_track_segment",
+    "next_track_usage",
+    "driving_mode",
+    "session_type"
+  ],
+  "best_iteration": 102,
+  "validation_source": "exported_val_split",
+  "selected_threshold": 0.5,
+  "validation_threshold_scan": {
+    "selected_threshold": 0.5,
+    "selected_metrics": {
+      "threshold": 0.5,
+      "macro_f1": 0.9908263305322129,
+      "positive_precision": 1.0,
+      "positive_recall": 0.9672131147540983,
+      "accuracy": 0.9969465648854962,
+      "tp": 59,
+      "fp": 0,
+      "fn": 2,
+      "tn": 594
+    },
+    "top_candidates": [
+      {
+        "threshold": 0.5,
+        "macro_f1": 0.9908263305322129,
+        "positive_precision": 1.0,
+        "positive_recall": 0.9672131147540983,
+        "accuracy": 0.9969465648854962,
+        "tp": 59,
+        "fp": 0,
+        "fn": 2,
+        "tn": 594
+      },
+      {
+        "threshold": 0.48,
+        "macro_f1": 0.9863417414453426,
+        "positive_precision": 0.9833333333333333,
+        "positive_recall": 0.9672131147540983,
+        "accuracy": 0.9954198473282443,
+        "tp": 59,
+        "fp": 1,
+        "fn": 2,
+        "tn": 593
+      },
+      {
+        "threshold": 0.52,
+        "macro_f1": 0.9861355121393645,
+        "positive_precision": 1.0,
+        "positive_recall": 0.9508196721311475,
+        "accuracy": 0.9954198473282443,
+        "tp": 58,
+        "fp": 0,
+        "fn": 3,
+        "tn": 594
+      },
+      {
+        "threshold": 0.54,
+        "macro_f1": 0.9861355121393645,
+        "positive_precision": 1.0,
+        "positive_recall": 0.9508196721311475,
+        "accuracy": 0.9954198473282443,
+        "tp": 58,
+        "fp": 0,
+        "fn": 3,
+        "tn": 594
+      },
+      {
+        "threshold": 0.56,
+        "macro_f1": 0.9813729951086338,
+        "positive_precision": 1.0,
+        "positive_recall": 0.9344262295081968,
+        "accuracy": 0.9938931297709923,
+        "tp": 57,
+        "fp": 0,
+        "fn": 4,
+        "tn": 594
+      },
+      {
+        "threshold": 0.58,
+        "macro_f1": 0.9813729951086338,
+        "positive_precision": 1.0,
+        "positive_recall": 0.9344262295081968,
+        "accuracy": 0.9938931297709923,
+        "tp": 57,
+        "fp": 0,
+        "fn": 4,
+        "tn": 594
+      },
+      {
+        "threshold": 0.6,
+        "macro_f1": 0.9813729951086338,
+        "positive_precision": 1.0,
+        "positive_recall": 0.9344262295081968,
+        "accuracy": 0.9938931297709923,
+        "tp": 57,
+        "fp": 0,
+        "fn": 4,
+        "tn": 594
+      },
+      {
+        "threshold": 0.62,
+        "macro_f1": 0.9813729951086338,
+        "positive_precision": 1.0,
+        "positive_recall": 0.9344262295081968,
+        "accuracy": 0.9938931297709923,
+        "tp": 57,
+        "fp": 0,
+        "fn": 4,
+        "tn": 594
+      }
+    ]
+  },
+  "scale_pos_weight": 7.3441558441558445,
+  "classification_report": {
+    "0": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 252.0
+    },
+    "1": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 19.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 271.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 271.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      252,
+      0
+    ],
+    [
+      0,
+      19
+    ]
+  ],
+  "top_feature_importance": [
+    {
+      "feature": "rear_rival_speed_delta",
+      "importance": 16541
+    },
+    {
+      "feature": "official_gap_behind_s",
+      "importance": 1932
+    },
+    {
+      "feature": "rear_rival_ers_pct",
+      "importance": 1630
+    },
+    {
+      "feature": "fuel_laps_remaining",
+      "importance": 1238
+    },
+    {
+      "feature": "g_force_longitudinal",
+      "importance": 758
+    },
+    {
+      "feature": "tyre_wear_pct",
+      "importance": 585
+    },
+    {
+      "feature": "g_force_lateral",
+      "importance": 323
+    },
+    {
+      "feature": "ers_pct",
+      "importance": 226
+    },
+    {
+      "feature": "track_segment",
+      "importance": 213
+    },
+    {
+      "feature": "rear_threat_zone_flag",
+      "importance": 206
+    },
+    {
+      "feature": "rear_rival_speed_kph",
+      "importance": 182
+    },
+    {
+      "feature": "wheel_slip_ratio_rr",
+      "importance": 97
+    },
+    {
+      "feature": "speed_kph",
+      "importance": 91
+    },
+    {
+      "feature": "steer",
+      "importance": 91
+    },
+    {
+      "feature": "wheel_slip_ratio_rl",
+      "importance": 76
+    },
+    {
+      "feature": "brake",
+      "importance": 74
+    },
+    {
+      "feature": "drs_recovery_window",
+      "importance": 28
+    },
+    {
+      "feature": "track_usage",
+      "importance": 14
+    },
+    {
+      "feature": "gap_closing_rate_behind",
+      "importance": 6
+    },
+    {
+      "feature": "throttle",
+      "importance": 1
+    }
+  ],
+  "model_path": "yield_vs_defend_model_baseline.txt",
+  "feature_columns": [
+    "official_gap_behind_s",
+    "gap_closing_rate_behind",
+    "rear_rival_speed_kph",
+    "rear_rival_ers_pct",
+    "rear_rival_speed_delta",
+    "speed_kph",
+    "throttle",
+    "brake",
+    "steer",
+    "fuel_laps_remaining",
+    "ers_pct",
+    "tyre_wear_pct",
+    "tyre_age_laps",
+    "recent_unstable_ratio",
+    "recent_front_overload_ratio",
+    "g_force_lateral",
+    "g_force_longitudinal",
+    "wheel_slip_ratio_rl",
+    "wheel_slip_ratio_rr",
+    "rear_threat_zone_flag",
+    "counterattack_zone_flag",
+    "drs_recovery_window",
+    "track_zone",
+    "track_segment",
+    "track_usage",
+    "next_track_segment",
+    "next_track_usage",
+    "driving_mode",
+    "session_type"
+  ],
+  "asset_manifest": {
+    "version": "model-asset-v1",
+    "model_sha256": "880f0007944a36c28d14f081af2592c9a66754c22bb06da065b31242ca7582d7",
+    "feature_schema_sha256": "e0cfe9bfd2394ab29c35bf0409d9073ffc372c81b9f4268fbaa244cabee310ed"
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

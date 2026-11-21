@@ -1,0 +1,152 @@
+{
+  "model": "dynamics_risk",
+  "target": "dynamics_risk_label",
+  "rows": {
+    "all": 13400,
+    "train": 6663,
+    "val": 1666,
+    "test": 5071
+  },
+  "feature_columns": [
+    "session_time_s",
+    "lap_number",
+    "speed_kph",
+    "throttle",
+    "brake",
+    "steer",
+    "g_force_lateral",
+    "g_force_longitudinal",
+    "g_force_vertical",
+    "yaw",
+    "pitch",
+    "roll",
+    "wheel_slip_ratio_fl",
+    "wheel_slip_ratio_fr",
+    "wheel_slip_ratio_rl",
+    "wheel_slip_ratio_rr",
+    "recent_unstable_ratio",
+    "recent_front_overload_ratio",
+    "session_type",
+    "timing_mode",
+    "track_zone",
+    "track_segment",
+    "track_usage",
+    "status_tags",
+    "driving_mode"
+  ],
+  "validation_source": "train_holdout_split",
+  "test_source": "exported_test_split",
+  "best_iteration": 300,
+  "metrics": {
+    "mae": 0.11492200852616957,
+    "rmse": 1.2109443569544076,
+    "r2": 0.9541242167922352,
+    "spearman": 0.9604874161197724,
+    "within_5": 0.9976336028396766,
+    "within_10": 0.9992112009465589
+  },
+  "target_stats": {
+    "train_min": 10.0,
+    "train_max": 127.0,
+    "test_min": 10.0,
+    "test_max": 90.0
+  },
+  "top_feature_importance": [
+    {
+      "feature": "status_tags",
+      "importance": 26545575
+    },
+    {
+      "feature": "track_segment",
+      "importance": 1009139
+    },
+    {
+      "feature": "wheel_slip_ratio_fr",
+      "importance": 818426
+    },
+    {
+      "feature": "g_force_longitudinal",
+      "importance": 397301
+    },
+    {
+      "feature": "wheel_slip_ratio_fl",
+      "importance": 389942
+    },
+    {
+      "feature": "recent_unstable_ratio",
+      "importance": 290321
+    },
+    {
+      "feature": "recent_front_overload_ratio",
+      "importance": 243227
+    },
+    {
+      "feature": "throttle",
+      "importance": 126310
+    },
+    {
+      "feature": "speed_kph",
+      "importance": 88481
+    },
+    {
+      "feature": "session_time_s",
+      "importance": 56265
+    },
+    {
+      "feature": "roll",
+      "importance": 25545
+    },
+    {
+      "feature": "track_usage",
+      "importance": 23774
+    },
+    {
+      "feature": "wheel_slip_ratio_rl",
+      "importance": 22824
+    },
+    {
+      "feature": "wheel_slip_ratio_rr",
+      "importance": 20098
+    },
+    {
+      "feature": "g_force_lateral",
+      "importance": 19263
+    },
+    {
+      "feature": "track_zone",
+      "importance": 17396
+    },
+    {
+      "feature": "yaw",
+      "importance": 13832
+    },
+    {
+      "feature": "pitch",
+      "importance": 9710
+    },
+    {
+      "feature": "steer",
+      "importance": 6748
+    },
+    {
+      "feature": "g_force_vertical",
+      "importance": 2672
+    }
+  ],
+  "model_path": "dynamics_risk_baseline.txt",
+  "asset_manifest": {
+    "version": "model-asset-v1",
+    "model_sha256": "ebe8f6ff71bda441252295ab075d5cdf17acf54e779098de77dc542b0df89649",
+    "feature_schema_sha256": "6fa72727fba5f42ef9da99a7b531da7616230ea84a4119b940e1ba584b7f4b28"
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

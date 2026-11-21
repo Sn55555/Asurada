@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import math
 from dataclasses import dataclass
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(PROJECT_ROOT / "src"))
+from asurada.training_join import join_training_labels
+from asurada.training_partition import session_partitions, exported_row_split, validate_session_frame
+from asurada.training_provenance import training_provenance
 DEFAULT_FEATURES = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "features.csv"
 DEFAULT_LABELS = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "labels.csv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "training" / "reports" / "rival_pressure_baseline"
@@ -163,9 +168,11 @@ def main() -> int:
 
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    features_df = pd.read_csv(args.features, low_memory=False)
-    labels_df = pd.read_csv(args.labels, low_memory=False)
-    merged = features_df.merge(labels_df[["record_id", "primary_action_label"]], on="record_id", how="inner")
+    provenance = training_provenance(args.features, args.labels)
+    features_df = pd.read_csv(args.features, low_memory=False, dtype={"session_uid":str})
+    features_df = validate_session_frame(features_df)
+    labels_df = pd.read_csv(args.labels, low_memory=False, dtype={"session_uid":str})
+    merged,join_manifest = join_training_labels(features_df,labels_df,targets=["primary_action_label"])
     merged = filter_race_like_rows(merged)
     if merged.empty:
         raise SystemExit("No official race-like rows available for rival-pressure training.")
@@ -176,6 +183,7 @@ def main() -> int:
     merged["rival_pressure_proxy"] = merged.apply(compute_rival_pressure_target, axis=1)
 
     aggregate: dict[str, object] = {
+        "label_join": join_manifest,
         "features_path": str(args.features),
         "labels_path": str(args.labels),
         "filter": "official_preferred race-like rows",
@@ -191,6 +199,7 @@ def main() -> int:
             mean_absolute_error=mean_absolute_error,
             mean_squared_error=mean_squared_error,
             r2_score=r2_score,
+            provenance=provenance,
         )
         aggregate["models"][spec.name] = summary
 
@@ -210,6 +219,7 @@ def train_one_model(
     mean_absolute_error,
     mean_squared_error,
     r2_score,
+    provenance=None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     df = merged_df[merged_df[spec.target].notna()].copy()
@@ -223,9 +233,7 @@ def train_one_model(
         if column in df.columns:
             df[column] = df[column].fillna("UNKNOWN").astype("category")
 
-    train_df = df[df["split"] == "train"].copy()
-    val_df = df[df["split"] == "val"].copy()
-    test_df = df[df["split"] == "test"].copy()
+    train_df, val_df, test_df, partition_manifest = session_partitions(df, split_column="split")
     if train_df.empty or val_df.empty or test_df.empty:
         raise SystemExit(f"{spec.name} baseline requires deterministic train/val/test rows.")
 
@@ -276,13 +284,17 @@ def train_one_model(
     report = {
         "model": spec.name,
         "target": spec.target,
+        "training_provenance": provenance or {"export_metadata_status": "not_provided"},
+        "context_window_version": (provenance or {}).get("context_window_version"),
+        "label_provenance": {"kind": "proxy_derived_from_features", "human_validated": False},
         "label_source": f"{spec.target}_recomputed_from_features",
         "label_type": "proxy_distillation_baseline",
-        "features_path": str(DEFAULT_FEATURES),
-        "labels_path": str(DEFAULT_LABELS),
+        "features_path": (provenance or {}).get("features_path"),
+        "labels_path": (provenance or {}).get("labels_path"),
         "filter": "official_preferred race-like rows",
-        "validation_source": "exported_val_split",
-        "test_source": "exported_test_split",
+        "validation_source": "whole_session_partition",
+        "partition": partition_manifest,
+        "test_source": "exported_session_split",
         "train_rows": int(len(train_df)),
         "val_rows": int(len(val_df)),
         "test_rows": int(len(test_df)),
@@ -294,7 +306,7 @@ def train_one_model(
         "top_feature_importance": importance_df.to_dict(orient="records"),
         "top_features": importance_df.to_dict(orient="records"),
         "feature_columns": feature_columns,
-        "model_path": str(model_path),
+        "model_path": model_path.name,
     }
     model.booster_.save_model(str(model_path))
     (output_dir / f"{spec.name}_baseline_report.json").write_text(
@@ -311,13 +323,7 @@ def filter_race_like_rows(df):
 
 
 def derive_split(row) -> str:
-    session_type = str(row.get("session_type") or "")
-    lap_number = int(row.get("lap_number") or 0)
-    if "FeatureRaceLike" in session_type:
-        return "test"
-    if "SprintRaceLike" in session_type and lap_number == 2:
-        return "val"
-    return "train"
+    return exported_row_split(row)
 
 
 def compute_front_pressure_target(row) -> float:

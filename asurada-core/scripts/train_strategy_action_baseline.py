@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(PROJECT_ROOT / "src"))
+from asurada.training_partition import session_partitions, exported_row_split, validate_session_frame
+from asurada.training_provenance import training_provenance
 
 
 def default_features_path() -> Path:
@@ -41,7 +45,9 @@ def main() -> int:
         )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    df = pd.read_csv(args.features, low_memory=False)
+    provenance = training_provenance(args.features, feature_key='strategy_action_features_path')
+    df = pd.read_csv(args.features, low_memory=False, dtype={"session_uid":str})
+    df = validate_session_frame(df)
     if df.empty:
         raise SystemExit("Empty strategy-action dataset.")
     df = df[df["primary_action_label"].isin(TARGET_ACTIONS)].copy()
@@ -86,9 +92,7 @@ def main() -> int:
     id_to_label = {idx: label for label, idx in label_to_id.items()}
     df["target_id"] = df["primary_action_label"].map(label_to_id)
 
-    train_df = df[df["split"] == "train"].copy()
-    val_df = df[df["split"] == "val"].copy()
-    test_df = df[df["split"] == "test"].copy()
+    train_df, val_df, test_df, partition_manifest = session_partitions(df, split_column="split")
     if train_df.empty or test_df.empty:
         raise SystemExit("Missing exported train/test rows for strategy-action baseline.")
 
@@ -178,6 +182,9 @@ def main() -> int:
     booster.save_model(str(model_path))
 
     summary = {
+        "training_provenance": provenance,
+        "context_window_version": provenance.get('context_window_version'),
+        "label_provenance": provenance.get('label_provenance'),
         "features": str(args.features),
         "rows": {
             "all": int(len(df)),
@@ -188,8 +195,9 @@ def main() -> int:
         "target_actions": TARGET_ACTIONS,
         "feature_columns": feature_columns,
         "best_iteration": int(best_iteration),
-        "validation_source": "exported_val_split",
-        "test_source": "exported_test_split",
+        "validation_source": "whole_session_partition",
+        "partition": partition_manifest,
+        "test_source": "exported_session_split",
         "top1_accuracy": top1,
         "top2_accuracy": top2,
         "classification_report": report,
@@ -197,7 +205,7 @@ def main() -> int:
         "top_feature_importance": importance[:20],
         "class_weights": class_weights,
         "class_min_score_thresholds": class_min_score_thresholds,
-        "model_path": str(model_path),
+        "model_path": model_path.name,
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))

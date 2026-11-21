@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import json
 from pathlib import Path
 import tempfile
@@ -84,4 +86,4 @@ def run_phase3_open_asr_regression() -> dict[str, object]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_open_asr_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_open_asr_regression())

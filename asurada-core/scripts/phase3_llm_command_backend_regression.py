@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import json
 import sys
 from pathlib import Path
@@ -20,7 +22,7 @@ def run_phase3_llm_command_backend_regression() -> dict[str, Any]:
         normalized_query_text="整体形势怎么样",
         route_reason="explainer_query",
         timeout_ms=800,
-        state_summary={"summary_version": "v1"},
+        state_summary={"summary_version": "v1", "state_snapshot": {"gap_behind_s": 0.6, "penalties": {"num_unserved_drive_through_pens": 1}}},
         metadata={},
     )
     result = explainer.run(request=request)
@@ -42,4 +44,4 @@ def run_phase3_llm_command_backend_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_llm_command_backend_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_llm_command_backend_regression())

@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .asr_fast import FastIntentResult
-from .capability_registry import CapabilityCheck, CapabilityRegistry
+from .capability_registry import CapabilityCheck, CapabilityRegistry, CONTROL_QUERY_KINDS
 from .models import SessionState
 from .runtime_context import RuntimeContextDetector
 from .semantic_normalizer import SemanticIntentResult
@@ -47,10 +47,7 @@ class TranscriptRouter:
             or ""
         ).strip()
 
-        if (
-            runtime_context.racing_active is False
-            and semantic_intent.query_kind in {"repeat_last", "stop", "cancel"}
-        ):
+        if runtime_context.racing_active is False and semantic_intent.query_kind in CONTROL_QUERY_KINDS:
             capability = self.capability_registry.evaluate(
                 query_kind=semantic_intent.query_kind,
                 normalized_text=normalized_text,

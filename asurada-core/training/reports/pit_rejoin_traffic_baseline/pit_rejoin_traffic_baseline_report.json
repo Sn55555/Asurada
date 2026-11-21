@@ -1,0 +1,60 @@
+{
+  "dataset": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/features.csv",
+  "status": "ready_for_sampling",
+  "required_fields": [
+    "pit_status",
+    "pit_status_code",
+    "pit_status_previous",
+    "pit_status_transition",
+    "pit_entry_event",
+    "pit_exit_event",
+    "pit_rejoin_phase",
+    "player_position",
+    "official_gap_ahead_s",
+    "official_gap_behind_s",
+    "lap_number",
+    "session_time_s"
+  ],
+  "missing_fields": [],
+  "blocking_reason": "Required pit-state and transition fields are present; proceed to pit-rejoin sample/label design.",
+  "notes": [
+    "pit_rejoin_traffic_model depends on explicit pit-state transitions and post-stop traffic bands.",
+    "Pit-state export exists; next step is to identify pit-entry, pit-exit, and rejoin-window rows with usable traffic bands."
+  ],
+  "pit_status_counts": {
+    "NONE": 10944,
+    "PITTING": 1794
+  },
+  "pit_transition_counts": {
+    "stable": 12734,
+    "NONE->PITTING": 3,
+    "PITTING->NONE": 1
+  },
+  "pit_rejoin_phase_counts": {
+    "none": 10933,
+    "pit_entry": 1794,
+    "rejoin_window": 10,
+    "pit_exit": 1
+  },
+  "candidate_rows": {
+    "all": 11,
+    "pit_exit": 1,
+    "rejoin_window": 10
+  },
+  "traffic_band_counts": {
+    "light": 11
+  },
+  "split_candidate_counts": {
+    "train": 11
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

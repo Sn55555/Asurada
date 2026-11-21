@@ -1,0 +1,98 @@
+{
+  "model_name": "entry_quality",
+  "target": "entry_quality_label",
+  "feature_columns": [
+    "speed_kph",
+    "brake",
+    "steer",
+    "g_force_longitudinal",
+    "g_force_lateral",
+    "wheel_slip_ratio_fl",
+    "wheel_slip_ratio_fr",
+    "recent_front_overload_ratio",
+    "recent_unstable_ratio",
+    "brake_phase_factor",
+    "session_type",
+    "track_segment",
+    "track_usage",
+    "track_zone",
+    "driving_mode",
+    "status_tags"
+  ],
+  "categorical_features": [
+    "session_type",
+    "track_segment",
+    "track_usage",
+    "track_zone",
+    "driving_mode",
+    "status_tags"
+  ],
+  "train_rows": 6663,
+  "val_rows": 1666,
+  "test_rows": 5071,
+  "validation_source": "train_holdout_split",
+  "test_source": "exported_test_split",
+  "best_iteration": 400,
+  "mae": 0.3427,
+  "rmse": 0.6511,
+  "r2": 0.9961,
+  "labeling": "proxy_distillation_from_features",
+  "top_feature_importance": [
+    {
+      "feature": "steer",
+      "importance": 2264.0
+    },
+    {
+      "feature": "g_force_longitudinal",
+      "importance": 1986.0
+    },
+    {
+      "feature": "speed_kph",
+      "importance": 1378.0
+    },
+    {
+      "feature": "wheel_slip_ratio_fr",
+      "importance": 1154.0
+    },
+    {
+      "feature": "wheel_slip_ratio_fl",
+      "importance": 1124.0
+    },
+    {
+      "feature": "g_force_lateral",
+      "importance": 817.0
+    },
+    {
+      "feature": "brake",
+      "importance": 705.0
+    },
+    {
+      "feature": "recent_front_overload_ratio",
+      "importance": 665.0
+    },
+    {
+      "feature": "track_segment",
+      "importance": 581.0
+    },
+    {
+      "feature": "recent_unstable_ratio",
+      "importance": 561.0
+    }
+  ],
+  "model_path": "entry_quality_baseline.txt",
+  "asset_manifest": {
+    "version": "model-asset-v1",
+    "model_sha256": "508bff9af7a0aec51e9a3285f375458183786379b0a23de3a4ab39161f6cac25",
+    "feature_schema_sha256": "62f489cc10213984413726ba75b3b6d9fd79ac3a0a4977f0c052c4448a450529"
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

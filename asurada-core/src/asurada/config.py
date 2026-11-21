@@ -5,7 +5,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from .paths import ASSET_ROOT, RUNTIME_ROOT
+
+PROJECT_ROOT = ASSET_ROOT
 
 # 备注:
 # usage_hooks.json 承载赛道语义用途到策略权重的映射。
@@ -30,8 +32,14 @@ class AppConfig:
     """Top-level application configuration."""
 
     thresholds: StrategyThresholds = field(default_factory=StrategyThresholds)
-    replay_log_dir: Path = PROJECT_ROOT / "runtime_logs"
+    replay_log_dir: Path = RUNTIME_ROOT
     usage_hooks_path: Path = DEFAULT_USAGE_HOOKS_PATH
+    replay_log_max_archives: int | None = None
+
+    def __post_init__(self):
+        value = self.replay_log_max_archives
+        if value is not None and (type(value) is not int or value < 0):
+            raise ValueError('replay_log_max_archives must be nonnegative or None')
 
 
 @dataclass
@@ -42,6 +50,7 @@ class UdpConfig:
     port: int = 20778
     buffer_size: int = 65535
     receive_timeout_s: float = 0.5
+    receive_queue_capacity: int = 512
 
 
 def load_usage_hooks(path: Path) -> dict[str, dict[str, int]]:

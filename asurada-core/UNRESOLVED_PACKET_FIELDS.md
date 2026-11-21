@@ -208,8 +208,9 @@ Current status:
 - gap confidence tiers are now exposed for player and rival timing
 - current capture now includes race-like session types `15 / 16`, and those paths have been promoted to `official_preferred`
 - `session_type 13` now has qualifying-like sample validation and remains `official_preferred`
-- `session_type 8` remains mixed and stays in `estimated_only`
-- still needs final validation for any remaining non-time-trial session codes before being treated as protocol-final across all modes
+- `session_type 8` is now explicitly classified as `result_like`
+- `session_type 8` now reports `timing_support_level = disabled` and is treated as non-actionable for timing-driven routing and pit-window support
+- still needs final validation for any remaining unknown or newly observed non-time-trial session codes before being treated as protocol-final across all supported modes
 
 ### Rival Gap Semantics
 
@@ -224,8 +225,8 @@ Current status:
 - `official_lapdata_adjacent` is the only high-confidence mainline source
 - race-like sample validation now exists for session types `15 / 16`
 - qualifying-like sample validation now exists for `session_type 13`
-- `session_type 8` still lacks stable official timing coverage and remains non-final for timing use
-- still needs final validation for any remaining unknown session codes before being treated as protocol-final timing
+- `session_type 8` is now treated as result-like and excluded from timing-driven mainline use
+- still needs final validation for any remaining unknown session codes before timing semantics are treated as protocol-final across all actionable session classes
 
 ### TyreSets
 
@@ -283,7 +284,9 @@ Current status:
 
 ### Participants Integration
 
-Current status:
+Current status (2026-09-16):
+- F1 25's 32-byte name boundary and metadata offsets are corrected and guarded
+  by sentinel-value regression tests; tech level, platform and livery fields are named.
 - identity fields are parsed
 - player / rival names and identity fields now flow into normalized state, replay logs, debug dashboard, and voice answers
 - lobby-oriented fields are still not fully promoted into all downstream displays and summaries
@@ -305,11 +308,15 @@ Current status:
 
 These packet families or fields remain unnamed or intentionally unpromoted.
 
-### Session Trailer Remainder
+### Session Layout Compatibility
 
-Current status:
-- fixed-width tail settings block is now promoted into named fields
-- `session_trailer_hex` only remains as a defensive fallback for unexpected extra bytes
+Current status (2026-09-16):
+- The documented fixed 753-byte layout has named tail settings.
+- `session_trailer_hex` remains an existing field and is empty for accepted layouts.
+- Unknown lengths or packet versions are rejected with a bounded diagnostic;
+  they are not assumed to be compatible appended data.
+- Supporting a new layout requires an authoritative field map plus packet fixtures.
+  Future-version support and a dashboard protocol diagnostic are not implemented.
 
 ### Uncovered Event Detail Variants
 
@@ -322,3 +329,12 @@ Current status:
 For stage-two work:
 - use [PACKET_FIELD_COVERAGE.md](PACKET_FIELD_COVERAGE.md) for fields that are already model-ready
 - use this file to identify which parser areas still need protocol completion
+
+## 2026-09-16 protocol debt validation
+
+`packet_decode_resilience_regression.py` covers every truncation position for all
+16 fixed packet layouts, subsequent good-frame processing, rejection diagnostics
+and propagation of programming errors. `packet_layout_contract_regression.py`
+checks Session version/size rejection and the exact LapData speed-trap and
+Participants offsets from the bundled EA structures. Speed-trap fields remain
+parser-level evidence; they are not promoted into strategy/training features.

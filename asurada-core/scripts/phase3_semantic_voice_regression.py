@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result, runtime_clock
+
 import json
 from typing import Any
 
@@ -92,6 +94,7 @@ def _make_turn(turn_id: str, transcript_text: str) -> VoiceTurn:
     )
 
 
+@runtime_clock(1777300000000)
 def run_phase3_semantic_voice_regression() -> dict[str, Any]:
     state = _make_state()
     primary_message = StrategyMessage(
@@ -387,61 +390,61 @@ def run_phase3_semantic_voice_regression() -> dict[str, Any]:
     overall_event = ((overall_result.output_debug or {}).get("output_lifecycle") or {}).get("event", {})
 
     checks = {
-        "natural_language_maps_rear_gap": natural_result.status == "spoken"
+        "natural_language_maps_rear_gap": natural_result.status == "processed"
         and (natural_result.bundle or {}).get("structured_query", {}).get("query_kind") == "rear_gap",
-        "followup_uses_context": followup_result.status == "spoken"
+        "followup_uses_context": followup_result.status == "processed"
         and (followup_result.bundle or {}).get("structured_query", {}).get("query_kind") == "rear_gap",
-        "explanation_query_maps": explain_result.status == "spoken"
+        "explanation_query_maps": explain_result.status == "processed"
         and (explain_result.bundle or {}).get("structured_query", {}).get("query_kind") == "why_not_attack",
         "explanation_response_mentions_reason": "因为" in str(explain_event.get("speak_text") or ""),
         "natural_response_is_conclusion_first": "后车已经进直接防守窗口" in str(natural_event.get("speak_text") or "")
         or "后车正在逼近" in str(natural_event.get("speak_text") or "")
         or "后车暂时还没进直接防守窗口" in str(natural_event.get("speak_text") or ""),
-        "pit_status_maps": pit_result.status == "spoken"
+        "pit_status_maps": pit_result.status == "processed"
         and (pit_result.bundle or {}).get("structured_query", {}).get("query_kind") == "pit_status",
-        "why_not_pit_maps": why_not_pit_result.status == "spoken"
+        "why_not_pit_maps": why_not_pit_result.status == "processed"
         and (why_not_pit_result.bundle or {}).get("structured_query", {}).get("query_kind") == "why_not_pit",
-        "weather_status_maps": weather_result.status == "spoken"
+        "weather_status_maps": weather_result.status == "processed"
         and (weather_result.bundle or {}).get("structured_query", {}).get("query_kind") == "weather_status",
-        "front_gap_maps": front_gap_result.status == "spoken"
+        "front_gap_maps": front_gap_result.status == "processed"
         and (front_gap_result.bundle or {}).get("structured_query", {}).get("query_kind") == "front_gap",
-        "tyre_outlook_maps": tyre_outlook_result.status == "spoken"
+        "tyre_outlook_maps": tyre_outlook_result.status == "processed"
         and (tyre_outlook_result.bundle or {}).get("structured_query", {}).get("query_kind") == "tyre_wear_outlook"
         and (
             "未来" in str((((tyre_outlook_result.output_debug or {}).get("output_lifecycle") or {}).get("event") or {}).get("speak_text") or "")
             or "接下来" in str((((tyre_outlook_result.output_debug or {}).get("output_lifecycle") or {}).get("event") or {}).get("speak_text") or "")
         ),
-        "damage_status_maps": damage_result.status == "spoken"
+        "damage_status_maps": damage_result.status == "processed"
         and (damage_result.bundle or {}).get("structured_query", {}).get("query_kind") == "damage_status",
-        "damage_pit_maps": damage_pit_result.status == "spoken"
+        "damage_pit_maps": damage_pit_result.status == "processed"
         and (damage_pit_result.bundle or {}).get("structured_query", {}).get("query_kind") == "damage_pit_advice",
-        "front_wing_maps": front_wing_damage_result.status == "spoken"
+        "front_wing_maps": front_wing_damage_result.status == "processed"
         and (front_wing_damage_result.bundle or {}).get("structured_query", {}).get("query_kind") == "front_wing_damage_status",
-        "floor_damage_maps": floor_damage_result.status == "spoken"
+        "floor_damage_maps": floor_damage_result.status == "processed"
         and (floor_damage_result.bundle or {}).get("structured_query", {}).get("query_kind") == "floor_damage_status",
-        "engine_damage_maps": engine_damage_result.status == "spoken"
+        "engine_damage_maps": engine_damage_result.status == "processed"
         and (engine_damage_result.bundle or {}).get("structured_query", {}).get("query_kind") == "engine_damage_status",
-        "drs_status_maps": drs_result.status == "spoken"
+        "drs_status_maps": drs_result.status == "processed"
         and (drs_result.bundle or {}).get("structured_query", {}).get("query_kind") == "drs_status",
-        "front_rival_drs_maps": front_rival_drs_result.status == "spoken"
+        "front_rival_drs_maps": front_rival_drs_result.status == "processed"
         and (front_rival_drs_result.bundle or {}).get("structured_query", {}).get("query_kind") == "front_rival_drs_status",
-        "rear_rival_drs_maps": rear_rival_drs_result.status == "spoken"
+        "rear_rival_drs_maps": rear_rival_drs_result.status == "processed"
         and (rear_rival_drs_result.bundle or {}).get("structured_query", {}).get("query_kind") == "rear_rival_drs_status",
-        "ers_status_maps": ers_result.status == "spoken"
+        "ers_status_maps": ers_result.status == "processed"
         and (ers_result.bundle or {}).get("structured_query", {}).get("query_kind") == "ers_status",
-        "race_control_status_maps": race_control_result.status == "spoken"
+        "race_control_status_maps": race_control_result.status == "processed"
         and (race_control_result.bundle or {}).get("structured_query", {}).get("query_kind") == "race_control_status",
-        "safety_car_followup_maps": safety_car_followup_result.status == "spoken"
+        "safety_car_followup_maps": safety_car_followup_result.status == "processed"
         and (safety_car_followup_result.bundle or {}).get("structured_query", {}).get("query_kind") == "race_control_status",
-        "track_incident_maps": track_incident_result.status == "spoken"
+        "track_incident_maps": track_incident_result.status == "processed"
         and (track_incident_result.bundle or {}).get("structured_query", {}).get("query_kind") == "race_control_status",
-        "penalty_status_maps": penalty_result.status == "spoken"
+        "penalty_status_maps": penalty_result.status == "processed"
         and (penalty_result.bundle or {}).get("structured_query", {}).get("query_kind") == "penalty_status",
-        "pit_penalty_maps": pit_penalty_result.status == "spoken"
+        "pit_penalty_maps": pit_penalty_result.status == "processed"
         and (pit_penalty_result.bundle or {}).get("structured_query", {}).get("query_kind") == "pit_penalty_plan",
-        "penalty_handling_maps": penalty_handling_result.status == "spoken"
+        "penalty_handling_maps": penalty_handling_result.status == "processed"
         and (penalty_handling_result.bundle or {}).get("structured_query", {}).get("query_kind") == "penalty_handling_strategy",
-        "overall_situation_maps": overall_result.status == "spoken"
+        "overall_situation_maps": overall_result.status == "processed"
         and (overall_result.bundle or {}).get("structured_query", {}).get("query_kind") == "overall_situation",
         "overall_situation_is_conclusion_first": "当前整体" in str(overall_event.get("speak_text") or "")
         and "最大风险" in str(overall_event.get("speak_text") or "")
@@ -449,35 +452,35 @@ def run_phase3_semantic_voice_regression() -> dict[str, Any]:
             "下一步优先" in str(overall_event.get("speak_text") or "")
             or "下一步先" in str(overall_event.get("speak_text") or "")
         ),
-        "attack_or_defend_maps": attack_defend_result.status == "spoken"
+        "attack_or_defend_maps": attack_defend_result.status == "processed"
         and (attack_defend_result.bundle or {}).get("structured_query", {}).get("query_kind") == "attack_or_defend_summary",
-        "main_risk_maps": risk_result.status == "spoken"
+        "main_risk_maps": risk_result.status == "processed"
         and (risk_result.bundle or {}).get("structured_query", {}).get("query_kind") == "main_risk_summary",
-        "risk_severity_maps": risk_severity_result.status == "spoken"
+        "risk_severity_maps": risk_severity_result.status == "processed"
         and (risk_severity_result.bundle or {}).get("structured_query", {}).get("query_kind") == "risk_severity_followup",
-        "risk_timing_maps": risk_timing_result.status == "spoken"
+        "risk_timing_maps": risk_timing_result.status == "processed"
         and (risk_timing_result.bundle or {}).get("structured_query", {}).get("query_kind") == "risk_escalation_timing",
-        "rear_pressure_relief_maps": rear_pressure_relief_result.status == "spoken"
+        "rear_pressure_relief_maps": rear_pressure_relief_result.status == "processed"
         and (rear_pressure_relief_result.bundle or {}).get("structured_query", {}).get("query_kind") == "rear_pressure_relief_outlook",
-        "next_lap_focus_maps": next_lap_focus_result.status == "spoken"
+        "next_lap_focus_maps": next_lap_focus_result.status == "processed"
         and (next_lap_focus_result.bundle or {}).get("structured_query", {}).get("query_kind") == "next_lap_focus",
-        "pit_delay_maps": pit_delay_result.status == "spoken"
+        "pit_delay_maps": pit_delay_result.status == "processed"
         and (pit_delay_result.bundle or {}).get("structured_query", {}).get("query_kind") == "pit_delay_consequence",
-        "pit_one_lap_delay_maps": pit_one_lap_delay_result.status == "spoken"
+        "pit_one_lap_delay_maps": pit_one_lap_delay_result.status == "processed"
         and (pit_one_lap_delay_result.bundle or {}).get("structured_query", {}).get("query_kind") == "pit_one_lap_delay_consequence",
-        "tyre_mgmt_maps": tyre_mgmt_result.status == "spoken"
+        "tyre_mgmt_maps": tyre_mgmt_result.status == "processed"
         and (tyre_mgmt_result.bundle or {}).get("structured_query", {}).get("query_kind") == "tyre_management_advice",
-        "fuel_mgmt_maps": fuel_mgmt_result.status == "spoken"
+        "fuel_mgmt_maps": fuel_mgmt_result.status == "processed"
         and (fuel_mgmt_result.bundle or {}).get("structured_query", {}).get("query_kind") == "fuel_management_advice",
-        "defend_projection_maps": defend_projection_result.status == "spoken"
+        "defend_projection_maps": defend_projection_result.status == "processed"
         and (defend_projection_result.bundle or {}).get("structured_query", {}).get("query_kind") == "defend_outcome_projection",
-        "attack_projection_maps": attack_projection_result.status == "spoken"
+        "attack_projection_maps": attack_projection_result.status == "processed"
         and (attack_projection_result.bundle or {}).get("structured_query", {}).get("query_kind") == "attack_outcome_projection",
-        "attack_defend_tradeoff_maps": attack_defend_tradeoff_result.status == "spoken"
+        "attack_defend_tradeoff_maps": attack_defend_tradeoff_result.status == "processed"
         and (attack_defend_tradeoff_result.bundle or {}).get("structured_query", {}).get("query_kind") == "attack_defend_tradeoff",
-        "front_followup_maps": front_followup_result.status == "spoken"
+        "front_followup_maps": front_followup_result.status == "processed"
         and (front_followup_result.bundle or {}).get("structured_query", {}).get("query_kind") == "front_gap",
-        "unsupported_topic_uses_open_fallback": unsupported_result.status == "spoken"
+        "unsupported_topic_uses_open_fallback": unsupported_result.status == "processed"
         and (unsupported_result.bundle or {}).get("structured_query", {}).get("query_kind") == "open_fallback",
     }
 
@@ -529,4 +532,4 @@ def run_phase3_semantic_voice_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_semantic_voice_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_semantic_voice_regression())

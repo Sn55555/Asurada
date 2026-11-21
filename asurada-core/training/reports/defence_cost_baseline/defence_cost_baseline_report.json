@@ -1,0 +1,173 @@
+{
+  "model": "defence_cost",
+  "target": "defence_cost_proxy",
+  "label_source": "defence_cost_proxy_recomputed_from_features",
+  "label_type": "proxy_distillation_baseline",
+  "features_path": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/features.csv",
+  "labels_path": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/labels.csv",
+  "filter": "official_preferred race-like tactical rows",
+  "validation_source": "exported_val_split",
+  "test_source": "exported_test_split",
+  "train_rows": 2025,
+  "val_rows": 1012,
+  "test_rows": 4970,
+  "mae": 2.716,
+  "rmse": 4.4729,
+  "r2": 0.3031,
+  "tactical_cost_correlation": 0.7154,
+  "best_iteration": 129,
+  "top_feature_importance": [
+    {
+      "feature": "rear_rival_speed_kph",
+      "importance": 1087
+    },
+    {
+      "feature": "speed_kph",
+      "importance": 893
+    },
+    {
+      "feature": "rear_rival_speed_delta",
+      "importance": 783
+    },
+    {
+      "feature": "rear_rival_ers_pct",
+      "importance": 705
+    },
+    {
+      "feature": "g_force_longitudinal",
+      "importance": 539
+    },
+    {
+      "feature": "ers_pct",
+      "importance": 449
+    },
+    {
+      "feature": "wheel_slip_ratio_rl",
+      "importance": 377
+    },
+    {
+      "feature": "fuel_laps_remaining",
+      "importance": 376
+    },
+    {
+      "feature": "session_time_s",
+      "importance": 376
+    },
+    {
+      "feature": "g_force_lateral",
+      "importance": 367
+    },
+    {
+      "feature": "wheel_slip_ratio_rr",
+      "importance": 356
+    },
+    {
+      "feature": "official_gap_behind_s",
+      "importance": 330
+    }
+  ],
+  "top_features": [
+    {
+      "feature": "rear_rival_speed_kph",
+      "importance": 1087
+    },
+    {
+      "feature": "speed_kph",
+      "importance": 893
+    },
+    {
+      "feature": "rear_rival_speed_delta",
+      "importance": 783
+    },
+    {
+      "feature": "rear_rival_ers_pct",
+      "importance": 705
+    },
+    {
+      "feature": "g_force_longitudinal",
+      "importance": 539
+    },
+    {
+      "feature": "ers_pct",
+      "importance": 449
+    },
+    {
+      "feature": "wheel_slip_ratio_rl",
+      "importance": 377
+    },
+    {
+      "feature": "fuel_laps_remaining",
+      "importance": 376
+    },
+    {
+      "feature": "session_time_s",
+      "importance": 376
+    },
+    {
+      "feature": "g_force_lateral",
+      "importance": 367
+    },
+    {
+      "feature": "wheel_slip_ratio_rr",
+      "importance": 356
+    },
+    {
+      "feature": "official_gap_behind_s",
+      "importance": 330
+    }
+  ],
+  "feature_columns": [
+    "session_time_s",
+    "lap_number",
+    "total_laps",
+    "player_position",
+    "official_gap_behind_s",
+    "gap_closing_rate_behind",
+    "rear_rival_speed_kph",
+    "rear_rival_ers_pct",
+    "rear_rival_speed_delta",
+    "speed_kph",
+    "throttle",
+    "brake",
+    "steer",
+    "fuel_laps_remaining",
+    "ers_pct",
+    "tyre_wear_pct",
+    "tyre_age_laps",
+    "recent_unstable_ratio",
+    "recent_front_overload_ratio",
+    "g_force_lateral",
+    "g_force_longitudinal",
+    "wheel_slip_ratio_rl",
+    "wheel_slip_ratio_rr",
+    "session_type",
+    "timing_mode",
+    "timing_support_level",
+    "track",
+    "track_zone",
+    "track_segment",
+    "track_usage",
+    "next_track_segment",
+    "next_track_usage",
+    "next_two_segments",
+    "weather",
+    "safety_car",
+    "driving_mode"
+  ],
+  "model_path": "defence_cost_model_baseline.txt",
+  "asset_manifest": {
+    "version": "model-asset-v1",
+    "model_sha256": "e40aff277d4e1bb4a705245dc271ffbc7d45ebde16919a1f0e56c3550d60e68d",
+    "feature_schema_sha256": "b7d8379e0c257ce3e2d42f03538a1a9f018649b79090a500b1306cc26576ddaa"
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

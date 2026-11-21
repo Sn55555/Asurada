@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 import json
+from copy import deepcopy
 import os
 import shlex
-import subprocess
 import time
 from typing import Any, Protocol
-from urllib import error as urllib_error
-from urllib import request as urllib_request
+from .cancellable_http import request_json
 
+from .task_runtime import BoundedTaskExecutor, LLM_EXECUTOR, TaskContext, TaskCancelled, TaskCapacityExceeded
+from .capture_process import command_json_text
 from .conversation_context import ConversationContext
+from .llm_evidence import InvalidLlmEvidence, evidence_fields, validate_evidence
 from .llm_response_schema import LlmResponse, coerce_llm_response
+from .llm_claims import CLAIM_UNITS
+from .answer_policy import render_racing_response
 from .models import SessionState, StrategyMessage
 from .persona_registry import build_llm_persona_instructions, get_default_persona, get_persona
 from .state_summary_for_llm import LlmStateSummary, build_state_summary_for_llm
@@ -95,24 +98,11 @@ class CommandLlmExplainerBackend:
         return bool(str(os.getenv("ASURADA_LLM_SIDECAR_COMMAND") or "").strip())
 
     def explain(self, request: LlmExplainerRequest) -> dict[str, Any]:
-        timeout_s = max(float(request.timeout_ms), 1.0) / 1000.0
-        try:
-            completed = subprocess.run(
-                self.command,
-                input=json.dumps(request.to_dict(), ensure_ascii=False),
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=timeout_s,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise TimeoutError("llm_command_timeout") from exc
-        if completed.returncode != 0:
-            raise RuntimeError(
-                f"llm_command_failed: returncode={completed.returncode} stderr={completed.stderr.strip()}"
-            )
-        payload = str(completed.stdout or "").strip()
+        return self.explain_with_context(request, context=TaskContext.start(request.request_id, request.timeout_ms))
+
+    def explain_with_context(self, request: LlmExplainerRequest, *, context: TaskContext) -> dict[str, Any]:
+        payload = command_json_text(self.command, timeout_s=max(float(request.timeout_ms),1.)/1000.,
+            context=context, input_bytes=json.dumps(request.to_dict(),ensure_ascii=False,allow_nan=False).encode('utf-8')).strip()
         if not payload:
             raise RuntimeError("llm_command_returned_empty_stdout")
         return json.loads(payload)
@@ -162,10 +152,13 @@ class OpenAiResponsesLlmExplainerBackend:
         return bool(str(os.getenv("ASURADA_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") or "").strip())
 
     def explain(self, request: LlmExplainerRequest) -> dict[str, Any]:
-        payload = self._post_responses(request=request)
+        return self.explain_with_context(request, context=TaskContext.start(request.request_id, request.timeout_ms))
+
+    def explain_with_context(self, request: LlmExplainerRequest, *, context: TaskContext) -> dict[str, Any]:
+        payload = self._post_responses(request=request, context=context)
         return self._extract_llm_payload(payload)
 
-    def _post_responses(self, *, request: LlmExplainerRequest) -> dict[str, Any]:
+    def _post_responses(self, *, request: LlmExplainerRequest, context: TaskContext) -> dict[str, Any]:
         body = {
             "model": self.model,
             "instructions": self._instructions(request),
@@ -179,21 +172,9 @@ class OpenAiResponsesLlmExplainerBackend:
                 }
             },
         }
-        req = urllib_request.Request(
-            url=f"{self.base_url}/responses",
-            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-            headers=self._headers(),
-            method="POST",
-        )
-        timeout_s = max(float(request.timeout_ms), 1.0) / 1000.0
-        try:
-            with urllib_request.urlopen(req, timeout=timeout_s) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except urllib_error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"openai_http_error:{exc.code}:{detail}") from exc
-        except urllib_error.URLError as exc:
-            raise RuntimeError(f"openai_network_error:{exc.reason}") from exc
+        return request_json(f"{self.base_url}/responses", method="POST", body=body,
+            context=context, timeout_ms=request.timeout_ms, headers=self._headers(),
+            propagate_budget=False, trust_env=True, max_redirects=3)
 
     def _headers(self) -> dict[str, str]:
         headers = {
@@ -210,7 +191,7 @@ class OpenAiResponsesLlmExplainerBackend:
         return build_llm_persona_instructions(
             self.persona_id,
             interaction_mode=request.interaction_mode,
-        )
+        ) + "\n比赛解释的 reason_fields 必须从 available_evidence_refs 选择实际依据；没有依据时返回 unsupported 或 needs_clarification。数值使用 claims 声明，answer_text 用 {{id}} 占位，程序自动添加数值和单位。claims 每项包含 id、operation(value 或 difference)、refs、value、unit、precision(0至3)，difference 按 refs[0]-refs[1] 计算。metadata.request_id 回传输入 request_id。没有数值时 claims 为空。needs_clarification 的 claims 必须为空，metadata.clarification_field 可为 query_scope、lap_selection、segment_selection，程序根据该字段生成澄清问题；不得在澄清中输出比赛结论。"
 
     def _input_text(self, request: LlmExplainerRequest) -> str:
         return json.dumps(
@@ -221,6 +202,9 @@ class OpenAiResponsesLlmExplainerBackend:
                 "normalized_query_text": request.normalized_query_text,
                 "route_reason": request.route_reason,
                 "state_summary": request.state_summary,
+                "available_evidence_refs": sorted(evidence_fields(request.state_summary)),
+                "numeric_claim_units": CLAIM_UNITS,
+                "request_id": request.request_id,
                 "metadata": request.metadata,
             },
             ensure_ascii=False,
@@ -296,10 +280,13 @@ class DoubaoArkChatCompletionsLlmExplainerBackend(DoubaoArkResponsesLlmExplainer
     name = "doubao_ark_chat_completions_llm_explainer"
 
     def explain(self, request: LlmExplainerRequest) -> dict[str, Any]:
-        payload = self._post_chat_completions(request=request)
+        return self.explain_with_context(request, context=TaskContext.start(request.request_id, request.timeout_ms))
+
+    def explain_with_context(self, request: LlmExplainerRequest, *, context: TaskContext) -> dict[str, Any]:
+        payload = self._post_chat_completions(request=request, context=context)
         return self._extract_chat_completions_payload(payload)
 
-    def _post_chat_completions(self, *, request: LlmExplainerRequest) -> dict[str, Any]:
+    def _post_chat_completions(self, *, request: LlmExplainerRequest, context: TaskContext) -> dict[str, Any]:
         body = {
             "model": self.model,
             "messages": [
@@ -315,21 +302,9 @@ class DoubaoArkChatCompletionsLlmExplainerBackend(DoubaoArkResponsesLlmExplainer
                 },
             },
         }
-        req = urllib_request.Request(
-            url=f"{self.base_url}/chat/completions",
-            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-            headers=self._headers(),
-            method="POST",
-        )
-        timeout_s = max(float(request.timeout_ms), 1.0) / 1000.0
-        try:
-            with urllib_request.urlopen(req, timeout=timeout_s) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except urllib_error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"doubao_chat_http_error:{exc.code}:{detail}") from exc
-        except urllib_error.URLError as exc:
-            raise RuntimeError(f"doubao_chat_network_error:{exc.reason}") from exc
+        return request_json(f"{self.base_url}/chat/completions", method="POST", body=body,
+            context=context, timeout_ms=request.timeout_ms, headers=self._headers(),
+            propagate_budget=False, trust_env=True, max_redirects=3)
 
     def _extract_chat_completions_payload(self, response_payload: dict[str, Any]) -> dict[str, Any]:
         for choice in response_payload.get("choices", []) or []:
@@ -381,14 +356,22 @@ class DoubaoArkLlmExplainerBackend:
         return DoubaoArkResponsesLlmExplainerBackend.env_ready()
 
     def explain(self, request: LlmExplainerRequest) -> dict[str, Any]:
+        return self.explain_with_context(request, context=TaskContext.start(request.request_id, request.timeout_ms))
+
+    def explain_with_context(self, request: LlmExplainerRequest, *, context: TaskContext) -> dict[str, Any]:
+        def invoke(backend):
+            owned = replace(request, timeout_ms=max(1, int(context.remaining()*1000)))
+            contextual = getattr(backend, 'explain_with_context', None)
+            return contextual(owned, context=context) if contextual is not None else backend.explain(owned)
         try:
-            return self.primary.explain(request)
+            return invoke(self.primary)
         except Exception as exc:
             if self.fallback is None:
                 raise
             if not _should_fallback_from_responses(exc):
                 raise
-            return self.fallback.explain(request)
+            context.remaining()
+            return invoke(self.fallback)
 
 
 class VoiceSidecarLlmExplainerBackend:
@@ -409,6 +392,9 @@ class VoiceSidecarLlmExplainerBackend:
         return bool(str(os.getenv("ASURADA_VOICE_SIDECAR_BASE_URL") or "http://127.0.0.1:8788").strip())
 
     def explain(self, request: LlmExplainerRequest) -> dict[str, Any]:
+        return self.explain_with_context(request, context=TaskContext.start(request.request_id, request.timeout_ms or self.timeout_ms))
+
+    def explain_with_context(self, request: LlmExplainerRequest, *, context: TaskContext) -> dict[str, Any]:
         from .audio_agent_client import VoiceSidecarClient, VoiceSidecarClientConfig
 
         client = VoiceSidecarClient(
@@ -417,7 +403,9 @@ class VoiceSidecarLlmExplainerBackend:
                 timeout_ms=max(request.timeout_ms or self.timeout_ms, 1),
             )
         )
-        result = client.explain(request=request, timeout_ms=max(request.timeout_ms or self.timeout_ms, 1))
+        context.remaining()
+        result = client.explain(request=request, timeout_ms=max(request.timeout_ms or self.timeout_ms, 1), context=context)
+        context.remaining()
         if result.status == "completed" and result.response is not None:
             return dict(result.response)
         if result.fallback_reason == "llm_timeout":
@@ -441,9 +429,11 @@ class LlmExplainer:
         *,
         backend: LlmExplainerBackend | None = None,
         default_timeout_ms: int = 1800,
+        executor: BoundedTaskExecutor | None = None,
     ) -> None:
         self.backend = backend or NullLlmExplainerBackend()
         self.default_timeout_ms = default_timeout_ms
+        self.executor = executor or LLM_EXECUTOR
 
     @classmethod
     def from_env(cls) -> "LlmExplainer":
@@ -456,14 +446,32 @@ class LlmExplainer:
         self,
         *,
         request: LlmExplainerRequest,
+        context: TaskContext | None = None,
     ) -> LlmExplainerResult:
         started = time.monotonic()
-        timeout_s = max(float(request.timeout_ms or self.default_timeout_ms), 1.0) / 1000.0
+        request = replace(request, state_summary=deepcopy(request.state_summary), metadata=deepcopy(request.metadata))
+        context = context or TaskContext.start(
+            request.request_id, request.timeout_ms or self.default_timeout_ms
+        )
         try:
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(self.backend.explain, request)
-                payload = future.result(timeout=timeout_s)
+            def invoke():
+                remaining_ms = max(1, int(context.remaining() * 1000))
+                owned_request = replace(request, timeout_ms=remaining_ms, state_summary=deepcopy(request.state_summary))
+                contextual = getattr(self.backend, 'explain_with_context', None)
+                if contextual is not None:
+                    return contextual(owned_request, context=context)
+                return self.backend.explain(owned_request)
+
+            payload = context.wait(self.executor.submit(context, invoke))
             response = coerce_llm_response(payload).to_dict()
+            validate_evidence(response, summary=request.state_summary, mode=request.interaction_mode, request_id=request.request_id)
+            if request.interaction_mode != 'companion_chat':
+                template = response['metadata'].get('claim_template', response['answer_text'])
+                response['answer_text'] = render_racing_response(response, summary=request.state_summary, request_id=request.request_id)
+                if response['claims']:
+                    response['metadata']['claim_template'] = template
+                    response['metadata']['claims_version'] = 'numeric-claims-v1'
+            context.remaining()
             return LlmExplainerResult(
                 status="completed",
                 backend_name=self.backend.name,
@@ -473,13 +481,18 @@ class LlmExplainer:
                 duration_ms=int((time.monotonic() - started) * 1000),
                 metadata={"query_kind": request.query_kind},
             )
-        except FutureTimeoutError:
+        except InvalidLlmEvidence as exc:
             return LlmExplainerResult(
-                status="fallback",
-                backend_name=self.backend.name,
-                llm_used=self.backend.name != "null_llm_explainer",
-                response=None,
-                fallback_reason="llm_timeout",
+                status="fallback", backend_name=self.backend.name,
+                llm_used=True, response=None, fallback_reason="llm_invalid_evidence",
+                duration_ms=int((time.monotonic() - started) * 1000),
+                metadata={"query_kind": request.query_kind, "validation_reason": str(exc)},
+            )
+        except (TaskCancelled, TaskCapacityExceeded) as exc:
+            return LlmExplainerResult(
+                status="fallback", backend_name=self.backend.name,
+                llm_used=False, response=None,
+                fallback_reason="llm_cancelled" if isinstance(exc, TaskCancelled) else "llm_overloaded",
                 duration_ms=int((time.monotonic() - started) * 1000),
                 metadata={"query_kind": request.query_kind},
             )
@@ -675,6 +688,11 @@ _LLM_RESPONSE_JSON_SCHEMA = {
             "enum": ["answerable", "needs_clarification", "unsupported", "unsafe"],
         },
         "answer_text": {"type": "string"},
+        "claims": {"type":"array", "items":{"type":"object", "additionalProperties":False,
+            "properties":{"id":{"type":"string"}, "operation":{"type":"string","enum":["value","difference"]},
+                "refs":{"type":"array","items":{"type":"string"}}, "value":{"type":"number"},
+                "unit":{"type":"string","enum":["s","%","lap","km/h","position"]}, "precision":{"type":"integer"}},
+            "required":["id","operation","refs","value","unit","precision"]}},
         "confidence": {"type": "number"},
         "reason_fields": {
             "type": "array",
@@ -689,6 +707,7 @@ _LLM_RESPONSE_JSON_SCHEMA = {
     "required": [
         "status",
         "answer_text",
+        "claims",
         "confidence",
         "reason_fields",
         "requires_confirmation",

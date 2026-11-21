@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .race_control import normalize_race_control
+
 import csv
 from collections.abc import Iterator
 from pathlib import Path
@@ -45,7 +47,7 @@ class LapCsvSource:
             "lap_number": int(row["lap_number"]),
             "total_laps": total_laps,
             "weather": "Unknown",
-            "safety_car": "NONE",
+            "safety_car": normalize_race_control(row.get("safety_car")),
             "source_timestamp_ms": int(float(row["session_time_s"]) * 1000),
             "player": {
                 "car_index": 0,
@@ -105,9 +107,9 @@ def estimate_tyre_wear(lap_distance: float, total_distance: float) -> float:
 
 def build_dynamic_tags(
     speed_kmh: float,
-    throttle: float,
-    brake: float,
-    steer: float,
+    throttle: float | None,
+    brake: float | None,
+    steer: float | None,
     g_force_lateral: float,
     g_force_longitudinal: float,
 ) -> list[str]:
@@ -118,23 +120,25 @@ def build_dynamic_tags(
     # 真实 PDU 路径下会叠加 wheel slip、damage 等更完整的信息。
     tags: list[str] = []
 
-    if abs(g_force_lateral) > 4.5 and abs(steer) > 0.35:
+    if steer is not None and abs(g_force_lateral) > 4.5 and abs(steer) > 0.35:
         tags.append("unstable")
-    elif abs(g_force_lateral) > 3.6 and abs(steer) > 0.28:
+    elif steer is not None and abs(g_force_lateral) > 3.6 and abs(steer) > 0.28:
         if steer > 0:
             tags.append("right_hand_limit")
         else:
             tags.append("left_hand_limit")
 
-    if brake > 0.72 and g_force_longitudinal < -3.5:
+    if brake is not None and brake > 0.72 and g_force_longitudinal < -3.5:
         tags.append("heavy_braking")
 
-    if throttle > 0.82 and abs(steer) > 0.22 and speed_kmh > 150:
+    if throttle is not None and steer is not None and throttle > 0.82 and abs(steer) > 0.22 and speed_kmh > 150:
         tags.append("aggressive_exit")
 
-    if abs(g_force_lateral) > 3.8 and brake > 0.15:
+    if brake is not None and abs(g_force_lateral) > 3.8 and brake > 0.15:
         tags.append("front_tyre_overload")
 
-    if not tags:
+    if any(value is None for value in (throttle, brake, steer)):
+        tags.append("unavailable")
+    elif not tags:
         tags.append("stable")
     return tags

@@ -10,6 +10,26 @@ readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name = "OpenAI Codex" }]
 
+# The deterministic core uses the Python standard library. Install optional
+# capabilities explicitly; missing model dependencies remain observable.
+[project.optional-dependencies]
+models = ["numpy==2.0.2", "pandas==2.3.3", "lightgbm==4.6.0"]
+training = ["numpy==2.0.2", "pandas==2.3.3", "lightgbm==4.6.0", "scikit-learn==1.6.1"]
+http-voice = ["requests==2.32.5"]
+dashboard = ["websockets==15.0.1"]
+realtime-asr = ["websocket-client==1.8.0"]
+local-asr = ["faster-whisper==1.1.1"]
+dev = ["pytest==8.3.5", "pytest-xdist==3.6.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "scripts"]
+addopts = "-ra --strict-markers"
+markers = [
+  "regression: existing subprocess contract with preserved JSON/stdout/stderr evidence",
+  "serial: requires exclusive suite resource access (enforced by the shared runner)",
+]
+
 [project.scripts]
 asurada = "asurada.__main__:main"
 
@@ -18,3 +38,6 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+asurada = ["dashboard_templates/*.html", "dashboard_templates/*.css", "dashboard_templates/*.js"]

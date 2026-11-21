@@ -4,6 +4,7 @@ from collections import Counter
 from typing import Any, Callable
 
 from .output import ConsoleVoiceOutput
+from .packet_decode_diagnostics import PacketDecodeDiagnostics
 from .pdu_decoder import PacketDecodeError
 from .runtime_pipeline import StrategyRuntimePipeline
 from .state import UnifiedStateStore
@@ -24,6 +25,7 @@ class LiveRuntime:
         logger: Any,
         packet_recorder: Any | None = None,
         dashboard_refresh: Callable[[], None] | None = None,
+        personality=None,
     ) -> None:
         self.packet_source = packet_source
         self.state_store = state_store
@@ -32,11 +34,13 @@ class LiveRuntime:
         self.logger = logger
         self.packet_recorder = packet_recorder
         self.dashboard_refresh = dashboard_refresh
+        self.decode_diagnostics = PacketDecodeDiagnostics()
         self.pipeline = StrategyRuntimePipeline(
             state_store=state_store,
             strategy=strategy,
             voice_output=voice_output,
             logger=logger,
+            personality=personality,
         )
 
     def run(self) -> None:
@@ -44,6 +48,8 @@ class LiveRuntime:
         packet_count = 0
         snapshot_count = 0
         emitted_count = 0
+        submitted_count = 0
+        self.decode_diagnostics = PacketDecodeDiagnostics()
         decode_error_count = 0
         invalid_session_count = 0
         empty_snapshot_count = 0
@@ -54,7 +60,8 @@ class LiveRuntime:
             try:
                 result = self.pipeline.ingest_packet(packet)
             except PacketDecodeError as exc:
-                decode_error_count += 1
+                self.decode_diagnostics.record(exc)
+                decode_error_count = self.decode_diagnostics.count
                 print(f"[ASURADA][UDP] decode failed: {exc}")
                 continue
             envelope = result.envelope
@@ -121,6 +128,8 @@ class LiveRuntime:
             snapshot_count += 1
             if result.emitted:
                 emitted_count += 1
+            if result.submitted:
+                submitted_count += 1
 
             if self.dashboard_refresh is not None and (snapshot_count == 1 or snapshot_count % 50 == 0):
                 self.dashboard_refresh()
@@ -131,7 +140,7 @@ class LiveRuntime:
                     continue
                 print(
                     "[ASURADA][UDP] "
-                    f"snapshots={snapshot_count} emitted={emitted_count} "
+                    f"snapshots={snapshot_count} emitted={emitted_count} submitted={submitted_count} "
                     f"decode_errors={decode_error_count} invalid_sessions={invalid_session_count} "
                     f"pending_packets={empty_snapshot_count} "
                     f"latest_kind={envelope.kind} lap={state.lap_number} pos={state.player.position} "

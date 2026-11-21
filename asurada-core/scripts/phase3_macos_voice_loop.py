@@ -1,24 +1,25 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import json
 import os
 import queue
+import select
 import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any
 
-from asurada.audio_agent_client import VoiceSidecarClient, VoiceSidecarClientError
+from asurada.live_speech import live_speech_client
+from asurada.speech_driver import SpeechOutputDriver
 from asurada.audio_io import AudioFormat
 from asurada.decode import decode_snapshot
 from asurada.macos_speech import MacOSSpeechRecognizer
 from asurada.models import SessionState, StrategyMessage
 from asurada.open_asr import OpenAsrRecognizer
-from asurada.output import ConsoleVoiceOutput
 from asurada.persona_registry import get_default_persona
-from asurada.tts_backends import NullSpeechBackend
 from asurada.voice_input import VoiceInputCoordinator
 from asurada.voice_meter import load_voice_meter_snapshot
 from asurada.voice_sidecar_asr import (
@@ -26,11 +27,17 @@ from asurada.voice_sidecar_asr import (
     VoiceSidecarAsrRecognizer,
     VoiceSidecarRealtimeAsrRecognizer,
 )
-from asurada.voice_sidecar_protocol import TtsRenderRequest
 from asurada.voice_turn import VoiceTurn
+from asurada.voice_interrupt import VoiceTurnInterruption
+from asurada.published_session import PublishedSessionProbe
+from asurada.recognition_runtime import listen_with_context
+from asurada.recognition_pump import RecognitionPump
+from asurada.task_runtime import TaskCancelled, TaskCapacityExceeded
+from asurada.radio_understanding import RaceRadio
 from asurada.wake_word import WakeWordGate
 
 
+_DEFAULT_SESSION_LOG = Path(__file__).resolve().parents[1] / "runtime_logs" / "session_log.jsonl"
 _DEFAULT_RECOGNIZER_BACKEND = (
     "voice_sidecar_realtime_asr"
     if VoiceSidecarRealtimeAsrRecognizer.env_ready()
@@ -41,10 +48,10 @@ _DEFAULT_RECOGNIZER_BACKEND = (
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run a macOS duplex voice-loop smoke test against one snapshot.")
+    parser = argparse.ArgumentParser(description="Run a macOS voice-loop smoke test against one snapshot.")
     parser.add_argument(
         "--session-log",
-        default="asurada-core/runtime_logs/session_log.jsonl",
+        default=str(_DEFAULT_SESSION_LOG),
         help="Session log jsonl used as the snapshot source.",
     )
     parser.add_argument(
@@ -118,6 +125,11 @@ def main() -> int:
         help="Use the old press-Enter-per-turn mode instead of continuous listening.",
     )
     parser.add_argument(
+        "--spoken-interrupt",
+        action="store_true",
+        help="Keep recognition active during answers; use headphones or echo-isolated input. Requires a wake phrase before stop/cancel.",
+    )
+    parser.add_argument(
         "--loop-idle-ms",
         type=int,
         default=250,
@@ -126,9 +138,19 @@ def main() -> int:
     parser.add_argument(
         "--use-sidecar-tts",
         action="store_true",
-        help="Render speech through the voice sidecar and play locally instead of using the core TTS backend.",
+        help="Require the shared speech service to use the sidecar TTS backend.",
     )
+    parser.add_argument("--race-dialogue", action="store_true", help="Use local Ollama for contextual racing turns.")
     args = parser.parse_args()
+
+    try:
+        voice_output = live_speech_client()
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"共享语音服务不可用，请先启动 --live-udp 或独立 speech_service：{exc}", file=sys.stderr)
+        return 2
+    if args.use_sidecar_tts and voice_output.health()["backend"] != "VoiceSidecarSpeechBackend":
+        print("共享语音服务未配置 sidecar TTS；请在服务启动时使用 --sidecar-tts。", file=sys.stderr)
+        return 2
 
     wake_phrases = tuple(args.wake_phrases or ["阿斯拉达", "asurada"])
     wake_word_gate = WakeWordGate(
@@ -137,13 +159,16 @@ def main() -> int:
         activation_window_ms=args.wake_window_ms,
     )
 
+    session_log_path = Path(args.session_log).expanduser().resolve()
     state, primary_message = wait_for_state_and_message(
-        Path(args.session_log),
+        session_log_path,
         args.row,
         wait_seconds=args.wait_for_live_seconds,
     )
     coordinator = VoiceInputCoordinator(
         wake_word_gate=wake_word_gate,
+        race_radio=RaceRadio(latest=lambda: wait_for_state_and_message(session_log_path, args.row, wait_seconds=0))
+            if args.race_dialogue else None,
         enable_llm_sidecar=True if args.enable_llm_sidecar else None,
         llm_timeout_ms=args.llm_timeout_ms,
     )
@@ -163,170 +188,200 @@ def main() -> int:
     if recognizer is None:
         print(f"recognizer backend is not ready: {args.recognizer_backend}", file=sys.stderr)
         return 2
-    voice_output = ConsoleVoiceOutput(
-        backend=NullSpeechBackend() if args.use_sidecar_tts else None,
-    )
-    sidecar_client = VoiceSidecarClient.from_env() if args.use_sidecar_tts else None
-    downlink_cooldown_ms = max(int(os.getenv("ASURADA_VOICE_DOWNLINK_COOLDOWN_MS") or "900"), 0)
-    downlink_resume_after_ms = 0
+    scope_probe = (PublishedSessionProbe(session_log_path.parent / 'latest_snapshot.json')
+                   if args.row == 'latest' and session_log_path.name == 'session_log.jsonl' else None)
+    with SpeechOutputDriver(voice_output), VoiceTurnInterruption(voice_output, scope_probe=scope_probe) as interruption, ExitStack() as listeners:
+        downlink_cooldown_ms = max(int(os.getenv("ASURADA_VOICE_DOWNLINK_COOLDOWN_MS") or "900"), 0)
+        downlink_resume_after_ms = 0
+        downlink_was_active = False
 
-    print("macOS duplex voice loop")
-    print(f"track={state.track} lap={state.lap_number}/{state.total_laps} position=P{state.player.position}")
-    print(f"weather={state.weather} safety_car={state.safety_car} source_ts={state.source_timestamp_ms}")
-    if primary_message is not None:
-        print(f"primary_message={primary_message.code} {primary_message.title}")
-    if args.disable_wake_word:
-        print("wake_word=disabled")
-    else:
-        print(f"wake_word=enabled phrases={list(wake_phrases)} window_ms={args.wake_window_ms}")
-    print(
-        f"llm_sidecar enabled={coordinator.enable_llm_sidecar} "
-        f"backend={coordinator.llm_explainer.backend.name} "
-        f"timeout_ms={coordinator.llm_timeout_ms}"
-    )
-    print(f"recognizer_backend={args.recognizer_backend}")
-    print(f"sidecar_tts enabled={args.use_sidecar_tts}")
-    if args.manual:
-        print("mode=manual commands: press Enter to listen, r to reload snapshot, q to quit")
-    else:
-        print("mode=continuous controls: type r + Enter to reload snapshot, q + Enter to quit")
-        print("continuous listening is active; say the wake phrase and query in one sentence.")
-
-    control = _ControlChannel()
-    if not args.manual:
-        control.start()
-
-    while True:
-        if args.manual:
-            command = input("> ").strip().lower()
-            if command in {"q", "quit", "exit"}:
-                return 0
-            if command in {"r", "reload"}:
-                state, primary_message = wait_for_state_and_message(
-                    Path(args.session_log),
-                    args.row,
-                    wait_seconds=args.wait_for_live_seconds,
-                )
-                state_ref["state"] = state
-                state_ref["primary_message"] = primary_message
-                print(f"reloaded track={state.track} lap={state.lap_number}/{state.total_laps} P{state.player.position}")
-                continue
+        print("macOS voice loop")
+        if args.race_dialogue:
+            print("race_dialogue=enabled model=qwen3:4b (local Ollama)")
+        print(f"track={state.track} lap={state.lap_number}/{state.total_laps} position=P{state.player.position}")
+        print(f"weather={state.weather} safety_car={state.safety_car} source_ts={state.source_timestamp_ms}")
+        if primary_message is not None:
+            print(f"primary_message={primary_message.code} {primary_message.title}")
+        if args.disable_wake_word:
+            print("wake_word=disabled")
         else:
-            command = control.poll_command()
-            if command in {"q", "quit", "exit"}:
-                return 0
-            if command in {"r", "reload"}:
+            print(f"wake_word=enabled phrases={list(wake_phrases)} window_ms={args.wake_window_ms}")
+        print(
+            f"llm_sidecar enabled={coordinator.enable_llm_sidecar} "
+            f"backend={coordinator.llm_explainer.backend.name} "
+            f"timeout_ms={coordinator.llm_timeout_ms}"
+        )
+        print(f"recognizer_backend={args.recognizer_backend}")
+        if getattr(voice_output,"externally_driven",False):
+            print(f"shared_speech backend={voice_output.health()['backend']}")
+        else:
+            print(f"sidecar_tts enabled={args.use_sidecar_tts}")
+        if args.manual:
+            print("mode=manual commands: Enter to listen, s + Enter to stop, r to reload, q to quit")
+        else:
+            print("mode=continuous controls: s + Enter to stop, r + Enter to reload, q + Enter to quit")
+            print("continuous listening is active; say the wake phrase and query in one sentence.")
+
+        pump = None
+
+        def stop_turn():
+            if pump is not None:
+                pump.invalidate()
+            result = interruption.stop(state_ref['state'])
+            event = (result.get('output_lifecycle') or {}).get('event') or {}
+            print(f"stop_requested event={event.get('event_type')} metadata={event.get('metadata')}")
+        if args.spoken_interrupt:
+            probe = scope_probe or (lambda: (state_ref['state'].session_uid, state_ref['state'].session_epoch))
+            pump = RecognitionPump(recognizer, wake_phrases=wake_phrases, on_stop=stop_turn, scope_probe=probe).start()
+            listeners.callback(pump.close)
+            print("spoken_interrupt=enabled; exact wake phrase + stop/cancel; echo cancellation is not provided by this mode")
+        control = _ControlChannel(on_stop=stop_turn, manual=args.manual)
+        control.start()
+        listeners.callback(control.close)
+
+        while True:
+            if args.manual:
+                command = control.wait_command()
+                if command in {"q", "quit", "exit"}:
+                    return 0
+                if command in {"r", "reload"}:
+                    state, primary_message = wait_for_state_and_message(
+                        session_log_path,
+                        args.row,
+                        wait_seconds=args.wait_for_live_seconds,
+                    )
+                    state_ref["state"] = state
+                    state_ref["primary_message"] = primary_message
+                    print(f"reloaded track={state.track} lap={state.lap_number}/{state.total_laps} P{state.player.position}")
+                    continue
+            else:
+                command = control.poll_command()
+                if command in {"q", "quit", "exit"}:
+                    return 0
+                if command in {"r", "reload"}:
+                    state, primary_message = wait_for_state_and_message(
+                        session_log_path,
+                        args.row,
+                        wait_seconds=args.wait_for_live_seconds,
+                    )
+                    state_ref["state"] = state
+                    state_ref["primary_message"] = primary_message
+                    print(f"reloaded track={state.track} lap={state.lap_number}/{state.total_laps} P{state.player.position}")
+                    continue
+
+            if not args.no_auto_refresh:
+                previous_state = state
                 state, primary_message = wait_for_state_and_message(
-                    Path(args.session_log),
+                    session_log_path,
                     args.row,
                     wait_seconds=args.wait_for_live_seconds,
                 )
                 state_ref["state"] = state
                 state_ref["primary_message"] = primary_message
-                print(f"reloaded track={state.track} lap={state.lap_number}/{state.total_laps} P{state.player.position}")
+                _print_state_transition(previous_state, state)
+
+            if not _bind_current_voice_session(voice_output, state):
+                print("telemetry_not_current: 等待新遥测，请恢复驾驶后再次开始聆听。")
+                if not args.manual:
+                    time.sleep(max(args.loop_idle_ms, 250) / 1000.0)
+                continue
+            now_ms = int(time.time() * 1000)
+            downlink_active = voice_output.is_playing() or _is_downlink_playback_active()
+            if downlink_was_active and not downlink_active:
+                downlink_resume_after_ms = now_ms + downlink_cooldown_ms
+            downlink_was_active = downlink_active
+            if pump is None and (downlink_active or now_ms < downlink_resume_after_ms):
+                if not args.manual:
+                    time.sleep(max(args.loop_idle_ms, 0) / 1000.0)
                 continue
 
-        if not args.no_auto_refresh:
-            state, primary_message = wait_for_state_and_message(
-                Path(args.session_log),
-                args.row,
-                wait_seconds=args.wait_for_live_seconds,
+            print("listening...")
+            turn_context = interruption.begin(state=state)
+            _publish_microphone(voice_output, "listening", 30)
+            try:
+                result = pump.next_result(turn_context) if pump is not None else listen_with_context(recognizer, turn_context)
+            except KeyboardInterrupt:
+                return 0
+            except (TaskCancelled, TaskCapacityExceeded) as exc:
+                print(f"recognizer_cancel_or_busy={type(exc).__name__} reason={interruption.cancel_reason or 'user_stop_or_previous_capture_exiting'}")
+                time.sleep(max(args.loop_idle_ms, 0) / 1000.0)
+                continue
+            except Exception as exc:
+                message = str(exc)
+                print(f"recognizer_error={message}", file=sys.stderr)
+                if _is_privacy_violation(message):
+                    print(
+                        "macOS privacy denied microphone or speech recognition access for Terminal. "
+                        "Enable both permissions, then restart the voice loop.",
+                        file=sys.stderr,
+                    )
+                    return 3
+                if args.manual:
+                    continue
+                time.sleep(max(args.loop_idle_ms, 0) / 1000.0)
+                continue
+            finally:
+                _publish_microphone(voice_output, "idle", 30)
+            print(f"recognizer status={result.status} transcript={result.transcript_text!r}")
+            if args.show_recognizer_json:
+                print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+            if result.status not in {"recognized", "recognized_partial"} or not result.transcript_text.strip():
+                if not args.manual:
+                    time.sleep(max(args.loop_idle_ms, 0) / 1000.0)
+                continue
+
+            turn = VoiceTurn(
+                turn_id=f"voice-turn:macos:{int(time.time() * 1000)}",
+                started_at_ms=result.started_at_ms,
+                ended_at_ms=result.ended_at_ms,
+                audio_format=AudioFormat(),
+                pcm_s16le=b"",
+                chunk_count=0,
+                source=args.recognizer_backend,
+                completion_reason=result.status,
+                metadata={
+                    "transcript_text": result.transcript_text,
+                    "transcript_hint": str((result.metadata or {}).get("partial_transcript") or "").strip(),
+                    args.recognizer_backend: result.to_dict(),
+                },
             )
-            state_ref["state"] = state
-            state_ref["primary_message"] = primary_message
-
-        now_ms = int(time.time() * 1000)
-        if _is_downlink_playback_active() or now_ms < downlink_resume_after_ms:
+            if args.row == "latest":
+                state, primary_message = wait_for_state_and_message(session_log_path, args.row, wait_seconds=0)
+                state_ref.update(state=state, primary_message=primary_message)
+            processing = coordinator.process_completed_turn(
+                state=state,
+                turn=turn,
+                voice_output=interruption.output_for(turn_context),
+                primary_message=primary_message,
+                render=not args.use_sidecar_tts,
+                context=turn_context,
+            )
+            _print_processing_summary(processing.to_dict())
+            if processing.status == 'cancelled':
+                print(f"voice_turn_cancel_reason={interruption.cancel_reason or 'user_stop_or_turn_replaced'}")
+            if args.show_processing_json:
+                print(json.dumps(processing.to_dict(), ensure_ascii=False, indent=2))
+            if processing.status == "wake_armed":
+                print("wake word armed, waiting for follow-up query...")
+            if processing.status == "ignored":
+                print("ignored: wake word required")
             if not args.manual:
                 time.sleep(max(args.loop_idle_ms, 0) / 1000.0)
-            continue
-
-        print("listening...")
-        try:
-            result = recognizer.listen_once()
-        except KeyboardInterrupt:
-            return 0
-        except Exception as exc:
-            message = str(exc)
-            print(f"recognizer_error={message}", file=sys.stderr)
-            if _is_privacy_violation(message):
-                print(
-                    "macOS privacy denied microphone or speech recognition access for Terminal. "
-                    "Enable both permissions, then restart the voice loop.",
-                    file=sys.stderr,
-                )
-                return 3
-            if args.manual:
-                continue
-            time.sleep(max(args.loop_idle_ms, 0) / 1000.0)
-            continue
-        print(f"recognizer status={result.status} transcript={result.transcript_text!r}")
-        if args.show_recognizer_json:
-            print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
-        if result.status not in {"recognized", "recognized_partial"} or not result.transcript_text.strip():
-            if not args.manual:
-                time.sleep(max(args.loop_idle_ms, 0) / 1000.0)
-            continue
-
-        turn = VoiceTurn(
-            turn_id=f"voice-turn:macos:{int(time.time() * 1000)}",
-            started_at_ms=result.started_at_ms,
-            ended_at_ms=result.ended_at_ms,
-            audio_format=AudioFormat(),
-            pcm_s16le=b"",
-            chunk_count=0,
-            source=args.recognizer_backend,
-            completion_reason=result.status,
-            metadata={
-                "transcript_text": result.transcript_text,
-                "transcript_hint": str((result.metadata or {}).get("partial_transcript") or "").strip(),
-                args.recognizer_backend: result.to_dict(),
-            },
-        )
-        processing = coordinator.process_completed_turn(
-            state=state,
-            turn=turn,
-            voice_output=voice_output,
-            primary_message=primary_message,
-            render=not args.use_sidecar_tts,
-        )
-        _print_processing_summary(processing.to_dict())
-        if args.show_processing_json:
-            print(json.dumps(processing.to_dict(), ensure_ascii=False, indent=2))
-        if sidecar_client is not None:
-            played = _play_sidecar_tts(processing=processing.to_dict(), client=sidecar_client)
-            if played:
-                downlink_resume_after_ms = int(time.time() * 1000) + downlink_cooldown_ms
-        if processing.status == "wake_armed":
-            print("wake word armed, waiting for follow-up query...")
-        if processing.status == "ignored":
-            print("ignored: wake word required")
-        if not args.manual:
-            time.sleep(max(args.loop_idle_ms, 0) / 1000.0)
 
 
 def load_state_and_message(path: Path, row_selector: str) -> tuple[SessionState, StrategyMessage | None]:
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    if not rows:
-        raise RuntimeError(f"empty session log: {path}")
-    if row_selector == "latest":
-        row = rows[-1]
+    latest_path = path.parent / "latest_snapshot.json"
+    if row_selector == "latest" and path.name == "session_log.jsonl" and latest_path.exists():
+        row = json.loads(latest_path.read_text(encoding="utf-8"))
     else:
-        row = rows[int(row_selector)]
-
-    payload = {
-        "session_uid": row["session_uid"],
-        "track": row["track"],
-        "lap_number": row["lap_number"],
-        "total_laps": row["total_laps"],
-        "weather": row.get("weather") or "Unknown",
-        "safety_car": row.get("safety_car") or "NONE",
-        "source_timestamp_ms": row.get("source_timestamp_ms") or 0,
-        "player": row["player"],
-        "rivals": row.get("rivals") or [],
-        "raw": row.get("raw") or {},
-    }
-    state = decode_snapshot(payload)
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        if not rows:
+            raise RuntimeError(f"empty session log: {path}")
+        row = rows[-1] if row_selector == "latest" else rows[int(row_selector)]
+    state = decode_snapshot(row)
+    if state.decision_record is not None:
+        actions = state.decision_record.actions
+        return state, actions[0] if actions else None
     primary_message = None
     if row.get("messages"):
         top = row["messages"][0]
@@ -534,6 +589,20 @@ def wait_for_state_and_message(path: Path, row_selector: str, *, wait_seconds: f
             time.sleep(0.25)
 
 
+def _print_state_transition(previous: SessionState, current: SessionState) -> None:
+    previous_key = (previous.track, previous.lap_number, previous.total_laps, previous.player.position)
+    current_key = (current.track, current.lap_number, current.total_laps, current.player.position)
+    if previous_key == current_key:
+        return
+    print(
+        "snapshot "
+        f"track={current.track} "
+        f"lap={current.lap_number}/{current.total_laps} "
+        f"position=P{current.player.position} "
+        f"speed={round(current.player.speed_kph, 1)}"
+    )
+
+
 def _print_processing_summary(processing: dict[str, Any]) -> None:
     status = str(processing.get("status") or "")
     reason = str(processing.get("reason") or "")
@@ -578,9 +647,30 @@ def _print_processing_summary(processing: dict[str, Any]) -> None:
         )
 
 
+def _publish_microphone(voice_output, state, ttl_s):
+    try:
+        voice_output.call("report_microphone", {"state": state, "ttl_s": ttl_s})
+    except (AttributeError, OSError, RuntimeError, TimeoutError):
+        pass
+
+
+def _bind_current_voice_session(voice_output, state):
+    try:
+        voice_output.bind_session(state)
+        return True
+    except (RuntimeError, ValueError) as exc:
+        if 'latest_snapshot_not_current' not in str(exc):
+            raise
+        return False
+
+
 class _ControlChannel:
-    def __init__(self) -> None:
-        self._commands: "queue.Queue[str]" = queue.Queue()
+    def __init__(self, *, on_stop=None, manual=False, input_fd=None) -> None:
+        self._commands: "queue.Queue[str]" = queue.Queue(maxsize=8)
+        self.on_stop = on_stop
+        self.manual = manual
+        self._input_fd = input_fd
+        self._closed = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
@@ -595,17 +685,56 @@ class _ControlChannel:
         except queue.Empty:
             return None
 
-    def _reader_loop(self) -> None:
-        while True:
+    def wait_command(self):
+        return self._commands.get()
+
+    def accept(self, command):
+        if command in {'s', 'stop', 'q', 'quit', 'exit'} and self.on_stop is not None:
             try:
-                command = input().strip().lower()
-            except EOFError:
+                self.on_stop()
+            except Exception as exc:
+                print(f'stop_unconfirmed={type(exc).__name__}: {exc}', file=sys.stderr)
+        if command in {'s', 'stop'}:
+            return
+        if command in {'q', 'quit', 'exit'}:
+            while self.poll_command() is not None:
+                pass
+        if command in {'q', 'quit', 'exit', 'r', 'reload'} or self.manual:
+            try:
+                self._commands.put_nowait(command)
+            except queue.Full:
+                pass
+
+    def close(self):
+        self._closed.set()
+        if self._thread is not None and self._thread is not threading.current_thread():
+            self._thread.join(1.5)
+
+    def _reader_loop(self) -> None:
+        # Never leave a daemon blocked inside Python's buffered stdin at shutdown.
+        fd = self._input_fd if self._input_fd is not None else sys.stdin.fileno()
+        pending = b""
+        while not self._closed.is_set():
+            try:
+                readable, _, _ = select.select([fd], [], [], .1)
+                if not readable:
+                    continue
+                chunk = os.read(fd, 1024)
+            except (OSError, ValueError):
+                self.accept('q')
                 return
-            except KeyboardInterrupt:
-                self._commands.put("q")
+            if not chunk:
+                self.accept('q')
                 return
-            if command in {"q", "quit", "exit", "r", "reload"}:
-                self._commands.put(command)
+            pending += chunk
+            while b"\n" in pending:
+                line, pending = pending.split(b"\n", 1)
+                command = line.decode('utf-8', errors='replace').strip().lower()
+                self.accept(command)
+                if command in {'q', 'quit', 'exit'}:
+                    return
+            if len(pending) > 4096:
+                pending = b""
 
 
 def _is_privacy_violation(message: str) -> bool:
@@ -627,36 +756,6 @@ def _is_downlink_playback_active() -> bool:
     peak = float(snapshot.get("amplitude_peak") or 0.0)
     beat = float(snapshot.get("beat_pulse") or 0.0)
     return level >= 0.03 or peak >= 0.06 or beat >= 0.06
-
-
-def _play_sidecar_tts(*, processing: dict[str, Any], client: VoiceSidecarClient) -> bool:
-    output_event = dict((((processing.get("output_debug") or {}).get("output_lifecycle") or {}).get("event") or {}))
-    if not output_event:
-        return False
-    speak_text = str(output_event.get("speak_text") or "").strip()
-    if not speak_text:
-        return False
-    metadata = dict(output_event.get("metadata") or {})
-    default_persona = get_default_persona()
-    try:
-        result = client.play_tts(
-            request=TtsRenderRequest(
-                text=speak_text,
-                persona_id=str(metadata.get("persona_id") or default_persona.persona_id),
-                voice_profile_id=str(metadata.get("voice_profile_id") or default_persona.voice_profile_id),
-                audio_format="pcm_s16le",
-            )
-        )
-    except VoiceSidecarClientError as exc:
-        print(f"sidecar_tts status=error reason={exc}")
-        return False
-    print(
-        "sidecar_tts "
-        f"status={result.status} "
-        f"player={result.player_binary} "
-        f"bytes={result.audio_bytes}"
-    )
-    return result.status == "played"
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
@@ -44,7 +46,7 @@ class _FakeDoubaoTtsHandler(BaseHTTPRequestHandler):
             self.wfile.flush()
         end = {
             "event": 152,
-            "code": 0,
+            "code": 20000000,
             "message": "done",
             "data": {"status": "completed"},
         }
@@ -113,4 +115,4 @@ def run_phase3_doubao_tts_http_backend_regression() -> dict[str, object]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_doubao_tts_http_backend_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_doubao_tts_http_backend_regression())

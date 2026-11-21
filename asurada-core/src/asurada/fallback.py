@@ -41,9 +41,7 @@ class StrategyFallbackPolicy:
             hud_only=confidence_resolution.fallback_context.hud_only,
         )
         output_control = OutputControl(
-            cooldown_hint=0,
-            last_emitted_action=None,
-            suppression_window=0,
+            voice_priority_floor=0,
         )
 
         model_codes = {candidate.code for candidate in model_candidates}
@@ -86,16 +84,12 @@ class StrategyFallbackPolicy:
 
         if tactical_context.state_lock:
             output_control = OutputControl(
-                cooldown_hint=72,
-                last_emitted_action=None,
-                suppression_window=0,
+                voice_priority_floor=72,
             )
             reasons.append("state_lock_priority_boost")
         elif tactical_context.tactical_state in {"defence_prepare", "counterattack_prepare"}:
             output_control = OutputControl(
-                cooldown_hint=65,
-                last_emitted_action=None,
-                suppression_window=0,
+                voice_priority_floor=65,
             )
             reasons.append("tactical_prepare_priority_floor")
 

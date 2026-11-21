@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import base64
 import json
 import threading
@@ -8,6 +10,7 @@ from typing import Any
 
 from asurada.audio_agent_client import VoiceSidecarClient, VoiceSidecarClientConfig
 from asurada.voice_sidecar_protocol import AsrTranscribeRequest, AsrTranscribeResponse
+from asurada.task_runtime import TaskContext
 from asurada.voice_sidecar_server import VoiceSidecarServer, VoiceSidecarServerConfig
 
 
@@ -61,12 +64,19 @@ def run_phase3_voice_sidecar_asr_regression() -> dict[str, Any]:
                 metadata={"case": "voice_sidecar_asr_regression"},
             )
         )
+        contextual_result = client.transcribe_asr(
+            request=AsrTranscribeRequest(audio_base64=base64.b64encode(b'fake-wav').decode('ascii'),
+                audio_format='wav',locale='zh-CN',metadata={'case':'context-request'}),
+            context=TaskContext.start('http-asr-integration',1000),
+        )
     finally:
         server.shutdown()
         thread.join(timeout=1.0)
 
     checks = {
         "recognized": result.status == "recognized",
+        "contextual_http_request_parsed": contextual_result.status=='recognized' and contextual_result.transcript_text==result.transcript_text,
+        "contextual_metadata_preserved": contextual_result.metadata['request_metadata']['case']=='context-request',
         "text": result.transcript_text == "阿斯拉达 后车差距",
         "backend": (result.metadata or {}).get("backend") == "fake_asr_backend",
         "metadata_passthrough": ((result.metadata or {}).get("request_metadata") or {}).get("case")
@@ -82,4 +92,4 @@ def run_phase3_voice_sidecar_asr_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_voice_sidecar_asr_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_voice_sidecar_asr_regression())

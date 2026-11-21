@@ -135,7 +135,9 @@ class TacticalStateMachine:
             return "counterattack_prepare"
 
         if assessment.attack_state == "available":
-            if context is not None and context.track_zone in {"deployment_straight", "exit_traction"}:
+            if context is not None and (
+                context.attack_setup_method != "none" or context.attack_commit_method != "none"
+            ):
                 return "attack_prepare"
 
         return "neutral"

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import json
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -37,7 +39,7 @@ class _Handler(BaseHTTPRequestHandler):
                                 "status": "answerable",
                                 "answer_text": "当前整体先守住后车，再看处罚窗口。",
                                 "confidence": 0.82,
-                                "reason_fields": ["rear_pressure", "penalty_window"],
+                                "reason_fields": ["state_snapshot.gap_behind_s", "state_snapshot.penalties.num_unserved_drive_through_pens"],
                                 "requires_confirmation": False,
                                 "metadata": {"provider": "fake_doubao_chat"},
                             },
@@ -93,7 +95,7 @@ def run_phase3_doubao_chat_backend_regression() -> dict[str, Any]:
             normalized_query_text="整体形势怎么样",
             route_reason="explainer_query",
             timeout_ms=800,
-            state_summary={"summary_version": "v1", "state_snapshot": {"track": "Austria"}},
+            state_summary={"summary_version": "v1", "state_snapshot": {"track": "Austria", "gap_behind_s": 0.6, "penalties": {"num_unserved_drive_through_pens": 1}}},
             metadata={"case": "doubao_chat_regression"},
         )
         result = explainer.run(request=request)
@@ -134,4 +136,4 @@ def run_phase3_doubao_chat_backend_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_doubao_chat_backend_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_doubao_chat_backend_regression())

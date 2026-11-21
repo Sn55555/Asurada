@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from .paths import RUNTIME_ROOT
+
 import json
 import os
 import socket
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
-DEFAULT_VOICE_METER_PATH = Path(__file__).resolve().parents[2] / "runtime_logs" / "dashboard" / "voice_meter.json"
+DEFAULT_VOICE_METER_PATH = RUNTIME_ROOT / "dashboard" / "voice_meter.json"
 DEFAULT_VOICE_METER_SOCKET_HOST = "127.0.0.1"
 DEFAULT_VOICE_METER_SOCKET_PORT = 8767
 VOICE_METER_STALE_MS = 1_500
@@ -119,8 +122,18 @@ class VoiceMeterWriter:
             "updated_at_ms": now_ms,
             "metadata": dict(metadata or {}),
         }
-        temp_path = self.path.with_suffix(".json.tmp")
-        temp_path.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(snapshot, ensure_ascii=False)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=str(self.path.parent),
+            prefix=f"{self.path.stem}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(payload)
+            temp_path = Path(handle.name)
         temp_path.replace(self.path)
         self._send_snapshot(snapshot)
         self._last_write_at_ms = now_ms

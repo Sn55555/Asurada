@@ -25,6 +25,7 @@ class ConversationContext:
     """Short-horizon conversational memory for follow-up and explanation queries."""
 
     def __init__(self, *, max_history: int = 6) -> None:
+        self._scope: tuple[str, int] | None = None
         self._last_strategy_message: dict[str, Any] | None = None
         self._last_user_query: ConversationRecord | None = None
         self._last_response: ConversationRecord | None = None
@@ -32,7 +33,32 @@ class ConversationContext:
         self._user_query_history: deque[ConversationRecord] = deque(maxlen=max_history)
         self._response_history: deque[ConversationRecord] = deque(maxlen=max_history)
 
+    def bind(self, state: SessionState) -> None:
+        scope = (state.session_uid, state.session_epoch)
+        if self._scope is not None and self._scope != scope:
+            self._last_strategy_message = None
+            self._last_user_query = None
+            self._last_response = None
+            self._strategy_history.clear()
+            self._user_query_history.clear()
+            self._response_history.clear()
+        self._scope = scope
+
+    def expire_racing(self) -> None:
+        """Discard race follow-ups while retaining explicitly scoped companion chat."""
+        self._last_strategy_message = None
+        self._strategy_history.clear()
+        queries = [record for record in self._user_query_history if record.metadata.get("lane") == "companion"]
+        responses = [record for record in self._response_history if record.action_code == "QUERY_COMPANION_CHAT"]
+        self._user_query_history.clear()
+        self._user_query_history.extend(queries)
+        self._response_history.clear()
+        self._response_history.extend(responses)
+        self._last_user_query = queries[-1] if queries else None
+        self._last_response = responses[-1] if responses else None
+
     def observe_strategy_message(self, primary_message: StrategyMessage | None, *, state: SessionState) -> None:
+        self.bind(state)
         if primary_message is None:
             return
         self._last_strategy_message = {
@@ -77,7 +103,7 @@ class ConversationContext:
         timestamp_ms: int,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        self._last_response = ConversationRecord(
+        record = ConversationRecord(
             request_id=request_id,
             transcript_text="",
             query_kind=query_kind,
@@ -86,9 +112,21 @@ class ConversationContext:
             timestamp_ms=timestamp_ms,
             metadata=metadata or {},
         )
-        self._response_history.append(self._last_response)
+        for index, previous in enumerate(self._response_history):
+            if previous.request_id == request_id:
+                self._response_history[index] = record
+                break
+        else:
+            self._response_history.append(record)
+        self._last_response = self._response_history[-1] if self._response_history else None
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, *, include_racing: bool = True) -> dict[str, Any]:
+        if not include_racing:
+            queries = [record.to_dict() for record in self._user_query_history if record.metadata.get("lane") == "companion"]
+            responses = [record.to_dict() for record in self._response_history if record.action_code == "QUERY_COMPANION_CHAT"]
+            return {"last_strategy_message": None, "recent_strategy_messages": [],
+                    "last_user_query": queries[-1] if queries else None, "recent_user_queries": queries,
+                    "last_response": responses[-1] if responses else None, "recent_responses": responses}
         return {
             "last_strategy_message": self._last_strategy_message,
             "last_user_query": self._last_user_query.to_dict() if self._last_user_query is not None else None,

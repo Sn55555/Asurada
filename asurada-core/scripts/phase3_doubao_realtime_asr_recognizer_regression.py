@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import base64
 import json
 import os
@@ -144,4 +146,4 @@ def run_phase3_doubao_realtime_asr_recognizer_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_doubao_realtime_asr_recognizer_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_doubao_realtime_asr_recognizer_regression())

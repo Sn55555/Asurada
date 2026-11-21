@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+from .pit_shadow import PitShadow
+
+from .assessment import assess_fuel, assess_domain
+from .context_window import context_samples, input_means
+from .model_temporal_features import preview_segments, closing_rate_from_recent_history, PREVIEW_OFFSETS_M
+from .models import DecisionRecord
+from copy import deepcopy
+
 from .arbiter import (
     ArbiterInput,
     ModelCandidate,
@@ -8,8 +16,16 @@ from .arbiter import (
     StrategyArbiterV2,
     TacticalContext,
 )
+from .attack_forecast import AttackForecast
+from .attack_taxonomy import (
+    infer_attack_commit_method,
+    infer_attack_setup_method,
+    infer_corner_overtake_class,
+)
 from .confidence import StrategyUncertaintyLayer
 from .config import StrategyThresholds, load_usage_hooks
+from .wheel_telemetry import tyre_alert
+from .wing_damage import FRONT_WING_DAMAGE, SIDES, confirmed_wing_damage, wing_radio_text, wing_values
 from .fallback import StrategyFallbackPolicy
 from .interaction import (
     build_asr_stage_event,
@@ -31,6 +47,11 @@ from .models import (
     StrategyDecision,
     StrategyMessage,
 )
+from .model_admission import MODEL_NAMES, ModelAdmissionPolicy
+from .contributor_admission import ContributorPolicy, SCORING_FIELDS
+from .observation_lane import ObservationLane
+from .planning_lane import PlanningLane, planning_event_key
+from dataclasses import replace
 from .model_runtime import (
     DrivingQualityRuntimeSet,
     RivalPressureRuntimeSet,
@@ -48,21 +69,37 @@ from .track_model import load_track_profile
 class StrategyEngine:
     """Run the four-stage strategy pipeline for one normalized frame."""
 
-    def __init__(self, thresholds: StrategyThresholds, usage_hooks_path=None) -> None:
+    def __init__(self, thresholds: StrategyThresholds, usage_hooks_path=None, *, model_policy: ModelAdmissionPolicy | None = None, contributor_policy: ContributorPolicy | None = None) -> None:
+        self.pit_shadow = PitShadow()
+        self.attack_forecast = AttackForecast()
+        self.defence_forecast = AttackForecast(rear=True)
         self.thresholds = thresholds
+        self.model_policy = model_policy or ModelAdmissionPolicy()
+        if any(self.model_policy.mode(name) == 'active' for name in MODEL_NAMES) and self.model_policy.context_window_version != 'source-time-weighted-v1':
+            raise ValueError('active_models_require_current_context_window_evaluation')
+        self.contributor_policy = contributor_policy or ContributorPolicy()
+        self.observation_lane = None
+        self.planning_lane = None
+        modes = {name: self.model_policy.mode(name) for name in MODEL_NAMES}
         self.usage_hooks = load_usage_hooks(usage_hooks_path) if usage_hooks_path is not None else {}
         self.arbiter_v2 = StrategyArbiterV2()
-        self.strategy_action_runtime = StrategyActionModelRuntime()
-        self.resource_risk_runtime = ResourceRiskRuntimeSet()
-        self.rival_pressure_runtime = RivalPressureRuntimeSet()
-        self.driving_quality_runtime = DrivingQualityRuntimeSet()
-        self.tyre_degradation_trend_runtime = TyreDegradationTrendRuntimeSet()
+        self.strategy_action_runtime = StrategyActionModelRuntime(mode=modes["strategy_action"])
+        self.resource_risk_runtime = ResourceRiskRuntimeSet(modes=modes)
+        self.rival_pressure_runtime = RivalPressureRuntimeSet(modes=modes)
+        self.driving_quality_runtime = DrivingQualityRuntimeSet(modes=modes)
+        self.tyre_degradation_trend_runtime = TyreDegradationTrendRuntimeSet(modes=modes)
         self.pit_window_support = PitWindowSupport()
         self.long_horizon_strategy = LongHorizonStrategyBaseline()
         self.defence_cost_runtime = ResourceRiskModelRuntime(
             name="defence_cost",
             report_path=DEFAULT_DEFENCE_COST_REPORT,
+            mode=modes["defence_cost"],
         )
+        admission_runtimes = {'strategy_action': self.strategy_action_runtime, 'defence_cost': self.defence_cost_runtime}
+        for group in (self.resource_risk_runtime, self.rival_pressure_runtime,
+                      self.driving_quality_runtime, self.tyre_degradation_trend_runtime):
+            admission_runtimes.update(group._runtimes)
+        self._verified_model_evidence = self.model_policy.validate_assets(admission_runtimes)
         self.uncertainty_layer = StrategyUncertaintyLayer()
         self.fallback_policy = StrategyFallbackPolicy()
         self.session_mode_router = SessionModeRouter()
@@ -70,12 +107,85 @@ class StrategyEngine:
         self._last_tactical_resolution_by_session: dict[str, object] = {}
         self._last_primary_action_by_session: dict[str, str] = {}
 
+    def enable_background_observations(self) -> None:
+        if self.observation_lane is None:
+            self.observation_lane = ObservationLane()
+        else:
+            self.observation_lane.reopen()
+
+    def enable_background_planning(self) -> None:
+        if self.planning_lane is None:
+            self.planning_lane = PlanningLane()
+        else:
+            self.planning_lane.reopen()
+
+    def _plan(self, state, session_route, context, resources, rivals, trends, task=None):
+        if task is not None:
+            task.remaining()
+        pit_result = None
+        if self.contributor_policy.mode("pit_window_support") != "disabled":
+            pit_result = self.pit_window_support.evaluate(
+                state=state, session_route=session_route, context=context,
+                resource_models=resources, rival_pressure_models=rivals,
+                tyre_degradation_trend_models=trends)
+        if task is not None:
+            task.remaining()
+        long_result = None
+        if pit_result is not None and self.contributor_policy.mode("long_horizon_strategy") != "disabled":
+            long_result = self.long_horizon_strategy.plan(
+                state=state, session_route=session_route, support=pit_result,
+                resource_models=resources, rival_pressure_models=rivals)
+        if task is not None:
+            task.remaining()
+        return {
+            "pit_window_support": pit_result.to_dict() if pit_result is not None else {"enabled": False, "reason": "contributor_disabled"},
+            "long_horizon_strategy": long_result.to_dict() if long_result is not None else {"enabled": False, "reason": "contributor_or_dependency_disabled"},
+        }
+
+    def _predict_group(self, runtime, *, state, context):
+        if self.observation_lane is None:
+            return runtime.predict_all(state=state, context=context)
+        return {name: model.predict_score(state=state, context=context)
+                for name, model in runtime._runtimes.items() if self.model_policy.mode(name) == "active"}
+
+    def _offer_observation(self, state, context, session_route):
+        if self.observation_lane is None:
+            return None
+        def build_work(task_context):
+            frozen_state = deepcopy(replace(state, assessment=None, decision_record=None))
+            frozen_context = deepcopy(context)
+            def work():
+                results = {}
+                def predict(model):
+                    task_context.remaining()
+                    result = model.predict_score(state=frozen_state, context=frozen_context)
+                    task_context.remaining()
+                    return result
+                for label, runtime in (("resources", self.resource_risk_runtime), ("rivals", self.rival_pressure_runtime),
+                                       ("driving", self.driving_quality_runtime), ("trends", self.tyre_degradation_trend_runtime)):
+                    results[label] = {name: predict(model)
+                                      for name, model in runtime._runtimes.items() if self.model_policy.mode(name) == "observe"}
+                if self.model_policy.mode("defence_cost") == "observe":
+                    results["defence_cost"] = predict(self.defence_cost_runtime)
+                if self.model_policy.mode("strategy_action") == "observe":
+                    task_context.remaining()
+                    results["strategy_action"] = [item.__dict__ for item in self._build_strategy_action_model_candidates(
+                        state=frozen_state, context=frozen_context, session_route=session_route)]
+                    results["strategy_action_quality"] = self._strategy_action_quality()
+                return results
+            return work
+        return self.observation_lane.offer(binding={"session_uid": state.session_uid, "epoch": state.session_epoch,
+                                                     "source_timestamp_ms": state.source_timestamp_ms,
+                                                     "snapshot_id": state.assessment.snapshot_id}, build_work=build_work)
+
     def evaluate(self, state: SessionState, history: list[SessionState] | None = None) -> StrategyDecision:
         """Evaluate one frame and return ranked strategy messages plus debug data."""
 
         # 备注:
         # 这里保留稳定的四层流程，后续接趋势模型、对手建模、进站收益评估时，
         # 直接插入对应层即可，不需要再把整套策略引擎推倒重写。
+        history = [item for item in (history or [state])
+                   if (item.session_uid, item.session_epoch) == (state.session_uid, state.session_epoch)]
         context = self._build_context(state, history or [state])
         session_route = self.session_mode_router.resolve(state)
         assessment = self._assess_state(state)
@@ -84,7 +194,13 @@ class StrategyEngine:
             self._build_candidates(state, assessment, risk_profile, context),
             session_route=session_route,
         )
-        legacy_messages = self._arbitrate(candidates)
+        wing_sides = confirmed_wing_damage(state, history)
+        if (wing_sides and FRONT_WING_DAMAGE in session_route.allowed_action_codes
+                and assessment.dynamics_state != "unstable" and assessment.race_state != "controlled"):
+            subject = "、".join(SIDES[side] for side in wing_sides)
+            title = f"{subject}受损，可能影响转向。"
+            detail = wing_radio_text(wing_sides, levels=wing_values(state))
+            candidates.append(StrategyCandidate(FRONT_WING_DAMAGE, 71, title, detail, "risk_response"))
         arbiter_sidecar = self._build_arbiter_sidecar(
             state,
             history or [state],
@@ -94,8 +210,8 @@ class StrategyEngine:
             session_route,
         )
         self._attach_long_horizon_debug_text(arbiter_sidecar)
-        messages = self._resolve_final_messages(legacy_messages, arbiter_sidecar)
-        session_key = str(state.session_uid)
+        messages = self._resolve_final_messages(arbiter_sidecar)
+        session_key = f"{state.session_uid}:{state.session_epoch}"
         tactical_machine_debug = ((arbiter_sidecar.get("input", {}) or {}).get("tactical_state_machine", {}) or {})
         self._last_tactical_resolution_by_session[session_key] = tactical_machine_debug
         self._last_primary_action_by_session[session_key] = messages[0].code if messages else "NONE"
@@ -139,14 +255,56 @@ class StrategyEngine:
                 ),
             ).to_dict(),
         }
+        domain = assess_domain(state, self.thresholds)
+        from dataclasses import replace
+        from .decision_identity import VERSION, decision_content_id
+        arbitration = deepcopy(arbiter_sidecar.get("output", {}))
+        admitted_inputs = arbiter_sidecar.get("input", {}).get("sidecar_scores", {})
+        # Persist the input contract even when the verbose debug log is omitted.
+        # These are arbitration inputs, not a claim that each changed an action.
+        arbitration["planner_inputs"] = {
+            "policy": self.contributor_policy.snapshot(),
+            "contributions": {
+                name: {
+                    "scores": {key: value[key] for key in fields},
+                    "binding": deepcopy(value.get("contribution_binding", {
+                        "session_uid": state.session_uid, "epoch": state.session_epoch,
+                        "snapshot_id": domain.snapshot_id,
+                        "source_timestamp_ms": state.source_timestamp_ms,
+                    })),
+                    "validity": deepcopy(value.get("validity", {"scope": "snapshot_only"})),
+                }
+                for name, fields in SCORING_FIELDS.items()
+                for value in [admitted_inputs.get(name, {})] if value
+            },
+        }
+        record = DecisionRecord(
+            decision_id='', identity_version=VERSION,
+            snapshot_id=domain.snapshot_id, session_uid=state.session_uid,
+            session_epoch=state.session_epoch, source_timestamp_ms=state.source_timestamp_ms,
+            assessment=deepcopy(domain), actions=tuple(deepcopy(messages)),
+            candidates=tuple(deepcopy(candidate.__dict__) for candidate in candidates),
+            arbitration=arbitration,
+            model_admission=deepcopy(arbiter_sidecar.get('input', {}).get('model_admission', {})),
+        )
+        record = replace(record, decision_id=decision_content_id(record))
+        state.decision_record = record
+        attack = self.attack_forecast.observe(state, session_route.allow_timing_actions)
+        defence = self.defence_forecast.observe(state, session_route.allow_timing_actions, sections=self.attack_forecast.sections)
         return StrategyDecision(
             messages=messages,
+            record=record,
             debug={
+                "pit_broadcast_muted": state.raw.get("tyre_rule_settings", {}).get("session_type") in (15, 16, 17),
+                "pit_timing_shadow": self.pit_shadow.observe(state),
+                "attack_forecast": attack,
+                "defence_forecast": defence,
                 "player_position": state.player.position,
                 "lap": state.lap_number,
                 "track": state.track,
                 "context": context.__dict__,
                 "assessment": assessment.__dict__,
+                "fuel_assessment": assess_fuel(state).to_dict(),
                 "risk_profile": risk_profile.__dict__,
                 "risk_explain": risk_explain,
                 "usage_bias": usage_bias,
@@ -183,8 +341,10 @@ class StrategyEngine:
             input_payload["pit_window_support"] = pit_window_support
             input_payload["long_horizon_strategy"] = long_horizon_strategy
         if isinstance(sidecar_scores, dict):
-            sidecar_scores["pit_window_support"] = pit_window_support
-            sidecar_scores["long_horizon_strategy"] = long_horizon_strategy
+            if sidecar_scores.get("pit_window_support"):
+                sidecar_scores["pit_window_support"] = pit_window_support
+            if sidecar_scores.get("long_horizon_strategy"):
+                sidecar_scores["long_horizon_strategy"] = long_horizon_strategy
 
     def _format_pit_window_support_summary(self, payload: dict) -> str:
         if not payload or not payload.get("enabled", False):
@@ -204,7 +364,7 @@ class StrategyEngine:
             parts.append(f"干胎规则状态 {compound_rule_state}")
 
         remaining_required_stops = payload.get("remaining_required_stops")
-        if isinstance(remaining_required_stops, (int, float)):
+        if compound_rule_state != "unknown" and isinstance(remaining_required_stops, (int, float)):
             parts.append(f"剩余必要进站 {int(remaining_required_stops)} 次")
 
         rejoin_traffic_penalty = payload.get("rejoin_traffic_penalty")
@@ -239,7 +399,7 @@ class StrategyEngine:
         if isinstance(recommended_set_index, (int, float)):
             parts.append(f"推荐轮胎组 #{int(recommended_set_index)}")
         elif recommended_compound and recommended_set_available is False:
-            parts.append("当前无可用轮胎组")
+            parts.append("可用胎组尚未确认")
 
         strategy_confidence = payload.get("strategy_confidence")
         if isinstance(strategy_confidence, (int, float)):
@@ -258,21 +418,15 @@ class StrategyEngine:
     def _build_context(self, state: SessionState, history: list[SessionState]) -> ContextProfile:
         """Derive short-window context features from recent frames and track metadata."""
 
-        recent = history[-12:] if history else [state]
-        total = max(len(recent), 1)
+        recent, coverage_ms = context_samples(state, history or [state])
+        total = sum(weight for _, weight in recent)
         unstable_count = 0
         overload_count = 0
-        throttle_values = []
-        brake_values = []
-        steer_values = []
 
-        for item in recent:
+        for item, weight in recent:
             tags = set(item.player.status_tags)
-            unstable_count += int("unstable" in tags)
-            overload_count += int("front_tyre_overload" in tags)
-            throttle_values.append(float(item.raw.get("throttle", 0.0)))
-            brake_values.append(float(item.raw.get("brake", 0.0)))
-            steer_values.append(abs(float(item.raw.get("steer", 0.0))))
+            unstable_count += int("unstable" in tags)*weight
+            overload_count += int("front_tyre_overload" in tags)*weight
 
         lap_distance = float(state.raw.get("lap_distance_m", 0.0))
         track_profile = load_track_profile(state.track)
@@ -290,11 +444,27 @@ class StrategyEngine:
             track_usage = ""
             next_track_segment = "UNKNOWN"
             next_track_usage = "UNKNOWN"
-        avg_throttle = sum(throttle_values) / total
-        avg_brake = sum(brake_values) / total
-        avg_steer = sum(steer_values) / total
+        means, input_quality = input_means(recent, coverage_ms)
+        avg_throttle, avg_brake, avg_steer = (means[name] for name in ('throttle','brake','steer'))
+        corner_overtake_class = infer_corner_overtake_class(
+            track_zone=track_zone,
+            track_segment=track_segment,
+            track_usage=track_usage,
+        )
+        attack_setup_method = infer_attack_setup_method(
+            track_zone=track_zone,
+            track_usage=track_usage,
+            corner_overtake_class=corner_overtake_class,
+        )
+        attack_commit_method = infer_attack_commit_method(
+            track_zone=track_zone,
+            track_usage=track_usage,
+            corner_overtake_class=corner_overtake_class,
+        )
 
-        if avg_brake > 0.45:
+        if any(value is None for value in (avg_throttle, avg_brake, avg_steer)):
+            driving_mode = 'unknown'
+        elif avg_brake > 0.45:
             driving_mode = "brake_loaded"
         elif avg_throttle > 0.72 and avg_steer > 0.18:
             driving_mode = "push_exit"
@@ -305,17 +475,25 @@ class StrategyEngine:
 
         tyre_age = state.player.tyre.age_laps
         tyre_age_factor = 12 if tyre_age >= 10 else 8 if tyre_age >= 6 else 2
-        brake_phase_factor = 10 if avg_brake > 0.45 else 4 if avg_brake > 0.2 else 0
-        throttle_phase_factor = 8 if avg_throttle > 0.78 else 4 if avg_throttle > 0.55 else 0
-        steering_phase_factor = 8 if avg_steer > 0.30 else 4 if avg_steer > 0.18 else 0
+        brake_phase_factor = 0 if avg_brake is None else 10 if avg_brake > 0.45 else 4 if avg_brake > 0.2 else 0
+        throttle_phase_factor = 0 if avg_throttle is None else 8 if avg_throttle > 0.78 else 4 if avg_throttle > 0.55 else 0
+        steering_phase_factor = 0 if avg_steer is None else 8 if avg_steer > 0.30 else 4 if avg_steer > 0.18 else 0
 
         return ContextProfile(
+            gap_closing_rate_behind=closing_rate_from_recent_history(recent_states=history,
+                current_gap=state.player.gap_behind_s,current_session_time_s=state.raw.get('session_time_s'),gap_side='behind'),
+            next_two_segments=preview_segments(track_profile=track_profile,lap_distance_m=lap_distance,offsets=PREVIEW_OFFSETS_M)[2],
+            history_coverage_ms=coverage_ms,
+            input_quality=input_quality,
             recent_unstable_ratio=unstable_count / total,
             recent_front_overload_ratio=overload_count / total,
             driving_mode=driving_mode,
             track_zone=track_zone,
             track_segment=track_segment,
             track_usage=track_usage,
+            corner_overtake_class=corner_overtake_class,
+            attack_setup_method=attack_setup_method,
+            attack_commit_method=attack_commit_method,
             next_track_segment=next_track_segment,
             next_track_usage=next_track_usage,
             tyre_age_factor=tyre_age_factor,
@@ -327,59 +505,7 @@ class StrategyEngine:
     def _assess_state(self, state: SessionState) -> StateAssessment:
         """Convert the current frame into discrete state labels."""
 
-        player = state.player
-        fuel_source = str(state.raw.get("fuel_laps_remaining_source", ""))
-        fuel_in_tank = float(state.raw.get("fuel_in_tank", 0.0))
-        fuel_capacity = float(state.raw.get("fuel_capacity", 0.0))
-        tank_ratio = (fuel_in_tank / fuel_capacity) if fuel_capacity > 0.0 else 0.0
-        completed_laps = max(state.lap_number - 1, 0)
-        remaining_race_laps = max(state.total_laps - completed_laps, 0)
-        fuel_margin_laps = player.fuel_laps_remaining - remaining_race_laps
-        derived_fuel_available = state.lap_number > 1 and fuel_source == "derived_from_sample_consumption"
-        fuel_state = (
-            "critical"
-            if (derived_fuel_available and fuel_margin_laps <= 0.3)
-            or (not derived_fuel_available and tank_ratio <= 0.08)
-            else "stable"
-        )
-        if player.tyre.wear_pct >= self.thresholds.tyre_wear_box:
-            tyre_state = "box_now"
-        elif player.tyre.wear_pct >= self.thresholds.tyre_wear_warn:
-            tyre_state = "manage"
-        else:
-            tyre_state = "stable"
-
-        ers_state = "low" if player.ers_pct <= self.thresholds.ers_low_pct else "stable"
-        race_state = "controlled" if state.safety_car != "NONE" else "green"
-        attack_state = (
-            "available"
-            if player.drs_available
-            and player.gap_ahead_s is not None
-            and player.gap_ahead_s <= self.thresholds.rival_gap_attack
-            else "closed"
-        )
-        defend_state = (
-            "urgent"
-            if player.gap_behind_s is not None and player.gap_behind_s <= self.thresholds.rival_gap_defend
-            else "clear"
-        )
-
-        if "unstable" in player.status_tags:
-            dynamics_state = "unstable"
-        elif "front_tyre_overload" in player.status_tags:
-            dynamics_state = "front_overload"
-        else:
-            dynamics_state = "stable"
-
-        return StateAssessment(
-            fuel_state=fuel_state,
-            tyre_state=tyre_state,
-            ers_state=ers_state,
-            race_state=race_state,
-            attack_state=attack_state,
-            defend_state=defend_state,
-            dynamics_state=dynamics_state,
-        )
+        return assess_domain(state, self.thresholds).labels
 
     def _score_risks(
         self,
@@ -390,7 +516,7 @@ class StrategyEngine:
         """Score numeric risks and opportunities from state plus context."""
 
         usage_bias = self._usage_bias(context.track_usage)
-        tyre_context_bonus = context.tyre_age_factor + int(context.recent_front_overload_ratio * 18)
+        tyre_context_bonus = context.tyre_age_factor
         dynamics_context_bonus = int(context.recent_unstable_ratio * 25) + context.steering_phase_factor
         ers_context_bonus = 6 if context.driving_mode == "push_exit" else 0
         defend_context_bonus = 8 if context.track_zone == "braking_entry" else 6 if context.track_zone == "apex_rotation" else 0
@@ -407,7 +533,6 @@ class StrategyEngine:
         race_control_risk = 130 if assessment.race_state == "controlled" else 0
         dynamics_risk = (
             72 + dynamics_context_bonus + dynamics_zone_bonus + usage_bias["dynamics"] if assessment.dynamics_state == "unstable"
-            else 58 + dynamics_context_bonus + dynamics_zone_bonus + usage_bias["dynamics"] if assessment.dynamics_state == "front_overload"
             else 10 + int(context.recent_unstable_ratio * 12) + max(usage_bias["dynamics"], 0)
         )
         attack_opportunity = (
@@ -440,7 +565,6 @@ class StrategyEngine:
                 "state": assessment.tyre_state,
                 "base": 90 if assessment.tyre_state == "box_now" else 65 if assessment.tyre_state == "manage" else 20,
                 "tyre_age_factor": context.tyre_age_factor,
-                "recent_front_overload_bonus": int(context.recent_front_overload_ratio * 18),
                 "track_zone_bonus": tyre_management_bonus,
                 "usage_hook": usage_bias["tyre"],
                 "total": tyre_risk,
@@ -460,11 +584,11 @@ class StrategyEngine:
             },
             "dynamics_risk": {
                 "state": assessment.dynamics_state,
-                "base": 72 if assessment.dynamics_state == "unstable" else 58 if assessment.dynamics_state == "front_overload" else 10,
-                "recent_unstable_bonus": int(context.recent_unstable_ratio * 25) if assessment.dynamics_state != "stable" else int(context.recent_unstable_ratio * 12),
+                "base": 72 if assessment.dynamics_state == "unstable" else 10,
+                "recent_unstable_bonus": int(context.recent_unstable_ratio * 25) if assessment.dynamics_state == "unstable" else int(context.recent_unstable_ratio * 12),
                 "steering_phase_factor": context.steering_phase_factor,
                 "track_zone_bonus": dynamics_zone_bonus,
-                "usage_hook": usage_bias["dynamics"] if assessment.dynamics_state != "stable" else max(usage_bias["dynamics"], 0),
+                "usage_hook": usage_bias["dynamics"] if assessment.dynamics_state == "unstable" else max(usage_bias["dynamics"], 0),
                 "total": dynamics_risk,
             },
             "attack_opportunity": {
@@ -496,11 +620,17 @@ class StrategyEngine:
         """Build candidate messages before final arbitration."""
 
         player = state.player
+        front_rival = self._closest_rival(state, player.position - 1)
+        rear_rival = self._closest_rival(state, player.position + 1)
         candidates: list[StrategyCandidate] = []
         completed_laps = max(state.lap_number - 1, 0)
         remaining_race_laps = max(state.total_laps - completed_laps, 0)
         fuel_margin_laps = player.fuel_laps_remaining - remaining_race_laps
 
+        if (state.raw.get("marshal_zone_flag") == 3 and not state.raw.get("session_paused")
+                and assessment.race_state != "controlled" and assessment.dynamics_state != "unstable"):
+            candidates.append(StrategyCandidate("LOCAL_YELLOW", 99, "本区黄旗，减速，禁止超车。",
+                                                "当前所在裁判区为黄旗。", "risk_response"))
         if assessment.race_state == "controlled":
             candidates.append(
                 StrategyCandidate(
@@ -517,10 +647,7 @@ class StrategyEngine:
                     code="LOW_FUEL",
                     priority=risk_profile.fuel_risk,
                     title="燃油紧张",
-                    detail=(
-                        f"当前可跑约 {player.fuel_laps_remaining:.1f} 圈，剩余赛程约 {remaining_race_laps:.1f} 圈，"
-                        f"燃油余量差 {fuel_margin_laps:+.1f} 圈，立即切换保守节奏并复核终盘覆盖。"
-                    ),
+                    detail=assess_fuel(state).describe(),
                     layer="risk_response",
                 )
             )
@@ -566,9 +693,10 @@ class StrategyEngine:
                     code="ATTACK_WINDOW",
                     priority=risk_profile.attack_opportunity,
                     title="攻击窗口",
-                    detail=(
-                        f"前车差距 {player.gap_ahead_s:.1f}s，DRS 可用，"
-                        f"当前区段 {context.track_segment}（{context.track_zone} / {context.track_usage or 'general'}），准备完成压迫。"
+                    detail=self._attack_window_detail(
+                        state=state,
+                        context=context,
+                        front_rival=front_rival,
                     ),
                     layer="opportunity",
                 )
@@ -579,9 +707,10 @@ class StrategyEngine:
                     code="DEFEND_WINDOW",
                     priority=risk_profile.defend_risk,
                     title="防守窗口",
-                    detail=(
-                        f"后车差距 {player.gap_behind_s:.1f}s，当前区段 {context.track_segment}（{context.track_zone} / {context.track_usage or 'general'}），"
-                        "出弯牵引和电量配置进入防守模式。"
+                    detail=self._defend_window_detail(
+                        state=state,
+                        context=context,
+                        rear_rival=rear_rival,
                     ),
                     layer="risk_response",
                 )
@@ -592,85 +721,204 @@ class StrategyEngine:
                     code="DYNAMICS_UNSTABLE",
                     priority=risk_profile.dynamics_risk,
                     title="动态不稳定",
-                    detail=(
-                        f"车辆姿态进入 unstable 标签，最近窗口不稳占比 {context.recent_unstable_ratio:.2f}，"
-                        f"当前用途 {context.track_usage or 'general'}，压 curb 与转向输入需要收敛。"
-                    ),
+                    detail=self._dynamics_unstable_detail(state=state, context=context),
                     layer="dynamics",
                 )
             )
-        elif assessment.dynamics_state == "front_overload":
-            candidates.append(
-                StrategyCandidate(
-                    code="FRONT_LOAD",
-                    priority=risk_profile.dynamics_risk,
-                    title="前轮负荷偏高",
-                    detail=(
-                        f"前轴负荷上升，最近前轮过载占比 {context.recent_front_overload_ratio:.2f}，"
-                        f"当前用途 {context.track_usage or 'general'}，建议修正入弯峰值与中段转向保持。"
-                    ),
-                    layer="dynamics",
-                )
-            )
+        else:
+            raw = state.raw
+            alert = tyre_alert(raw.get("tyres_damage_pct"), raw.get("tyres_wear_pct"))
+            if alert and not raw.get("session_paused") and raw.get("result_status", 2) == 2:
+                code, title = alert
+                candidates.append(StrategyCandidate(
+                    code=code, priority=72, title=title,
+                    detail=title,
+                    layer="risk_response",
+                ))
 
         return candidates
 
-    def _arbitrate(self, candidates: list[StrategyCandidate]) -> list[StrategyMessage]:
-        """Sort candidates into final output order."""
+    def _closest_rival(self, state: SessionState, target_position: int):
+        if target_position <= 0:
+            return None
+        for rival in state.rivals:
+            if rival.position == target_position:
+                return rival
+        return None
 
-        layer_weight = {
-            "strategy_candidate": 6,
-            "risk_response": 4,
-            "resource_management": 2,
-            "dynamics": 1,
-            "opportunity": 0,
-        }
-        code_weight = {
-            "SAFETY_CAR": 20,
-        }
-        ranked = sorted(
-            candidates,
-            key=lambda item: (
-                item.priority,
-                code_weight.get(item.code, 0),
-                layer_weight.get(item.layer, 0),
-            ),
-            reverse=True,
-        )
-        return [
-            StrategyMessage(
-                code=item.code,
-                priority=item.priority,
-                title=item.title,
-                detail=item.detail,
-            )
-            for item in ranked
-        ]
-
-    def _resolve_final_messages(
+    def _attack_window_detail(
         self,
-        legacy_messages: list[StrategyMessage],
-        arbiter_sidecar: dict[str, object],
-    ) -> list[StrategyMessage]:
-        """Resolve final messages from arbiter output, with legacy fallback."""
-
-        ordered_actions = arbiter_sidecar.get("output", {}).get("ordered_actions") if isinstance(arbiter_sidecar, dict) else None
-        if not isinstance(ordered_actions, list) or not ordered_actions:
-            return legacy_messages
-
-        resolved: list[StrategyMessage] = []
-        for item in ordered_actions[:3]:
-            if not isinstance(item, dict):
-                continue
-            resolved.append(
-                StrategyMessage(
-                    code=str(item.get("code") or "NONE"),
-                    priority=int(item.get("priority") or 0),
-                    title=str(item.get("title") or item.get("code") or "NONE"),
-                    detail=str(item.get("detail") or ""),
-                )
+        *,
+        state: SessionState,
+        context: ContextProfile,
+        front_rival,
+    ) -> str:
+        method_parts: list[str] = []
+        if context.attack_setup_method != "none":
+            method_parts.append(f"铺垫方式 {context.attack_setup_method}")
+        if context.attack_commit_method != "none":
+            method_parts.append(f"兑现方式 {context.attack_commit_method}")
+        if context.corner_overtake_class != "general":
+            method_parts.append(f"弯道类型 {context.corner_overtake_class}")
+        method_text = "，".join(method_parts)
+        gap = state.player.gap_ahead_s
+        base = (
+            f"前车差距 {gap:.1f}s，DRS 可用，"
+            f"当前区段 {context.track_segment}（{context.track_zone} / {context.track_usage or 'general'}）"
+            f"{'，' + method_text if method_text else ''}，准备完成压迫。"
+        )
+        if front_rival is None:
+            return base
+        if getattr(front_rival, "pit_status", None) in {"PITTING", "IN_PIT_AREA"}:
+            return (
+                f"前车 {front_rival.name} 已进入 {front_rival.pit_status}，"
+                f"当前区段 {context.track_segment}（{context.track_zone} / {context.track_usage or 'general'}），先准备抓窗口变化。"
             )
-        return resolved or legacy_messages
+        if getattr(front_rival, "gap_confidence_behind", None) == "medium":
+            return (
+                f"前车 {front_rival.name} 当前窗口差距约 {gap:.1f}s，但进攻依据只有中可信度估算，"
+                f"当前区段 {context.track_segment}（{context.track_zone} / {context.track_usage or 'general'}）"
+                f"{'，' + method_text if method_text else ''}，先压迫再确认兑现。"
+            )
+        return base
+
+    def _defend_window_detail(
+        self,
+        *,
+        state: SessionState,
+        context: ContextProfile,
+        rear_rival,
+    ) -> str:
+        gap = state.player.gap_behind_s
+        base = (
+            f"后车差距 {gap:.1f}s，当前区段 {context.track_segment}（{context.track_zone} / {context.track_usage or 'general'}），"
+            "出弯牵引和电量配置进入防守模式。"
+        )
+        if rear_rival is None:
+            return base
+        if getattr(rear_rival, "drs_available", False):
+            return (
+                f"后车 {rear_rival.name} 差距 {gap:.1f}s 且已具备 DRS，"
+                f"当前区段 {context.track_segment}（{context.track_zone} / {context.track_usage or 'general'}），"
+                "出弯牵引和电量配置进入防守模式。"
+            )
+        if getattr(rear_rival, "pit_status", None) in {"PITTING", "IN_PIT_AREA"}:
+            return (
+                f"后车 {rear_rival.name} 已进入 {rear_rival.pit_status}，"
+                f"当前区段 {context.track_segment}（{context.track_zone} / {context.track_usage or 'general'}），"
+                "防守压力可能自行回落，但先守住出弯。"
+            )
+        if isinstance(getattr(rear_rival, "engine_damage_pct", None), int) and rear_rival.engine_damage_pct >= 35:
+            return (
+                f"后车 {rear_rival.name} 差距 {gap:.1f}s，但发动机损伤约 {rear_rival.engine_damage_pct}%，"
+                f"当前区段 {context.track_segment}（{context.track_zone} / {context.track_usage or 'general'}），"
+                "先稳住防守窗口，等待它自己掉速。"
+            )
+        if getattr(rear_rival, "gap_confidence_ahead", None) == "medium":
+            return (
+                f"后车 {rear_rival.name} 当前压力差距约 {gap:.1f}s，但依据只有中可信度估算，"
+                f"当前区段 {context.track_segment}（{context.track_zone} / {context.track_usage or 'general'}），"
+                "先按防守模式准备。"
+            )
+        return base
+
+    def _dynamics_unstable_detail(self, *, state: SessionState, context: ContextProfile) -> str:
+        raw = state.raw
+        max_slip_angle = self._max_abs(raw.get("wheel_slip_angle"))
+        yaw_rate = self._angular_rate(raw, "yaw")
+        yaw_accel = self._angular_accel(raw, "yaw")
+        roll_balance = self._roll_balance(raw)
+        if max_slip_angle is not None and max_slip_angle >= 0.12:
+            return (
+                f"车辆姿态进入 unstable 标签，最近窗口不稳占比 {context.recent_unstable_ratio:.2f}，"
+                f"当前侧滑角峰值约 {max_slip_angle:.3f}，用途 {context.track_usage or 'general'}，"
+                "压 curb 与转向输入需要收敛。"
+            )
+        if yaw_rate is not None and yaw_rate >= 0.85:
+            return (
+                f"车辆姿态进入 unstable 标签，最近窗口不稳占比 {context.recent_unstable_ratio:.2f}，"
+                f"当前偏航角速度约 {yaw_rate:.3f}，用途 {context.track_usage or 'general'}，"
+                "先把车尾姿态稳定住。"
+            )
+        if yaw_accel is not None and yaw_accel >= 2.4:
+            return (
+                f"车辆姿态进入 unstable 标签，最近窗口不稳占比 {context.recent_unstable_ratio:.2f}，"
+                f"当前偏航角加速度约 {yaw_accel:.3f}，用途 {context.track_usage or 'general'}，"
+                "转向节奏需要更平顺。"
+            )
+        if roll_balance is not None and roll_balance >= 1.0:
+            return (
+                f"车辆姿态进入 unstable 标签，最近窗口不稳占比 {context.recent_unstable_ratio:.2f}，"
+                f"当前前后滚转角差约 {roll_balance:.3f}，用途 {context.track_usage or 'general'}，"
+                "载荷转移需要更平滑。"
+            )
+        return (
+            f"车辆姿态进入 unstable 标签，最近窗口不稳占比 {context.recent_unstable_ratio:.2f}，"
+            f"当前用途 {context.track_usage or 'general'}，压 curb 与转向输入需要收敛。"
+        )
+
+    def _scalar(self, value: object) -> float | None:
+        try:
+            return None if value is None else float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _angular_rate(self, raw: dict[str, object], axis: str) -> float | None:
+        angular_velocity = raw.get("angular_velocity")
+        if not isinstance(angular_velocity, dict):
+            return None
+        try:
+            return abs(float(angular_velocity.get(axis, 0.0) or 0.0))
+        except (TypeError, ValueError):
+            return None
+
+    def _angular_accel(self, raw: dict[str, object], axis: str) -> float | None:
+        angular_acceleration = raw.get("angular_acceleration")
+        if not isinstance(angular_acceleration, dict):
+            return None
+        try:
+            return abs(float(angular_acceleration.get(axis, 0.0) or 0.0))
+        except (TypeError, ValueError):
+            return None
+
+    def _roll_balance(self, raw: dict[str, object]) -> float | None:
+        front_roll = self._scalar(raw.get("front_roll_angle"))
+        rear_roll = self._scalar(raw.get("rear_roll_angle"))
+        if front_roll is None or rear_roll is None:
+            return None
+        return abs(front_roll - rear_roll)
+
+    def _max_abs(self, values: object) -> float | None:
+        if not isinstance(values, list):
+            return None
+        normalized: list[float] = []
+        for item in values:
+            try:
+                normalized.append(abs(float(item)))
+            except (TypeError, ValueError):
+                continue
+        if not normalized:
+            return None
+        return max(normalized)
+
+    def _resolve_final_messages(self, arbiter_sidecar: dict[str, object]) -> list[StrategyMessage]:
+        """Use the arbiter as the single authority, including an empty result.
+
+        A legacy sort cannot recover a malformed arbiter contract: it would
+        bypass confidence, deduplication and model-admission decisions.
+        """
+        output = arbiter_sidecar.get("output") if isinstance(arbiter_sidecar, dict) else None
+        actions = output.get("ordered_actions") if isinstance(output, dict) else None
+        if not isinstance(actions, list):
+            raise ValueError("invalid_arbiter_output")
+        resolved = []
+        for item in actions[:3]:
+            if not isinstance(item, dict) or not isinstance(item.get("code"), str):
+                raise ValueError("invalid_arbiter_action")
+            resolved.append(StrategyMessage(
+                code=item["code"], priority=int(item.get("priority") or 0),
+                title=str(item.get("title") or item["code"]), detail=str(item.get("detail") or "")))
+        return resolved
 
     def _build_arbiter_sidecar(
         self,
@@ -681,9 +929,9 @@ class StrategyEngine:
         assessment: StateAssessment,
         session_route: SessionRoute,
     ) -> dict[str, object]:
-        """Build a sidecar arbiter output without changing the current final messages."""
+        """Build arbitration inputs, admitting only explicitly approved model outputs."""
         previous_state = history[-2] if len(history) >= 2 else None
-        session_key = str(state.session_uid)
+        session_key = f"{state.session_uid}:{state.session_epoch}"
         previous_resolution_payload = self._last_tactical_resolution_by_session.get(session_key)
         previous_resolution = None
         if isinstance(previous_resolution_payload, dict):
@@ -697,36 +945,52 @@ class StrategyEngine:
             context=context,
         )
 
-        model_candidates = self._build_strategy_action_model_candidates(
-            state=state,
-            context=context,
-            session_route=session_route,
-        )
+        observed_model_candidates = self._build_strategy_action_model_candidates(
+            state=state, context=context, session_route=session_route,
+        ) if self.observation_lane is None or self.model_policy.mode("strategy_action") == "active" else []
+        strategy_action_quality = (self._strategy_action_quality()
+            if self.observation_lane is None or self.model_policy.mode("strategy_action") == "active"
+            else {'input': None, 'output': {'valid': None, 'reason': 'background_observation'}})
+        model_candidates = observed_model_candidates if self.model_policy.mode("strategy_action") == "active" else []
         confidence_resolution = self.uncertainty_layer.evaluate(
             state=state,
             context=context,
             model_candidates=model_candidates,
             tactical_state=tactical_resolution.tactical_state,
         )
-        resource_models = self.resource_risk_runtime.predict_all(state=state, context=context)
-        rival_pressure_models = self.rival_pressure_runtime.predict_all(state=state, context=context)
-        driving_quality_models = self.driving_quality_runtime.predict_all(state=state, context=context)
-        tyre_degradation_trend_models = self.tyre_degradation_trend_runtime.predict_all(state=state, context=context)
-        defence_cost_model = self.defence_cost_runtime.predict_score(state=state, context=context)
-        pit_window_support = self.pit_window_support.evaluate(
-            state=state,
-            context=context,
-            resource_models=resource_models,
-            rival_pressure_models=rival_pressure_models,
-            tyre_degradation_trend_models=tyre_degradation_trend_models,
-        )
-        long_horizon_strategy = self.long_horizon_strategy.plan(
-            state=state,
-            session_route=session_route,
-            support=pit_window_support,
-            resource_models=resource_models,
-            rival_pressure_models=rival_pressure_models,
-        )
+        resource_models = self._predict_group(self.resource_risk_runtime, state=state, context=context)
+        rival_pressure_models = self._predict_group(self.rival_pressure_runtime, state=state, context=context)
+        driving_quality_models = self._predict_group(self.driving_quality_runtime, state=state, context=context)
+        tyre_degradation_trend_models = self._predict_group(self.tyre_degradation_trend_runtime, state=state, context=context)
+        defence_cost_model = self.defence_cost_runtime.predict_score(state=state, context=context) if self.observation_lane is None or self.model_policy.mode("defence_cost") == "active" else {}
+        observation_debug = self._offer_observation(state, context, session_route)
+        admitted_resources = self.model_policy.active_scores(resource_models)
+        admitted_rivals = self.model_policy.active_scores(rival_pressure_models)
+        admitted_trends = self.model_policy.active_scores(tyre_degradation_trend_models)
+        planning_debug = None
+        if self.planning_lane is None:
+            plans = self._plan(state, session_route, context, admitted_resources, admitted_rivals, admitted_trends)
+        else:
+            def build_plan(task):
+                frozen = deepcopy(replace(state, assessment=None, decision_record=None))
+                inputs = deepcopy((session_route, context, admitted_resources, admitted_rivals, admitted_trends))
+                return lambda: self._plan(frozen, *inputs, task=task)
+            planning_debug = self.planning_lane.offer(
+                key=planning_event_key(state, session_route, self.contributor_policy),
+                binding={"session_uid": state.session_uid, "epoch": state.session_epoch,
+                         "snapshot_id": state.assessment.snapshot_id,
+                         "source_timestamp_ms": state.source_timestamp_ms},
+                build_work=build_plan)
+            latest = planning_debug["latest"]
+            plans = latest["results"] if latest else {
+                name: {"enabled": False, "reason": "planner_pending_or_expired"}
+                for name in ("pit_window_support", "long_horizon_strategy")}
+            if latest:
+                for plan in plans.values():
+                    plan["contribution_binding"] = dict(latest["binding"])
+                    plan["validity"] = {"event_key": latest["key"], "ttl_s": planning_debug["ttl_s"]}
+        pit_window_support = plans["pit_window_support"]
+        long_horizon_strategy = plans["long_horizon_strategy"]
         tactical_context = TacticalContext(
             tactical_state=tactical_resolution.tactical_state,
             state_priority_hint=tactical_resolution.state_priority_hint,
@@ -751,18 +1015,24 @@ class StrategyEngine:
             fallback_context=fallback_resolution.fallback_context,
             output_control=fallback_resolution.output_control,
             sidecar_scores={
-                "resource_models": resource_models,
-                "rival_pressure_models": rival_pressure_models,
-                "driving_quality_models": driving_quality_models,
-                "tyre_degradation_trend_models": tyre_degradation_trend_models,
-                "defence_cost_model": defence_cost_model,
-                "pit_window_support": pit_window_support.to_dict(),
-                "long_horizon_strategy": long_horizon_strategy.to_dict(),
+                "resource_models": admitted_resources,
+                "rival_pressure_models": admitted_rivals,
+                "driving_quality_models": self.model_policy.active_scores(driving_quality_models),
+                "tyre_degradation_trend_models": admitted_trends,
+                "defence_cost_model": self.model_policy.active_scores({"defence_cost": defence_cost_model}).get("defence_cost", {}),
+                "pit_window_support": self.contributor_policy.admit("pit_window_support", pit_window_support),
+                "long_horizon_strategy": self.contributor_policy.admit("long_horizon_strategy", long_horizon_strategy),
             },
         )
         result = self.arbiter_v2.arbitrate(payload)
         return {
             "input": {
+                "model_admission": {**self.model_policy.snapshot(), 'verified_evidence': deepcopy(self._verified_model_evidence)},
+                "contributor_admission": self.contributor_policy.snapshot(),
+                "background_observations": observation_debug,
+                "background_planning": planning_debug,
+                "observed_model_candidates": [item.__dict__ for item in observed_model_candidates],
+                "strategy_action_quality": strategy_action_quality,
                 "rule_candidates": [item.__dict__ for item in payload.rule_candidates],
                 "model_candidates": [item.__dict__ for item in payload.model_candidates],
                 "tactical_context": payload.tactical_context.__dict__,
@@ -794,8 +1064,8 @@ class StrategyEngine:
                 "driving_quality_models": driving_quality_models,
                 "tyre_degradation_trend_models": tyre_degradation_trend_models,
                 "defence_cost_model": defence_cost_model,
-                "pit_window_support": pit_window_support.to_dict(),
-                "long_horizon_strategy": long_horizon_strategy.to_dict(),
+                "pit_window_support": pit_window_support,
+                "long_horizon_strategy": long_horizon_strategy,
                 "session_route": {
                     "session_mode": session_route.session_mode,
                     "allowed_action_codes": sorted(session_route.allowed_action_codes),
@@ -829,6 +1099,11 @@ class StrategyEngine:
             history_anchor_action=str(payload.get("history_anchor_action")) if payload.get("history_anchor_action") is not None else None,
         )
 
+    def _strategy_action_quality(self):
+        from copy import deepcopy
+        return deepcopy({'input': self.strategy_action_runtime.last_input_quality,
+                         'output': self.strategy_action_runtime.last_output_quality})
+
     def _build_strategy_action_model_candidates(
         self,
         *,
@@ -838,18 +1113,10 @@ class StrategyEngine:
     ) -> list[ModelCandidate]:
         """Build top-k model candidates from the local strategy-action baseline, if available."""
 
-        if not self.strategy_action_runtime.enabled:
-            return []
         candidates = self.strategy_action_runtime.predict_top_k(state=state, context=context, k=2)
-        fuel_source = str(state.raw.get("fuel_laps_remaining_source", ""))
-        fuel_in_tank = float(state.raw.get("fuel_in_tank", 0.0))
-        fuel_capacity = float(state.raw.get("fuel_capacity", 0.0))
-        tank_ratio = (fuel_in_tank / fuel_capacity) if fuel_capacity > 0.0 else 0.0
-        derived_fuel_available = state.lap_number > 1 and fuel_source == "derived_from_sample_consumption"
-        fuel_mainline_allowed = (
-            derived_fuel_available
-            or tank_ratio <= 0.08
-        )
+        if not candidates:
+            return []
+        fuel_mainline_allowed = assess_fuel(state).verdict == 'critical'
         filtered = [candidate for candidate in candidates if candidate.code in session_route.allowed_action_codes]
         if fuel_mainline_allowed:
             return filtered

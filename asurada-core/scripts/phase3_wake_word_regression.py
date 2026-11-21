@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result, runtime_clock
+
 import json
 
 from asurada.audio_io import AudioFormat
@@ -75,6 +77,7 @@ def _make_turn(transcript_text: str, *, ended_at_ms: int, transcript_hint: str |
     )
 
 
+@runtime_clock(1777300000000)
 def run_phase3_wake_word_regression() -> dict[str, object]:
     state = _make_state()
     primary_message = StrategyMessage(
@@ -174,20 +177,20 @@ def run_phase3_wake_word_regression() -> dict[str, object]:
     checks = {
         "missing_wake_ignored": ignored.status == "ignored",
         "wake_only_arms": wake_only.status == "wake_armed",
-        "active_window_allows_follow_up": active_window.status == "spoken"
+        "active_window_allows_follow_up": active_window.status == "processed"
         and (((active_window.bundle or {}).get("structured_query") or {}).get("query_kind") == "overall_situation"),
         "active_window_metadata_present": (((active_window.voice_turn or {}).get("metadata") or {}).get("wake_word") or {}).get("reason") == "wake_window_active",
-        "inline_wake_strips_prefix": inline_query.status == "spoken"
+        "inline_wake_strips_prefix": inline_query.status == "processed"
         and inline_event.get("action_code") == "QUERY_REAR_GAP"
         and (((inline_query.voice_turn or {}).get("metadata") or {}).get("transcript_text") == "后车差距"),
-        "alias_inline_wake_matches": alias_inline_query.status == "spoken"
+        "alias_inline_wake_matches": alias_inline_query.status == "processed"
         and ((((alias_inline_query.voice_turn or {}).get("metadata") or {}).get("wake_word") or {}).get("matched_phrase") == "阿斯拉达")
         and (((alias_inline_query.voice_turn or {}).get("metadata") or {}).get("transcript_text") == "陪我聊天"),
         "preview_alias_matches": preview_gate.preview_match("饿死拉倒后车差距") == ("阿斯拉达", "后车差距"),
-        "preview_arm_allows_follow_up": preview_armed_query.status == "spoken"
+        "preview_arm_allows_follow_up": preview_armed_query.status == "processed"
         and ((((preview_armed_query.voice_turn or {}).get("metadata") or {}).get("wake_word") or {}).get("status") == "active_window")
         and (((((preview_armed_query.voice_turn or {}).get("metadata") or {}).get("wake_word") or {}).get("metadata") or {}).get("activation_source") == "partial_preview"),
-        "partial_hint_wake_matches": partial_hint_query.status == "spoken"
+        "partial_hint_wake_matches": partial_hint_query.status == "processed"
         and ((((partial_hint_query.voice_turn or {}).get("metadata") or {}).get("wake_word") or {}).get("matched_phrase") == "阿斯拉达")
         and (((((partial_hint_query.voice_turn or {}).get("metadata") or {}).get("wake_word") or {}).get("metadata") or {}).get("matched_source") == "transcript_hint")
         and (((partial_hint_query.voice_turn or {}).get("metadata") or {}).get("transcript_text") == "后车差距"),
@@ -211,4 +214,4 @@ def run_phase3_wake_word_regression() -> dict[str, object]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_wake_word_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_wake_word_regression())

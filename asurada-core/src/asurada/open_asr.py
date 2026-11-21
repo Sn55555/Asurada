@@ -120,6 +120,7 @@ class FasterWhisperOpenAsrBackend(OpenAsrBackend):
 
 
 class OpenAsrRecognizer:
+    supports_task_context = True
     """One-shot microphone capture + local ASR transcription."""
 
     def __init__(
@@ -139,8 +140,8 @@ class OpenAsrRecognizer:
     def env_ready(cls) -> bool:
         return MacOSAudioCapture.env_ready() and FasterWhisperOpenAsrBackend.env_ready()
 
-    def listen_once(self) -> OpenAsrResult:
-        capture = self.audio_capture.capture_once()
+    def listen_once(self, *, context=None) -> OpenAsrResult:
+        capture = (self.audio_capture.capture_once(context=context) if context is not None else self.audio_capture.capture_once())
         if capture.status not in {"recorded", "recorded_timeout"}:
             return OpenAsrResult(
                 status=capture.status,

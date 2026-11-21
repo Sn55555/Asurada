@@ -1,0 +1,152 @@
+{
+  "model": "tyre_risk",
+  "target": "tyre_risk_label",
+  "rows": {
+    "all": 13400,
+    "train": 6663,
+    "val": 1666,
+    "test": 5071
+  },
+  "feature_columns": [
+    "session_time_s",
+    "lap_number",
+    "total_laps",
+    "speed_kph",
+    "throttle",
+    "brake",
+    "steer",
+    "tyre_wear_pct",
+    "tyre_age_laps",
+    "tyre_age_factor",
+    "g_force_lateral",
+    "g_force_longitudinal",
+    "wheel_slip_ratio_fl",
+    "wheel_slip_ratio_fr",
+    "wheel_slip_ratio_rl",
+    "wheel_slip_ratio_rr",
+    "recent_front_overload_ratio",
+    "recent_unstable_ratio",
+    "session_type",
+    "timing_mode",
+    "track_segment",
+    "track_usage",
+    "next_track_segment",
+    "tyre_compound",
+    "driving_mode"
+  ],
+  "validation_source": "train_holdout_split",
+  "test_source": "exported_test_split",
+  "best_iteration": 300,
+  "metrics": {
+    "mae": 0.03046961290410467,
+    "rmse": 0.06994679983009078,
+    "r2": 0.9997822273287023,
+    "spearman": 0.9505555750170047,
+    "within_5": 1.0,
+    "within_10": 1.0
+  },
+  "target_stats": {
+    "train_min": 22.0,
+    "train_max": 34.0,
+    "test_min": 22.0,
+    "test_max": 34.0
+  },
+  "top_feature_importance": [
+    {
+      "feature": "track_segment",
+      "importance": 1136687
+    },
+    {
+      "feature": "track_usage",
+      "importance": 140715
+    },
+    {
+      "feature": "recent_front_overload_ratio",
+      "importance": 47551
+    },
+    {
+      "feature": "next_track_segment",
+      "importance": 20143
+    },
+    {
+      "feature": "g_force_lateral",
+      "importance": 2922
+    },
+    {
+      "feature": "speed_kph",
+      "importance": 2903
+    },
+    {
+      "feature": "wheel_slip_ratio_fl",
+      "importance": 2328
+    },
+    {
+      "feature": "wheel_slip_ratio_fr",
+      "importance": 1636
+    },
+    {
+      "feature": "g_force_longitudinal",
+      "importance": 1503
+    },
+    {
+      "feature": "brake",
+      "importance": 1106
+    },
+    {
+      "feature": "tyre_wear_pct",
+      "importance": 778
+    },
+    {
+      "feature": "total_laps",
+      "importance": 696
+    },
+    {
+      "feature": "steer",
+      "importance": 441
+    },
+    {
+      "feature": "wheel_slip_ratio_rr",
+      "importance": 225
+    },
+    {
+      "feature": "session_time_s",
+      "importance": 201
+    },
+    {
+      "feature": "throttle",
+      "importance": 82
+    },
+    {
+      "feature": "wheel_slip_ratio_rl",
+      "importance": 81
+    },
+    {
+      "feature": "tyre_compound",
+      "importance": 8
+    },
+    {
+      "feature": "recent_unstable_ratio",
+      "importance": 4
+    },
+    {
+      "feature": "driving_mode",
+      "importance": 2
+    }
+  ],
+  "model_path": "tyre_risk_baseline.txt",
+  "asset_manifest": {
+    "version": "model-asset-v1",
+    "model_sha256": "c1ad27de723416572260378dd7affe619d274765fbc046cf7047fbe05b63b0a3",
+    "feature_schema_sha256": "2888f92d37039e5099a1c5d387554dcd4c8396d1b85406f4179859f969e57c90"
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

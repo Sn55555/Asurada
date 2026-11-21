@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .attack_opportunity import front_target
 from .asr_fast import FastIntentResult
 from .conversation_context import ConversationContext
 from .models import SessionState, StrategyMessage
@@ -49,6 +50,7 @@ class SemanticNormalizer:
                     "source_query_kind": fast_intent.query_kind,
                     "matched_phrase": fast_intent.matched_phrase,
                     "lane": fast_intent.lane,
+                    **self._strategy_target(fast_intent.query_kind, normalized_text, state, conversation_context),
                 },
             )
 
@@ -99,8 +101,26 @@ class SemanticNormalizer:
             metadata={
                 "source_query_kind": fast_intent.query_kind,
                 "context": conversation_context.snapshot(),
+                **self._strategy_target(semantic_query_kind, normalized_text, state, conversation_context),
             },
         )
+
+    def _strategy_target(self, kind, text, state, context):
+        if kind not in {"why_not_attack", "why_not_pit"}:
+            return {}
+        if self._contains_any(text, ("现在呢", "还一样吗", "现在怎么样")):
+            previous = context.snapshot().get("last_user_query") or {}
+            target = previous.get("metadata", {}).get("strategy_follow_up_target")
+            if not previous:
+                return {"strategy_follow_up_target": {"ambiguous": True, "observed_at_ms": state.source_timestamp_ms}}
+            observed_at_ms = target.get("observed_at_ms") if isinstance(target, dict) else None
+            if (type(observed_at_ms) is not int or previous.get("query_kind") != kind
+                    or not 0 <= state.source_timestamp_ms - observed_at_ms <= 15_000):
+                return {"strategy_follow_up_target": {"expired": True, "observed_at_ms": state.source_timestamp_ms}}
+            return {"strategy_follow_up_target": {**target, "follow_up": True}}
+        front = front_target(state) if kind == "why_not_attack" else None
+        return {"strategy_follow_up_target": {"front_car_index": front.car_index if front else None,
+                                              "observed_at_ms": state.source_timestamp_ms}}
 
     def _infer_query_kind(
         self,
@@ -113,7 +133,7 @@ class SemanticNormalizer:
             return None
 
         if self._contains_any(normalized_text, ("为什么", "为啥", "怎么会", "怎么不", "为何")):
-            if self._contains_any(normalized_text, ("不进攻", "不让我进攻", "没让我进攻", "不攻击", "没攻击")):
+            if self._contains_any(normalized_text, ("不进攻", "不攻", "不让我进攻", "没让我进攻", "不攻击", "没攻击")):
                 return "why_not_attack"
             if self._contains_any(normalized_text, ("进站", "pit", "box", "维修区")):
                 return "why_not_pit"
@@ -130,10 +150,15 @@ class SemanticNormalizer:
                     return "why_defend"
                 return "why_current_strategy"
 
+        if self._contains_any(normalized_text, ("现在还要进吗", "现在还要进站", "现在还进吗")):
+            return "why_not_pit"
+
         if self._contains_any(normalized_text, ("现在呢", "现在还", "现在怎么样", "还一样吗", "那现在呢")):
             last_query_kind = conversation_context.last_non_control_query_kind()
             if last_query_kind is not None:
                 return last_query_kind
+            if normalized_text.strip("？?。！!") in {"那现在呢", "现在呢", "还一样吗", "现在怎么样"}:
+                return "why_not_attack"
 
         if self._contains_any(normalized_text, ("那这个风险大吗", "这个风险严重吗", "风险大不大")):
             last_query_kind = conversation_context.last_non_control_query_kind()
@@ -290,6 +315,46 @@ class SemanticNormalizer:
 
         if self._contains_any(normalized_text, ("策略", "战术", "现在该", "现在怎么跑")):
             return "current_strategy"
+
+        if (
+            self._contains_any(normalized_text, ("刹车点", "刹车提醒", "刹车"))
+            or (
+                self._contains_any(normalized_text, ("下个长直道", "下一条长直道", "下个大直道", "下一条大直道", "长直道"))
+                and self._contains_any(normalized_text, ("帮我", "提醒", "提醒我", "注意", "注意下", "看着", "看一下"))
+            )
+        ):
+            if self._contains_any(normalized_text, ("取消", "关掉", "关闭", "不用了")):
+                return "cancel_brake_point_assist"
+            if self._contains_any(normalized_text, ("提前一点", "早一点", "再提前一点", "早点报", "报早一点")):
+                return "brake_point_assist_earlier"
+            if self._contains_any(normalized_text, ("晚一点", "再晚一点", "延后一点", "报晚一点")):
+                return "brake_point_assist_later"
+            if self._contains_any(normalized_text, ("开了吗", "开着吗", "状态", "有没有开", "还开着吗")):
+                return "brake_point_assist_status"
+            if (
+                self._contains_any(normalized_text, ("下个长直道", "下一条长直道", "下个大直道", "下一条大直道", "长直道"))
+                and self._contains_any(normalized_text, ("帮我", "提醒", "提醒我", "注意", "注意下", "看着", "看一下"))
+            ):
+                return "arm_brake_point_assist"
+
+        if self._contains_any(normalized_text, ("档位", "几档", "入弯档位", "弯道档位")):
+            if self._contains_any(normalized_text, ("关闭", "关掉", "取消", "不用了")):
+                return "disable_corner_gear_assist"
+            if self._contains_any(normalized_text, ("开了吗", "开着吗", "状态", "有没有开", "还开着吗")):
+                return "corner_gear_assist_status"
+            if self._contains_any(normalized_text, ("开启", "打开", "帮我报", "提醒我", "建议")) and self._contains_any(
+                normalized_text,
+                ("每个弯道", "每个弯", "每一弯", "弯道", "入弯"),
+            ):
+                return "enable_corner_gear_assist"
+
+        if self._contains_any(normalized_text, ("进攻模式", "攻击模式")):
+            if self._contains_any(normalized_text, ("关闭", "关掉", "取消", "不用了")):
+                return "disable_attack_mode"
+            if self._contains_any(normalized_text, ("开了吗", "开着吗", "状态", "有没有开", "还开着吗")):
+                return "attack_mode_status"
+            if self._contains_any(normalized_text, ("开启", "打开", "启动", "进入")):
+                return "enable_attack_mode"
 
         return None
 

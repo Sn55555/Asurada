@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import json
 from typing import Any
 
@@ -135,6 +137,9 @@ def run_phase3_voice_control_regression() -> dict[str, Any]:
 
     repeat_output = ConsoleVoiceOutput(backend=StickySpeechBackend())
     _seed_active_broadcast(repeat_output)
+    repeat_output.backend.stop(repeat_output._active_handle)
+    repeat_output.tick()
+    repeat_output.emit_query_response(state=state, query_kind="fuel_status", render=False)
     repeat_result = coordinator.process_completed_turn(
         state=state,
         turn=_make_turn("voice-turn:repeat", "重复"),
@@ -175,13 +180,14 @@ def run_phase3_voice_control_regression() -> dict[str, Any]:
     cancel_event = ((cancel_result.output_debug or {}).get("output_lifecycle") or {}).get("event", {})
 
     checks = {
-        "repeat_executes": repeat_result.status == "control_executed"
+        "repeat_executes": repeat_result.status == "processed"
         and repeat_event.get("event_type") in {"enqueue", "replace_pending"},
         "repeat_uses_repeat_code": repeat_event.get("action_code") == "QUERY_REPEAT_LAST",
-        "stop_cancels_active": stop_result.status == "control_executed"
+        "repeat_uses_completed_instead_of_active": repeat_event.get("speak_text") == "防守窗口",
+        "stop_cancels_active": stop_result.status == "processed"
         and stop_event.get("event_type") == "cancel",
         "stop_clears_active_output": ((stop_result.output_debug or {}).get("output_lifecycle") or {}).get("active_output") is None,
-        "cancel_cancels_pending": cancel_result.status == "control_executed"
+        "cancel_cancels_pending": cancel_result.status == "processed"
         and cancel_event.get("event_type") == "cancel",
         "cancel_keeps_active_output": ((cancel_result.output_debug or {}).get("output_lifecycle") or {}).get("active_output") is not None,
         "cancel_clears_pending_output": ((cancel_result.output_debug or {}).get("output_lifecycle") or {}).get("pending_output") is None,
@@ -201,4 +207,4 @@ def run_phase3_voice_control_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_voice_control_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_voice_control_regression())

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import json
 import time
 from typing import Any
@@ -153,4 +155,4 @@ def run_phase3_transcript_router_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_transcript_router_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_transcript_router_regression())

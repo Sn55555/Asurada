@@ -28,4 +28,7 @@ class CaptureJsonlSource:
                     payload=base64.b64decode(record["payload_base64"]),
                     source_host=str(record["source_host"]),
                     source_port=int(record["source_port"]),
+                    capture_submission_id=record.get("capture_submission_id"),
+                    ingress_health=record.get("ingress_health"),
+                    ingress_queue_ms=record.get("ingress_queue_ms"),
                 )

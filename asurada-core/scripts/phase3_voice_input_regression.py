@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from regression_support import ImmediateSpeechBackend, emit_result, runtime_clock
+
 import json
 from typing import Any
 
 from asurada.audio_io import AudioFormat
 from asurada.asr_fast import KeywordFastIntentASR
 from asurada.models import DriverState, SessionState, StrategyMessage, TyreState
-from asurada.output import ConsoleVoiceOutput, NullSpeechBackend
+from asurada.output import ConsoleVoiceOutput
 from asurada.voice_input import VoiceInputCoordinator
 from asurada.voice_turn import VoiceTurn
 
@@ -88,6 +90,7 @@ def _make_turn(transcript_text: str) -> VoiceTurn:
     )
 
 
+@runtime_clock(1777100000000)
 def run_phase3_voice_input_regression() -> dict[str, Any]:
     state = _make_state()
     primary_message = StrategyMessage(
@@ -97,7 +100,7 @@ def run_phase3_voice_input_regression() -> dict[str, Any]:
         detail="后车已接近 DRS 线。",
     )
     coordinator = VoiceInputCoordinator(fast_intent_asr=KeywordFastIntentASR())
-    voice_output = ConsoleVoiceOutput(backend=NullSpeechBackend())
+    voice_output = ConsoleVoiceOutput(backend=ImmediateSpeechBackend())
 
     rear_gap_result = coordinator.process_completed_turn(
         state=state,
@@ -175,35 +178,35 @@ def run_phase3_voice_input_regression() -> dict[str, Any]:
     asr_stage = ((rear_gap_debug.get("voice_pipeline_log") or {}).get("asr") or {})
 
     checks = {
-        "spoken_status": rear_gap_result.status == "spoken",
+        "spoken_status": rear_gap_result.status == "processed",
         "asr_fast_input_type": (rear_gap_debug.get("interaction_input_event") or {}).get("input_type") == "asr_fast_query",
         "rear_gap_start_event": output_event.get("event_type") == "start" and output_event.get("action_code") == "QUERY_REAR_GAP",
         "asr_stage_completed": asr_stage.get("stage_status") == "completed",
         "query_route_voice": (rear_gap_debug.get("query_route") or {}).get("response_channel") == "voice",
-        "control_query_executed": cancel_result.status == "control_executed"
+        "control_query_executed": cancel_result.status == "processed"
         and ((cancel_result.output_debug or {}).get("output_lifecycle") or {}).get("event", {}).get("event_type") == "cancel",
-        "main_risk_spoken": main_risk_result.status == "spoken"
+        "main_risk_spoken": main_risk_result.status == "processed"
         and (((main_risk_result.bundle or {}).get("structured_query") or {}).get("query_kind") == "main_risk_summary"),
-        "tyre_outlook_spoken": tyre_outlook_result.status == "spoken"
+        "tyre_outlook_spoken": tyre_outlook_result.status == "processed"
         and (((tyre_outlook_result.bundle or {}).get("structured_query") or {}).get("query_kind") == "tyre_wear_outlook")
         and (
             "未来" in str((((tyre_outlook_result.output_debug or {}).get("output_lifecycle") or {}).get("event") or {}).get("speak_text") or "")
             or "接下来" in str((((tyre_outlook_result.output_debug or {}).get("output_lifecycle") or {}).get("event") or {}).get("speak_text") or "")
         ),
-        "defend_projection_spoken": defend_projection_result.status == "spoken"
+        "defend_projection_spoken": defend_projection_result.status == "processed"
         and (((defend_projection_result.bundle or {}).get("structured_query") or {}).get("query_kind") == "defend_outcome_projection"),
-        "attack_defend_tradeoff_spoken": attack_defend_tradeoff_result.status == "spoken"
+        "attack_defend_tradeoff_spoken": attack_defend_tradeoff_result.status == "processed"
         and (((attack_defend_tradeoff_result.bundle or {}).get("structured_query") or {}).get("query_kind") == "attack_defend_tradeoff"),
-        "overall_situation_spoken": overall_result.status == "spoken"
+        "overall_situation_spoken": overall_result.status == "processed"
         and (((overall_result.bundle or {}).get("structured_query") or {}).get("query_kind") == "overall_situation")
         and ("最大风险" in str((((overall_result.output_debug or {}).get("output_lifecycle") or {}).get("event") or {}).get("speak_text") or "")),
-        "damage_spoken": damage_result.status == "spoken"
+        "damage_spoken": damage_result.status == "processed"
         and (((damage_result.bundle or {}).get("structured_query") or {}).get("query_kind") == "damage_status")
         and ((((damage_result.output_debug or {}).get("output_lifecycle") or {}).get("event") or {}).get("action_code") == "QUERY_DAMAGE_STATUS"),
-        "track_incident_spoken": track_incident_result.status == "spoken"
+        "track_incident_spoken": track_incident_result.status == "processed"
         and (((track_incident_result.bundle or {}).get("structured_query") or {}).get("query_kind") == "race_control_status")
         and ((((track_incident_result.output_debug or {}).get("output_lifecycle") or {}).get("event") or {}).get("action_code") == "QUERY_RACE_CONTROL_STATUS"),
-        "open_fallback_spoken": fallback_result.status == "spoken"
+        "open_fallback_spoken": fallback_result.status == "processed"
         and (((fallback_result.bundle or {}).get("structured_query") or {}).get("query_kind") == "open_fallback")
         and ((((fallback_result.output_debug or {}).get("output_lifecycle") or {}).get("event") or {}).get("action_code") == "QUERY_OPEN_FALLBACK"),
     }
@@ -227,4 +230,4 @@ def run_phase3_voice_input_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_voice_input_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_voice_input_regression())

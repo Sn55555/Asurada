@@ -8,6 +8,7 @@ from typing import Callable
 
 from .capture_ingest import CaptureJsonlSource
 from .output import ConsoleVoiceOutput
+from .packet_decode_diagnostics import PacketDecodeDiagnostics
 from .pdu_decoder import PacketDecodeError
 from .replay import ReplayLogger
 from .runtime_pipeline import StrategyRuntimePipeline
@@ -34,6 +35,7 @@ class CaptureReplayRuntime:
         dashboard_refresh: Callable[[], None] | None = None,
         session_paced: bool = False,
         pace_multiplier: float = 1.0,
+        personality=None,
     ) -> None:
         self.capture_path = capture_path
         self.source = CaptureJsonlSource(capture_path)
@@ -44,11 +46,14 @@ class CaptureReplayRuntime:
         self.dashboard_refresh = dashboard_refresh
         self.session_paced = session_paced
         self.pace_multiplier = max(pace_multiplier, 0.1)
+        self.decode_diagnostics = PacketDecodeDiagnostics()
         self.pipeline = StrategyRuntimePipeline(
             state_store=state_store,
             strategy=strategy,
             voice_output=voice_output,
             logger=logger,
+            personality=personality,
+            replay=True,
         )
 
     def run(self) -> None:
@@ -57,6 +62,7 @@ class CaptureReplayRuntime:
         # 1. 统计抓包内容和正文样本，方便排查协议问题
         # 2. 把原始 packet 组装为标准化快照
         # 3. 复用主策略链路并按节流规则刷新 dashboard
+        self.decode_diagnostics = PacketDecodeDiagnostics()
         counter: Counter[str] = Counter()
         session_uid = None
         first_packets = []
@@ -69,6 +75,7 @@ class CaptureReplayRuntime:
             try:
                 result = self.pipeline.ingest_packet(packet)
             except PacketDecodeError as exc:
+                self.decode_diagnostics.record(exc)
                 print(f"[ASURADA][CAPTURE] decode failed at packet {index}: {exc}")
                 continue
             envelope = result.envelope
@@ -136,7 +143,15 @@ class CaptureReplayRuntime:
         summary_path = self.logger.directory / "capture_summary.json"
         decoded_kinds = sorted(name for name, sample in body_samples.items() if sample)
         unknown_kinds = sorted(name for name in counter if name.startswith("Unknown"))
+        health_path = Path(str(self.capture_path) + ".health.json")
+        try:
+            capture_health = json.loads(health_path.read_text()) if health_path.exists() else {"status": "legacy_unknown"}
+        except (OSError, ValueError) as exc:
+            capture_health = {"status": "unreadable", "error": str(exc)}
         summary = {
+            "reported_capture_health": capture_health,
+            "decode_errors": self.decode_diagnostics.count,
+            "decode_diagnostics": self.decode_diagnostics.snapshot(),
             "source": str(self.capture_path),
             "session_uid": session_uid,
             "normalized_snapshots": snapshot_count,

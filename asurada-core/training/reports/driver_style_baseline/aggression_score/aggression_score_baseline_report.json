@@ -1,0 +1,133 @@
+{
+  "target": "aggression_score",
+  "best_iteration": 1,
+  "mae": 2.3228,
+  "rmse": 3.2112,
+  "r2": -0.746,
+  "top_feature_importance": [
+    {
+      "feature": "lap_number_first",
+      "importance": 0
+    },
+    {
+      "feature": "session_time_s_min",
+      "importance": 0
+    },
+    {
+      "feature": "speed_kph_mean",
+      "importance": 0
+    },
+    {
+      "feature": "speed_kph_std",
+      "importance": 0
+    },
+    {
+      "feature": "throttle_mean",
+      "importance": 0
+    },
+    {
+      "feature": "throttle_std",
+      "importance": 0
+    },
+    {
+      "feature": "brake_mean",
+      "importance": 0
+    },
+    {
+      "feature": "brake_std",
+      "importance": 0
+    },
+    {
+      "feature": "abs_steer_mean",
+      "importance": 0
+    },
+    {
+      "feature": "abs_steer_std",
+      "importance": 0
+    },
+    {
+      "feature": "ers_pct_mean",
+      "importance": 0
+    },
+    {
+      "feature": "tyre_wear_pct_mean",
+      "importance": 0
+    },
+    {
+      "feature": "recent_unstable_ratio_mean",
+      "importance": 0
+    },
+    {
+      "feature": "recent_front_overload_ratio_mean",
+      "importance": 0
+    },
+    {
+      "feature": "g_force_lateral_mean",
+      "importance": 0
+    },
+    {
+      "feature": "g_force_lateral_std",
+      "importance": 0
+    },
+    {
+      "feature": "g_force_longitudinal_mean",
+      "importance": 0
+    },
+    {
+      "feature": "g_force_longitudinal_std",
+      "importance": 0
+    },
+    {
+      "feature": "slip_mean_mean",
+      "importance": 0
+    },
+    {
+      "feature": "slip_mean_std",
+      "importance": 0
+    }
+  ],
+  "model_path": "aggression_score_baseline.txt",
+  "feature_columns": [
+    "lap_number_first",
+    "session_time_s_min",
+    "speed_kph_mean",
+    "speed_kph_std",
+    "throttle_mean",
+    "throttle_std",
+    "brake_mean",
+    "brake_std",
+    "abs_steer_mean",
+    "abs_steer_std",
+    "ers_pct_mean",
+    "tyre_wear_pct_mean",
+    "recent_unstable_ratio_mean",
+    "recent_front_overload_ratio_mean",
+    "g_force_lateral_mean",
+    "g_force_lateral_std",
+    "g_force_longitudinal_mean",
+    "g_force_longitudinal_std",
+    "slip_mean_mean",
+    "slip_mean_std",
+    "front_rival_speed_delta_mean",
+    "rear_rival_speed_delta_mean",
+    "attack_gap_close_mean",
+    "drs_flag_mean",
+    "session_type_first",
+    "track_first"
+  ],
+  "asset_manifest": {
+    "version": "model-asset-v1",
+    "model_sha256": "1e6ece65c5319251d3123bfdf460a6ae144b27055504123158378efec9ba79d8",
+    "feature_schema_sha256": "8c8d020a6118777afb9e0f2edd9fbdc7f6f7079cc752b9f04da9949072e5fba8"
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

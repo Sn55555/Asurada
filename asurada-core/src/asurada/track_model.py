@@ -104,7 +104,8 @@ def load_track_profile(track_name: str) -> TrackProfile | None:
     # 备注:
     # 赛道模型按文件名加载并做 LRU 缓存，避免回放过程中重复读 JSON。
     normalized = re.sub(r"[^a-z0-9]+", "_", track_name.strip().lower()).strip("_")
-    root = Path(__file__).resolve().parents[2]
+    from .paths import ASSET_ROOT
+    root = ASSET_ROOT
     candidate = root / "data" / "tracks" / f"{normalized}_segments.json"
     if not candidate.exists():
         return None

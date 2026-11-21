@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .app import AsuradaApp
 from .config import AppConfig, UdpConfig
+from .paths import ASSET_ROOT
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -15,7 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--replay",
         type=Path,
-        default=Path("data/sample_session.jsonl"),
+        default=ASSET_ROOT / "data" / "sample_session.jsonl",
         help="Path to normalized JSONL replay snapshots.",
     )
     parser.add_argument(
@@ -70,6 +71,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Optional path to record raw live UDP packets as capture JSONL.",
     )
+    parser.add_argument(
+        '--replay-log-max-archives', type=int, default=None,
+        help='Keep at most this many rotated runtime logs; omit to keep all. '
+             'Zero keeps only the current log. Does not limit raw packet recordings.',
+    )
+    parser.add_argument("--grid-plan-stops", type=int, choices=(0, 1, 2),
+                        help="Track this stop-count plan from the fitted starting set in live or capture mode.")
     return parser
 
 
@@ -79,7 +87,20 @@ def main() -> None:
     # 这样 demo、csv、capture、live-udp、dashboard 不会互相冲突。
     parser = build_parser()
     args = parser.parse_args()
-    app = AsuradaApp(AppConfig())
+    if args.replay_log_max_archives is not None and args.replay_log_max_archives < 0:
+        parser.error('--replay-log-max-archives must be nonnegative')
+    config = AppConfig(replay_log_max_archives=args.replay_log_max_archives)
+    if args.live_udp and args.csv is None and args.capture_jsonl is None:
+        from .live_speech import LiveSpeechService
+        with LiveSpeechService(session_source=config.replay_log_dir / 'latest_snapshot.json') as speech:
+            app = AsuradaApp(config, voice_output=speech)
+            app.run_live_udp(
+                UdpConfig(host=args.udp_host, port=args.udp_port),
+                capture_path=args.record_capture_jsonl,
+                grid_plan_stops=args.grid_plan_stops,
+            )
+        return
+    app = AsuradaApp(config, shared_speech=False)
     if args.csv is not None:
         app.run_csv_lap(args.csv)
         return
@@ -88,19 +109,14 @@ def main() -> None:
             args.capture_jsonl,
             session_paced=args.session_paced,
             pace_multiplier=args.pace_multiplier,
-        )
-        return
-    if args.live_udp:
-        app.run_live_udp(
-            UdpConfig(host=args.udp_host, port=args.udp_port),
-            capture_path=args.record_capture_jsonl,
+            grid_plan_stops=args.grid_plan_stops,
         )
         return
     if args.build_dashboard:
         app.build_debug_dashboard()
         return
 
-    replay_path = Path("data/sample_session.jsonl") if args.demo else args.replay
+    replay_path = ASSET_ROOT / "data" / "sample_session.jsonl" if args.demo else args.replay
     app.run_replay(replay_path)
 
 

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from .model_assets import read_model_asset
+from .model_input_quality import prepare_model_inputs
+
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,7 +10,54 @@ from typing import Any
 
 from .arbiter import ModelCandidate
 from .config import PROJECT_ROOT
+from .model_admission import validate_mode
 from .models import ContextProfile, DriverState, SessionState
+from .wheel_telemetry import WHEEL_ORDER_VERSION, wheel_value
+
+
+class RuntimeFeatureEncoder:
+    """Encode one row using the model's saved categorical vocabulary."""
+
+    def __init__(self, pd, booster, columns, numeric, categorical):
+        self.pd = pd
+        self.columns = list(columns)
+        self.numeric = set(numeric)
+        self.categorical = set(categorical)
+        ordered_categories = [name for name in columns if name in self.categorical]
+        vocabulary = booster.pandas_categorical
+        self.fast = (
+            vocabulary is not None and len(vocabulary) == len(ordered_categories)
+            and set(columns) <= self.numeric | self.categorical
+            and not self.numeric & self.categorical
+        )
+        self.codes = {
+            name: {value: index for index, value in enumerate(values)}
+            for name, values in zip(ordered_categories, vocabulary or [])
+        }
+
+    def legacy_frame(self, row):
+        frame = self.pd.DataFrame([row], columns=self.columns)
+        for name in self.columns:
+            if name in self.numeric:
+                frame[name] = self.pd.to_numeric(frame[name], errors="coerce")
+            elif name in self.categorical:
+                frame[name] = frame[name].fillna("UNKNOWN").astype("category")
+        return frame
+
+    def encode(self, row):
+        if not self.fast:
+            return self.legacy_frame(row)
+        import numpy as np
+
+        values = []
+        for name in self.columns:
+            value = row.get(name)
+            if name in self.categorical:
+                value = "UNKNOWN" if self.pd.isna(value) else value
+                value = self.codes[name].get(value, np.nan)
+            values.append(value)
+        # Preserve coercion of numeric strings and missing values without a DataFrame.
+        return np.asarray(self.pd.to_numeric(values, errors="coerce"), dtype=np.float64).reshape(1, -1)
 
 DEFAULT_STRATEGY_ACTION_REPORT = (
     PROJECT_ROOT / "training" / "reports" / "strategy_action_baseline" / "strategy_action_baseline_report.json"
@@ -102,6 +152,7 @@ class StrategyActionModelRuntime:
     """Optional runtime loader for the strategy-action baseline model."""
 
     report_path: Path = DEFAULT_STRATEGY_ACTION_REPORT
+    mode: str = "observe"
 
     def __post_init__(self) -> None:
         self._enabled = False
@@ -112,6 +163,8 @@ class StrategyActionModelRuntime:
         self._feature_columns: list[str] = []
         self._target_actions: list[str] = []
         self._class_min_score_thresholds: dict[str, float] = {}
+        self.last_input_quality = None
+        self.last_output_quality = {'valid': None, 'reason': 'not_run'}
         self._load()
 
     @property
@@ -125,23 +178,29 @@ class StrategyActionModelRuntime:
     def predict_top_k(self, *, state: SessionState, context: ContextProfile, k: int = 2) -> list[ModelCandidate]:
         """Predict top-k strategy-action candidates for the current state."""
 
+        self.last_input_quality = None
+        self.last_output_quality = {'valid': None, 'reason': 'not_run'}
         if not self._enabled or self._booster is None or self._pd is None:
+            self.last_output_quality['reason'] = self._disabled_reason or 'model_unavailable'
             return []
 
         row = self._build_feature_row(state=state, context=context)
-        frame = self._pd.DataFrame([row], columns=self._feature_columns)
-        for column in self._numeric_columns():
-            if column in frame.columns:
-                frame[column] = self._pd.to_numeric(frame[column], errors="coerce")
-        for column in self._categorical_columns():
-            if column in frame.columns:
-                frame[column] = frame[column].fillna("UNKNOWN").astype("category")
-
-        proba = self._booster.predict(frame, num_iteration=self._best_iteration())
-        if not len(proba):
+        row, self.last_input_quality = prepare_model_inputs(row, self._feature_columns)
+        if self.last_input_quality['absent_columns']:
+            self.last_output_quality['reason'] = 'feature_columns_not_generated'
             return []
-
-        scores = list(proba[0])
+        if self.mode == 'active' and self.last_input_quality['unavailable_features']:
+            self.last_output_quality['reason'] = 'required_physical_input_unavailable'
+            return []
+        frame = self._encoder.encode(row)
+        from .model_output_quality import probability_row
+        try:
+            proba = self._booster.predict(frame, num_iteration=self._best_iteration(), num_threads=1)
+            scores = probability_row(proba, len(self._target_actions))
+        except Exception as exc:
+            self.last_output_quality = {'valid': False, 'reason': 'invalid_model_output', 'error_type': type(exc).__name__}
+            return []
+        self.last_output_quality = {'valid': True}
         scores = self._apply_class_thresholds(scores)
         ranked = sorted(
             enumerate(scores),
@@ -161,6 +220,19 @@ class StrategyActionModelRuntime:
         ]
 
     def _load(self) -> None:
+        validate_mode(self.mode)
+        try:
+            self._load_assets()
+        except Exception as exc:
+            self._enabled = False
+            self._booster = None
+            self._disabled_reason = f"asset_load_failed:{type(exc).__name__}:{exc}"
+
+    def _load_assets(self) -> None:
+        validate_mode(self.mode)
+        if self.mode == "disabled":
+            self._disabled_reason = "admission_disabled"
+            return
         if not self.report_path.exists():
             self._disabled_reason = "missing_strategy_action_report"
             return
@@ -172,8 +244,7 @@ class StrategyActionModelRuntime:
             self._disabled_reason = f"missing_dependency:{exc.name}"
             return
 
-        report = json.loads(self.report_path.read_text(encoding="utf-8"))
-        model_path = Path(report.get("model_path") or "")
+        report, model_path = read_model_asset(self.report_path, require_manifest=True)
         if not model_path.exists():
             self._disabled_reason = "missing_strategy_action_model"
             return
@@ -187,6 +258,9 @@ class StrategyActionModelRuntime:
         }
         self._pd = pd
         self._booster = lgb.Booster(model_file=str(model_path))
+        if self._booster.feature_name() != self._feature_columns:
+            raise ValueError("booster_feature_order_mismatch")
+        self._encoder = RuntimeFeatureEncoder(pd, self._booster, self._feature_columns, self._numeric_columns(), self._categorical_columns())
         self._enabled = True
 
     def _build_feature_row(self, *, state: SessionState, context: ContextProfile) -> dict[str, Any]:
@@ -198,6 +272,10 @@ class StrategyActionModelRuntime:
             "lap_number": state.lap_number,
             "official_gap_ahead_s": raw.get("official_gap_ahead_s"),
             "official_gap_behind_s": raw.get("official_gap_behind_s"),
+            "front_rival_gap_confidence": front_rival.gap_confidence if front_rival else None,
+            "rear_rival_gap_confidence": rear_rival.gap_confidence if rear_rival else None,
+            "front_rival_pit_status": front_rival.pit_status if front_rival else None,
+            "rear_rival_pit_status": rear_rival.pit_status if rear_rival else None,
             "speed_kph": state.player.speed_kph,
             "throttle": raw.get("throttle"),
             "brake": raw.get("brake"),
@@ -210,6 +288,10 @@ class StrategyActionModelRuntime:
             "recent_front_overload_ratio": context.recent_front_overload_ratio,
             "g_force_lateral": raw.get("g_force_lateral"),
             "g_force_longitudinal": raw.get("g_force_longitudinal"),
+            "front_rival_engine_damage_pct": front_rival.engine_damage_pct if front_rival else None,
+            "rear_rival_engine_damage_pct": rear_rival.engine_damage_pct if rear_rival else None,
+            "front_rival_aero_damage_pct": front_rival.aero_damage_pct if front_rival else None,
+            "rear_rival_aero_damage_pct": rear_rival.aero_damage_pct if rear_rival else None,
             "front_rival_speed_delta": self._speed_delta(state.player.speed_kph, front_rival.speed_kph if front_rival else None),
             "rear_rival_speed_delta": self._speed_delta(rear_rival.speed_kph if rear_rival else None, state.player.speed_kph),
             "drs_available": int(state.player.drs_available),
@@ -221,7 +303,17 @@ class StrategyActionModelRuntime:
         }
 
     def _categorical_columns(self) -> list[str]:
-        return ["timing_support_level", "session_type", "track_segment", "track_usage", "driving_mode"]
+        return [
+            "timing_support_level",
+            "session_type",
+            "track_segment",
+            "track_usage",
+            "driving_mode",
+            "front_rival_gap_confidence",
+            "rear_rival_gap_confidence",
+            "front_rival_pit_status",
+            "rear_rival_pit_status",
+        ]
 
     def _numeric_columns(self) -> list[str]:
         return [
@@ -240,6 +332,10 @@ class StrategyActionModelRuntime:
             "recent_front_overload_ratio",
             "g_force_lateral",
             "g_force_longitudinal",
+            "front_rival_engine_damage_pct",
+            "rear_rival_engine_damage_pct",
+            "front_rival_aero_damage_pct",
+            "rear_rival_aero_damage_pct",
             "front_rival_speed_delta",
             "rear_rival_speed_delta",
             "drs_available",
@@ -296,6 +392,7 @@ class ResourceRiskModelRuntime:
 
     name: str
     report_path: Path
+    mode: str = "observe"
 
     def __post_init__(self) -> None:
         self._enabled = False
@@ -320,27 +417,55 @@ class ResourceRiskModelRuntime:
                 "enabled": False,
                 "model": self.name,
                 "disabled_reason": self._disabled_reason,
+                "admission_mode": self.mode,
             }
 
         row = build_runtime_feature_row(state=state, context=context)
-        frame = self._pd.DataFrame([row], columns=self._feature_columns)
-        for column in self._categorical_columns():
-            if column in frame.columns:
-                frame[column] = frame[column].fillna("UNKNOWN").astype("category")
-        for column in self._numeric_columns():
-            if column in frame.columns:
-                frame[column] = self._pd.to_numeric(frame[column], errors="coerce")
-        raw_score = float(self._booster.predict(frame, num_iteration=self._best_iteration())[0])
+        provenance = (self._report or {}).get("training_provenance") or {}
+        if provenance.get("wheel_order_version") != WHEEL_ORDER_VERSION:
+            # Existing weights were fitted to the reversed axle names in older exports.
+            for front, rear in (("wheel_slip_ratio_fl", "wheel_slip_ratio_rl"),
+                                ("wheel_slip_ratio_fr", "wheel_slip_ratio_rr")):
+                row[front], row[rear] = row[rear], row[front]
+        row, quality = prepare_model_inputs(row, self._feature_columns)
+        if quality['absent_columns']:
+            return {'enabled': False, 'model': self.name, 'admission_mode': self.mode,
+                    'disabled_reason': 'feature_columns_not_generated', 'input_quality': quality}
+        if self.mode == 'active' and quality['unavailable_features']:
+            return {'enabled': False, 'model': self.name, 'admission_mode': self.mode,
+                    'disabled_reason': 'required_physical_input_unavailable', 'input_quality': quality}
+        frame = self._encoder.encode(row)
+        from .model_output_quality import regression_score
+        try:
+            raw_score = regression_score(self._booster.predict(frame, num_iteration=self._best_iteration(), num_threads=1))
+        except Exception as exc:
+            return {'enabled': False, 'model': self.name, 'admission_mode': self.mode,
+                    'disabled_reason': 'invalid_model_output', 'error_type': type(exc).__name__, 'input_quality': quality}
         score = max(0.0, min(100.0, raw_score))
         return {
             "enabled": True,
             "model": self.name,
             "score": score,
+            "input_quality": quality,
+            "admission_mode": self.mode,
             "best_iteration": self._best_iteration(),
             "top_features": (self._report or {}).get("top_feature_importance", [])[:5],
         }
 
     def _load(self) -> None:
+        validate_mode(self.mode)
+        try:
+            self._load_assets()
+        except Exception as exc:
+            self._enabled = False
+            self._booster = None
+            self._disabled_reason = f"asset_load_failed:{type(exc).__name__}:{exc}"
+
+    def _load_assets(self) -> None:
+        validate_mode(self.mode)
+        if self.mode == "disabled":
+            self._disabled_reason = "admission_disabled"
+            return
         if not self.report_path.exists():
             self._disabled_reason = f"missing_report:{self.name}"
             return
@@ -351,8 +476,7 @@ class ResourceRiskModelRuntime:
             self._disabled_reason = f"missing_dependency:{exc.name}"
             return
 
-        report = json.loads(self.report_path.read_text(encoding="utf-8"))
-        model_path = Path(report.get("model_path") or "")
+        report, model_path = read_model_asset(self.report_path, require_manifest=True)
         if not model_path.exists():
             self._disabled_reason = f"missing_model:{self.name}"
             return
@@ -361,6 +485,9 @@ class ResourceRiskModelRuntime:
         self._feature_columns = list(report.get("feature_columns") or [])
         self._pd = pd
         self._booster = lgb.Booster(model_file=str(model_path))
+        if self._booster.feature_name() != self._feature_columns:
+            raise ValueError("booster_feature_order_mismatch")
+        self._encoder = RuntimeFeatureEncoder(pd, self._booster, self._feature_columns, self._numeric_columns(), self._categorical_columns())
         self._enabled = True
 
     def _best_iteration(self) -> int | None:
@@ -403,11 +530,14 @@ class ResourceRiskRuntimeSet:
     """Convenience wrapper for all four resource/stability regressors."""
 
     report_paths: dict[str, Path] | None = None
+    modes: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         paths = self.report_paths or DEFAULT_RESOURCE_RISK_REPORTS
         self._runtimes = {
-            name: ResourceRiskModelRuntime(name=name, report_path=path)
+            name: ResourceRiskModelRuntime(
+                name=name, report_path=path, mode=(self.modes or {}).get(name, "observe")
+            )
             for name, path in paths.items()
         }
 
@@ -423,11 +553,14 @@ class RivalPressureRuntimeSet:
     """Convenience wrapper for front/rear/aggregate rival-pressure regressors."""
 
     report_paths: dict[str, Path] | None = None
+    modes: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         paths = self.report_paths or DEFAULT_RIVAL_PRESSURE_REPORTS
         self._runtimes = {
-            name: ResourceRiskModelRuntime(name=name, report_path=path)
+            name: ResourceRiskModelRuntime(
+                name=name, report_path=path, mode=(self.modes or {}).get(name, "observe")
+            )
             for name, path in paths.items()
         }
 
@@ -443,11 +576,14 @@ class DrivingQualityRuntimeSet:
     """Convenience wrapper for entry/apex/exit driving-quality regressors."""
 
     report_paths: dict[str, Path] | None = None
+    modes: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         paths = self.report_paths or DEFAULT_DRIVING_QUALITY_REPORTS
         self._runtimes = {
-            name: ResourceRiskModelRuntime(name=name, report_path=path)
+            name: ResourceRiskModelRuntime(
+                name=name, report_path=path, mode=(self.modes or {}).get(name, "observe")
+            )
             for name, path in paths.items()
         }
 
@@ -463,11 +599,14 @@ class TyreDegradationTrendRuntimeSet:
     """Convenience wrapper for tyre degradation trend regressors."""
 
     report_paths: dict[str, Path] | None = None
+    modes: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         paths = self.report_paths or DEFAULT_TYRE_DEGRADATION_TREND_REPORTS
         self._runtimes = {
-            name: ResourceRiskModelRuntime(name=name, report_path=path)
+            name: ResourceRiskModelRuntime(
+                name=name, report_path=path, mode=(self.modes or {}).get(name, "observe")
+            )
             for name, path in paths.items()
         }
 
@@ -492,6 +631,12 @@ def build_runtime_feature_row(*, state: SessionState, context: ContextProfile) -
     )
     return {
         "session_time_s": raw.get("session_time_s"),
+        "gap_closing_rate_behind": context.gap_closing_rate_behind,
+        "next_two_segments": context.next_two_segments,
+        "brake_phase_factor": context.brake_phase_factor,
+        "throttle_phase_factor": context.throttle_phase_factor,
+        "steering_phase_factor": context.steering_phase_factor,
+        "timing_support_level": raw.get("timing_support_level") or "UNKNOWN",
         "lap_number": state.lap_number,
         "total_laps": state.total_laps,
         "player_position": state.player.position,
@@ -501,6 +646,10 @@ def build_runtime_feature_row(*, state: SessionState, context: ContextProfile) -
         "steer": raw.get("steer"),
         "official_gap_ahead_s": raw.get("official_gap_ahead_s"),
         "official_gap_behind_s": raw.get("official_gap_behind_s"),
+        "front_rival_gap_confidence": front_rival.gap_confidence if front_rival else None,
+        "rear_rival_gap_confidence": rear_rival.gap_confidence if rear_rival else None,
+        "front_rival_pit_status": front_rival.pit_status if front_rival else None,
+        "rear_rival_pit_status": rear_rival.pit_status if rear_rival else None,
         "fuel_in_tank": raw.get("fuel_in_tank"),
         "fuel_capacity": raw.get("fuel_capacity"),
         "fuel_laps_remaining": state.player.fuel_laps_remaining,
@@ -523,10 +672,10 @@ def build_runtime_feature_row(*, state: SessionState, context: ContextProfile) -
         "yaw": raw.get("yaw"),
         "pitch": raw.get("pitch"),
         "roll": raw.get("roll"),
-        "wheel_slip_ratio_fl": _array_item(raw.get("wheel_slip_ratio"), 0),
-        "wheel_slip_ratio_fr": _array_item(raw.get("wheel_slip_ratio"), 1),
-        "wheel_slip_ratio_rl": _array_item(raw.get("wheel_slip_ratio"), 2),
-        "wheel_slip_ratio_rr": _array_item(raw.get("wheel_slip_ratio"), 3),
+        "wheel_slip_ratio_fl": wheel_value(raw.get("wheel_slip_ratio"), "fl"),
+        "wheel_slip_ratio_fr": wheel_value(raw.get("wheel_slip_ratio"), "fr"),
+        "wheel_slip_ratio_rl": wheel_value(raw.get("wheel_slip_ratio"), "rl"),
+        "wheel_slip_ratio_rr": wheel_value(raw.get("wheel_slip_ratio"), "rr"),
         "track": state.track or "UNKNOWN",
         "track_zone": context.track_zone or "UNKNOWN",
         "track_segment": context.track_segment or "UNKNOWN",
@@ -543,8 +692,12 @@ def build_runtime_feature_row(*, state: SessionState, context: ContextProfile) -
         "tyre_age_factor": context.tyre_age_factor,
         "front_rival_ers_pct": front_rival.ers_pct if front_rival else None,
         "front_rival_speed_kph": front_rival.speed_kph if front_rival else None,
+        "front_rival_engine_damage_pct": front_rival.engine_damage_pct if front_rival else None,
+        "front_rival_aero_damage_pct": front_rival.aero_damage_pct if front_rival else None,
         "rear_rival_ers_pct": rear_rival.ers_pct if rear_rival else None,
         "rear_rival_speed_kph": rear_rival.speed_kph if rear_rival else None,
+        "rear_rival_engine_damage_pct": rear_rival.engine_damage_pct if rear_rival else None,
+        "rear_rival_aero_damage_pct": rear_rival.aero_damage_pct if rear_rival else None,
         "front_rival_speed_delta": _speed_delta(state.player.speed_kph, front_rival.speed_kph if front_rival else None),
         "rear_rival_speed_delta": _speed_delta(rear_rival.speed_kph if rear_rival else None, state.player.speed_kph),
     }
@@ -563,12 +716,3 @@ def _speed_delta(lhs: float | None, rhs: float | None) -> float | None:
     if lhs is None or rhs is None:
         return None
     return float(lhs) - float(rhs)
-
-
-def _array_item(values: Any, index: int) -> float | None:
-    if not isinstance(values, list):
-        return None
-    if index >= len(values):
-        return None
-    value = values[index]
-    return float(value) if value is not None else None

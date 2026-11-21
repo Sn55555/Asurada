@@ -1,402 +1,28 @@
+"""Long-horizon candidate planning; preserves the original public imports."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .models import ContextProfile, SessionState
+from .race_control import race_control_active
+from .models import ContextProfile, DriverState, SessionState
 from .session_router import SessionRoute
 from .track_model import load_track_profile
-
-
-_COMPOUND_TARGET_LIFE = {
-    "C1": 28.0,
-    "C2": 24.0,
-    "C3": 19.0,
-    "C4": 14.0,
-    "C5": 10.0,
-    "Intermediate": 16.0,
-    "Wet": 12.0,
-}
-
-_COMPOUND_BASE_RISK = {
-    "C1": 8.0,
-    "C2": 12.0,
-    "C3": 18.0,
-    "C4": 24.0,
-    "C5": 30.0,
-    "Intermediate": 18.0,
-    "Wet": 24.0,
-}
-
-_TYRE_VISUAL_COMPOUND_NAMES = {
-    16: "C5",
-    17: "C4",
-    18: "C3",
-    19: "C2",
-    20: "C1",
-    7: "Intermediate",
-    8: "Wet",
-}
-
-_DRY_COMPOUND_BY_STINT = (
-    (8, "C5"),
-    (14, "C4"),
-    (22, "C3"),
-    (30, "C2"),
+from .long_horizon_types import LongHorizonCandidate, LongHorizonStrategyState, PitWindowSupportState
+from .pit_window_support import PitWindowSupport
+from .long_horizon_shared import (
+    _COMPOUND_TARGET_LIFE,
+    _COMPOUND_BASE_RISK,
+    _WEATHER_NAMES,
+    _DRY_WEATHER,
+    _WET_WEATHER,
+    ACTUAL_COMPOUNDS,
+    _DRY_COMPOUND_BY_STINT,
+    _DRY_COMPOUND_ORDER,
+    _TRACK_COMPOUND_BIAS,
+    _used_completed_dry_compounds,
+    _clamp,
+    _clamp01,
 )
-
-_DRY_COMPOUND_ORDER = ["C5", "C4", "C3", "C2", "C1"]
-
-_TRACK_COMPOUND_BIAS: dict[str, dict[str, float]] = {
-    "shanghai": {"C1": 0.5, "C2": 1.5, "C3": 3.0, "C4": 1.0, "C5": -2.0},
-    "suzuka": {"C1": 4.0, "C2": 2.5, "C3": 0.5, "C4": -1.5, "C5": -4.5},
-}
-
-
-def _used_completed_dry_compounds(*, state: SessionState, current_compound: str) -> set[str]:
-    used_dry_compounds = {current_compound} if current_compound in _DRY_COMPOUND_ORDER else set()
-    session_history = state.raw.get("session_history") or {}
-    for stint in session_history.get("tyre_stints_history_data") or []:
-        end_lap = int(stint.get("end_lap", 0) or 0)
-        if end_lap <= 0 or end_lap >= 255:
-            continue
-        code = stint.get("tyre_visual_compound")
-        if not isinstance(code, int):
-            continue
-        compound_name = _TYRE_VISUAL_COMPOUND_NAMES.get(code)
-        if compound_name in _DRY_COMPOUND_ORDER:
-            used_dry_compounds.add(compound_name)
-    return used_dry_compounds
-
-
-@dataclass
-class PitWindowSupportState:
-    enabled: bool
-    lap_life_remaining_est: float | None
-    remaining_required_stops: int
-    compound_rule_state: str
-    pit_window_open_prob: float
-    compound_risk_score: float
-    rejoin_traffic_penalty: float
-    estimated_rejoin_position_loss: float
-    undercut_defence_score: float
-    pit_loss_now_score: float
-    pit_loss_under_control_state: float
-    rationale: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class LongHorizonCandidate:
-    code: str
-    target_lap: int | None
-    recommended_compound: str | None
-    recommended_set_index: int | None
-    recommended_set_available: bool
-    total_score: float
-    components: dict[str, float]
-    rationale: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class LongHorizonStrategyState:
-    enabled: bool
-    session_mode: str
-    recommended_pit_lap: int | None
-    pit_window_start_lap: int | None
-    pit_window_end_lap: int | None
-    recommended_compound: str | None
-    recommended_set_index: int | None
-    recommended_set_available: bool
-    lap_life_remaining_est: float | None
-    remaining_required_stops: int
-    compound_rule_state: str
-    pit_window_open_prob: float
-    stint_risk_score: float
-    compound_risk_score: float
-    strategy_confidence: float
-    aggression_bias: float
-    rationale: list[str] = field(default_factory=list)
-    candidates: list[LongHorizonCandidate] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["candidates"] = [candidate.to_dict() for candidate in self.candidates]
-        return payload
-
-
-class PitWindowSupport:
-    """Deterministic long-horizon support layer for pit-window planning."""
-
-    def evaluate(
-        self,
-        *,
-        state: SessionState,
-        context: ContextProfile,
-        resource_models: dict[str, dict[str, Any]],
-        rival_pressure_models: dict[str, dict[str, Any]],
-        tyre_degradation_trend_models: dict[str, dict[str, Any]],
-    ) -> PitWindowSupportState:
-        remaining_race_laps = max(state.total_laps - max(state.lap_number - 1, 0), 0)
-        session_type = str(state.raw.get("session_type") or "")
-        wear_trend = self._extract_score(tyre_degradation_trend_models, "future_tyre_wear_delta")
-        grip_drop = self._extract_score(tyre_degradation_trend_models, "future_grip_drop_score")
-        fuel_risk = self._extract_score(resource_models, "fuel_risk")
-        rear_pressure = self._extract_score(rival_pressure_models, "rear_pressure")
-        compound = state.player.tyre.compound
-        tyre_wear_pct = float(state.player.tyre.wear_pct)
-        tyre_age_laps = float(state.player.tyre.age_laps)
-        player_position = int(state.player.position or 0)
-        grid_position = int(state.raw.get("grid_position", 0) or 0)
-        pit_status = str(state.raw.get("pit_status") or "NONE")
-        pit_lane_timer_active = bool(state.raw.get("pit_lane_timer_active", False))
-        ahead_gap = self._gap_value(state.raw.get("official_gap_ahead_s"), state.raw.get("estimated_gap_ahead_s"))
-        behind_gap = self._gap_value(state.raw.get("official_gap_behind_s"), state.raw.get("estimated_gap_behind_s"))
-        compound_rule_state, remaining_required_stops = self._compound_rule_state(
-            state=state,
-            session_type=session_type,
-            current_compound=compound,
-        )
-
-        base_life = _COMPOUND_TARGET_LIFE.get(compound, 18.0)
-        life_from_age = max(base_life - tyre_age_laps, 0.0)
-        life_from_wear = max(base_life * (1.0 - tyre_wear_pct / 100.0), 0.0)
-        trend_penalty = (wear_trend * 8.0) + (grip_drop * 0.6)
-        lap_life_remaining_est = round(max(min(life_from_age, life_from_wear) - trend_penalty, 0.0), 2)
-
-        compound_risk_score = _clamp(
-            _COMPOUND_BASE_RISK.get(compound, 18.0)
-            + max(0.0, tyre_wear_pct - 55.0) * 0.9
-            + (wear_trend * 30.0)
-            + (grip_drop * 4.0)
-            + self._weather_mismatch_penalty(state.weather, compound),
-            0.0,
-            100.0,
-        )
-        if compound_rule_state == "unmet":
-            compound_risk_score = _clamp(compound_risk_score + 12.0, 0.0, 100.0)
-        elif compound_rule_state == "pending_validation":
-            compound_risk_score = _clamp(compound_risk_score + 6.0, 0.0, 100.0)
-
-        open_score = 0.0
-        if lap_life_remaining_est <= 1.5:
-            open_score += 0.45
-        elif lap_life_remaining_est <= 3.0:
-            open_score += 0.32
-        elif lap_life_remaining_est <= 5.0:
-            open_score += 0.18
-        open_score += _clamp01((tyre_wear_pct - 55.0) / 25.0) * 0.25
-        open_score += _clamp01((compound_risk_score - 50.0) / 40.0) * 0.15
-        if remaining_required_stops > 0:
-            race_progress = _clamp01(max(state.lap_number - 1, 0) / max(state.total_laps, 1))
-            open_score += 0.10 + (race_progress * 0.14)
-        if state.safety_car != "NONE":
-            open_score += 0.20
-        if str(state.raw.get("pit_status") or "NONE") in {"PITTING", "IN_PIT_AREA"}:
-            open_score = 1.0
-        pit_window_open_prob = round(_clamp(open_score, 0.0, 1.0), 3)
-
-        ahead_gap_confidence = str(
-            state.raw.get("official_gap_confidence_ahead")
-            or state.raw.get("estimated_gap_confidence_ahead")
-            or "none"
-        )
-        behind_gap_confidence = str(
-            state.raw.get("official_gap_confidence_behind")
-            or state.raw.get("estimated_gap_confidence_behind")
-            or "none"
-        )
-        confidence_weight = max(
-            self._gap_confidence_weight(ahead_gap_confidence),
-            self._gap_confidence_weight(behind_gap_confidence),
-            0.6,
-        )
-        train_density = self._train_density_penalty(state.raw)
-        rejoin_traffic_penalty = 8.0 + (rear_pressure * 0.10) + train_density
-        if ahead_gap is not None:
-            if ahead_gap < 1.2:
-                rejoin_traffic_penalty += 20.0 * confidence_weight
-            elif ahead_gap < 2.5:
-                rejoin_traffic_penalty += 10.0 * confidence_weight
-        if behind_gap is not None:
-            if behind_gap < 1.0:
-                rejoin_traffic_penalty += 24.0 * confidence_weight
-            elif behind_gap < 2.0:
-                rejoin_traffic_penalty += 12.0 * confidence_weight
-        if player_position >= 15:
-            rejoin_traffic_penalty += 8.0
-        elif player_position >= 10:
-            rejoin_traffic_penalty += 4.0
-        if state.lap_number <= 2 and grid_position > 0 and player_position >= max(grid_position, 10):
-            rejoin_traffic_penalty += 6.0
-        if pit_status in {"PITTING", "IN_PIT_AREA"} or pit_lane_timer_active:
-            rejoin_traffic_penalty -= 6.0
-        rejoin_traffic_penalty = round(_clamp(rejoin_traffic_penalty, 0.0, 100.0), 2)
-
-        estimated_rejoin_position_loss = round(_clamp((rejoin_traffic_penalty / 18.0), 0.0, 6.0), 1)
-
-        undercut_defence_score = 0.0
-        if ahead_gap is not None and ahead_gap <= 2.5:
-            undercut_defence_score += (2.5 - ahead_gap) / 2.5 * 40.0
-        if lap_life_remaining_est <= 2.5:
-            undercut_defence_score += 25.0
-        if wear_trend >= 0.25 or grip_drop >= 2.5:
-            undercut_defence_score += 15.0
-        if state.safety_car != "NONE":
-            undercut_defence_score -= 10.0
-        undercut_defence_score = round(_clamp(undercut_defence_score, 0.0, 100.0), 2)
-
-        pit_loss_under_control_state = self._pit_loss_under_control_state(
-            safety_car=state.safety_car,
-            player_position=player_position,
-            pit_status=pit_status,
-            pit_lane_timer_active=pit_lane_timer_active,
-        )
-        pit_loss_now_score = round(
-            _clamp(
-                58.0
-                - (rejoin_traffic_penalty * 0.45)
-                + ((1.0 - pit_loss_under_control_state) * 42.0)
-                + (5.0 if pit_status in {"PITTING", "IN_PIT_AREA"} else 0.0),
-                0.0,
-                100.0,
-            ),
-            2,
-        )
-
-        rationale: list[str] = []
-        if lap_life_remaining_est <= 2.5:
-            rationale.append(f"预计当前胎仅剩 {lap_life_remaining_est:.1f} 圈有效寿命")
-        if compound_rule_state == "unmet":
-            rationale.append("干地正赛当前仍未满足双干胎规则，至少还需一次有效换胎")
-        elif compound_rule_state == "pending_validation":
-            rationale.append("已发生进站，但干胎规则满足状态仍待样本验证")
-        if state.safety_car != "NONE":
-            rationale.append(f"{state.safety_car} 阶段进站损失折减")
-        if ahead_gap is not None and ahead_gap <= 2.5:
-            rationale.append(f"前车时差 {ahead_gap:.2f}s，存在 undercut 防守压力")
-        if behind_gap is not None and behind_gap <= 2.0:
-            rationale.append(f"后车时差 {behind_gap:.2f}s，当前回场交通代价偏高")
-        if train_density >= 10.0:
-            rationale.append("前后车列较密，回场后进入车阵的概率更高")
-        if fuel_risk >= 80.0:
-            rationale.append("燃油风险高，长周期规划需偏保守")
-
-        return PitWindowSupportState(
-            enabled=True,
-            lap_life_remaining_est=lap_life_remaining_est,
-            remaining_required_stops=remaining_required_stops,
-            compound_rule_state=compound_rule_state,
-            pit_window_open_prob=pit_window_open_prob,
-            compound_risk_score=compound_risk_score,
-            rejoin_traffic_penalty=rejoin_traffic_penalty,
-            estimated_rejoin_position_loss=estimated_rejoin_position_loss,
-            undercut_defence_score=undercut_defence_score,
-            pit_loss_now_score=pit_loss_now_score,
-            pit_loss_under_control_state=pit_loss_under_control_state,
-            rationale=rationale,
-        )
-
-    def _extract_score(self, payload: dict[str, Any], key: str) -> float:
-        if not isinstance(payload, dict):
-            return 0.0
-        item = payload.get(key)
-        if not isinstance(item, dict):
-            return 0.0
-        try:
-            return float(item.get("score") or 0.0)
-        except (TypeError, ValueError):
-            return 0.0
-
-    def _gap_value(self, official: Any, estimated: Any) -> float | None:
-        value = official if official is not None else estimated
-        try:
-            return None if value is None else float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _weather_mismatch_penalty(self, weather: str, compound: str) -> float:
-        if weather in {"LightRain", "HeavyRain", "Storm"} and compound not in {"Intermediate", "Wet"}:
-            return 20.0
-        if weather in {"Clear", "LightCloud", "Overcast"} and compound in {"Intermediate", "Wet"}:
-            return 25.0
-        return 0.0
-
-    def _gap_confidence_weight(self, confidence: str) -> float:
-        return {
-            "high": 1.0,
-            "medium": 0.85,
-            "low": 0.7,
-            "none": 0.55,
-        }.get(confidence, 0.6)
-
-    def _train_density_penalty(self, raw: dict[str, Any]) -> float:
-        penalty = 0.0
-        for key in (
-            "front_rival_car_gap_ahead_s",
-            "front_rival_car_gap_behind_s",
-            "rear_rival_car_gap_ahead_s",
-            "rear_rival_car_gap_behind_s",
-        ):
-            value = raw.get(key)
-            try:
-                gap = float(value)
-            except (TypeError, ValueError):
-                continue
-            if gap <= 0.8:
-                penalty += 5.0
-            elif gap <= 1.5:
-                penalty += 2.5
-        return penalty
-
-    def _pit_loss_under_control_state(
-        self,
-        *,
-        safety_car: str,
-        player_position: int,
-        pit_status: str,
-        pit_lane_timer_active: bool,
-    ) -> float:
-        if pit_status in {"PITTING", "IN_PIT_AREA"} or pit_lane_timer_active:
-            return 0.35
-        base = {
-            "FULL": 0.52,
-            "FORMATION": 0.60,
-            "VSC": 0.76,
-        }.get(safety_car, 1.0)
-        if safety_car == "FULL" and player_position >= 12:
-            base -= 0.05
-        return _clamp(base, 0.30, 1.0)
-
-    def _used_dry_compounds(self, *, state: SessionState, current_compound: str) -> set[str]:
-        return _used_completed_dry_compounds(state=state, current_compound=current_compound)
-
-    def _compound_rule_state(
-        self,
-        *,
-        state: SessionState,
-        session_type: str,
-        current_compound: str,
-    ) -> tuple[str, int]:
-        if state.weather not in {"Clear", "LightCloud", "Overcast"}:
-            return "not_applicable", 0
-        if session_type != "FeatureRaceLike(16)":
-            return "not_applicable", 0
-
-        used_dry_compounds = self._used_dry_compounds(state=state, current_compound=current_compound)
-
-        if len(used_dry_compounds) >= 2:
-            return "satisfied", 0
-
-        num_pit_stops = int(state.raw.get("num_pit_stops", 0) or 0)
-        if num_pit_stops <= 0:
-            return "unmet", 1
-        return "pending_validation", 1
 
 
 class LongHorizonStrategyBaseline:
@@ -437,8 +63,9 @@ class LongHorizonStrategyBaseline:
         fuel_risk = self._extract_score(resource_models, "fuel_risk")
         rear_pressure = self._extract_score(rival_pressure_models, "rear_pressure")
         used_dry_compounds = self._used_dry_compounds(state=state, current_compound=state.player.tyre.compound)
-        available_dry_set_options = self._available_dry_set_options(state)
-        available_dry_compound_quality = self._available_dry_compound_quality(available_dry_set_options)
+        available_set_options = self._available_set_options(state)
+        available_dry_compound_quality = self._available_dry_compound_quality(available_set_options)
+        session_history_summary = dict(state.raw.get("session_history_summary") or {})
         candidates: list[LongHorizonCandidate] = []
 
         stay_out_risk = max(0.0, 2.0 - float(support.lap_life_remaining_est or 0.0)) * 18.0
@@ -474,9 +101,14 @@ class LongHorizonStrategyBaseline:
             )
         )
 
-        for offset in range(0, 6):
+        # Leave enough racing laps for each outstanding mandatory tyre change.
+        last_stop_lap = state.total_laps - max(1, support.remaining_required_stops)
+        if last_stop_lap < state.lap_number < state.total_laps:
+            last_stop_lap = state.lap_number
+        offsets = range(min(6, last_stop_lap - state.lap_number + 1))
+        for offset in offsets:
             target_lap = state.lap_number + offset
-            remaining_after_pit = max(remaining_race_laps - offset, 0)
+            remaining_after_pit = max(remaining_race_laps - offset - 1, 0)
             recommended_compound = self._recommended_compound(
                 current_lap=state.lap_number,
                 target_lap=target_lap,
@@ -491,11 +123,11 @@ class LongHorizonStrategyBaseline:
             )
             recommended_set_index = self._recommended_set_index(
                 recommended_compound=recommended_compound,
-                set_options=available_dry_set_options,
+                set_options=available_set_options,
                 target_lap=target_lap,
                 remaining_after_pit=remaining_after_pit,
             )
-            recommended_set_available = bool(available_dry_set_options.get(recommended_compound))
+            recommended_set_available = bool(available_set_options.get(recommended_compound))
             tyre_end_risk_penalty = max(0.0, (offset + 1) - float(support.lap_life_remaining_est or 0.0)) * 12.0
             window_score = (support.pit_window_open_prob * 100.0) - (offset * 8.0)
             fuel_penalty = (fuel_risk * 0.10) if offset > 1 else (fuel_risk * 0.04)
@@ -537,11 +169,13 @@ class LongHorizonStrategyBaseline:
                         f"目标进站圈 {target_lap}",
                         f"推荐换胎 {recommended_compound}",
                         *([f"推荐轮胎组 #{recommended_set_index}"] if recommended_set_index is not None else []),
-                        *(["当前无可用轮胎组，暂按理论胎种规划"] if recommended_set_index is None and recommended_set_available is False else []),
+                        *(["未确认可用胎组，暂按理论胎种规划"] if recommended_set_index is None and recommended_set_available is False else []),
                     ],
                 )
             )
 
+        if support.remaining_required_stops and last_stop_lap == state.lap_number:
+            candidates = [candidate for candidate in candidates if candidate.code == "pit_now"]
         candidates = sorted(candidates, key=lambda item: item.total_score, reverse=True)
         best = candidates[0]
         second = candidates[1] if len(candidates) > 1 else None
@@ -554,6 +188,10 @@ class LongHorizonStrategyBaseline:
             remaining_required_stops=support.remaining_required_stops,
             current_compound=state.player.tyre.compound,
         )
+        if (best.code == "stay_out" and support.compound_rule_state in {"not_applicable", "satisfied"}
+                and (support.lap_life_remaining_est or 0) >= remaining_race_laps
+                and support.pit_window_open_prob < 0.10):
+            recommended_pit_lap = pit_window_start_lap = pit_window_end_lap = None
         recommended_compound = best.recommended_compound
         recommended_set_index = best.recommended_set_index
         recommended_set_available = best.recommended_set_available
@@ -583,12 +221,23 @@ class LongHorizonStrategyBaseline:
                 for candidate in candidates
             )
         score_gap = best.total_score - (second.total_score if second is not None else best.total_score)
+        history_coverage = self._history_coverage_ratio(
+            current_lap=state.lap_number,
+            session_history_summary=session_history_summary,
+        )
+        recorded_stints = int(session_history_summary.get("num_tyre_stints", 0) or 0)
         confidence = _clamp01(
             0.32
             + min(max(score_gap, 0.0), 20.0) / 70.0
             + (0.15 if state.raw.get("official_gap_ahead_s") is not None else 0.05)
             + (0.10 if state.raw.get("official_gap_behind_s") is not None else 0.05)
         )
+        if history_coverage >= 0.8:
+            confidence = _clamp01(confidence + 0.05)
+        elif state.lap_number >= 8 and history_coverage < 0.4:
+            confidence = _clamp01(confidence - 0.08)
+        if support.remaining_required_stops > 0 and recorded_stints > 0:
+            confidence = _clamp01(confidence + 0.03)
         if best.code == "stay_out":
             confidence = _clamp01(
                 confidence
@@ -609,6 +258,8 @@ class LongHorizonStrategyBaseline:
             1.0,
         )
         rationale = list(best.rationale)
+        if support.remaining_required_stops > state.total_laps - state.lap_number:
+            rationale.append("剩余正常进站机会不足以完成全部用胎要求")
         if recommended_pit_lap is not None:
             rationale.append(f"当前推荐进站圈 {recommended_pit_lap}")
         if recommended_compound is not None:
@@ -616,8 +267,12 @@ class LongHorizonStrategyBaseline:
         if recommended_set_index is not None:
             rationale.append(f"推荐轮胎组 #{recommended_set_index}")
         elif recommended_compound is not None and not recommended_set_available:
-            rationale.append("当前无可用轮胎组，暂按理论胎种规划")
+            rationale.append("未确认可用胎组，暂按理论胎种规划")
             rationale.append("当前推荐可执行性不足，下调策略置信度")
+        if state.lap_number >= 8 and history_coverage < 0.4:
+            rationale.append("session history 覆盖偏薄，长周期规划置信度已保守下调")
+        elif recorded_stints > 0:
+            rationale.append(f"session history 已记录 {recorded_stints} 段 tyre stint，可用于修正长周期判断")
         if support.rationale:
             rationale.extend(support.rationale[:2])
 
@@ -699,7 +354,13 @@ class LongHorizonStrategyBaseline:
         late_stop = remaining_after_pit <= 10
         stop_offset = max(target_lap - current_lap, 0)
         ranked: list[tuple[float, str]] = []
-        candidate_compounds = list(available_dry_compound_quality.keys()) or list(_DRY_COMPOUND_ORDER)
+        candidate_compounds = [c for c in available_dry_compound_quality if c in _DRY_COMPOUND_ORDER] or ["C5", "C4", "C3", "C2", "C1"]
+
+        if compound_rule_state == "unmet" and len(used_dry_compounds) == 1:
+            # If no legal spare is confirmed, describe a theoretical alternative
+            # without attaching an unavailable or already fitted set number.
+            alternatives = [c for c in candidate_compounds if c not in used_dry_compounds]
+            candidate_compounds = alternatives or [c for c in ("C5", "C4", "C3", "C2", "C1") if c not in used_dry_compounds]
 
         for compound in candidate_compounds:
             target_life = _COMPOUND_TARGET_LIFE.get(compound, 18.0)
@@ -847,29 +508,29 @@ class LongHorizonStrategyBaseline:
             quality_by_compound[compound_name] = round(max(float(item.get("quality", 0.0)) for item in options), 2)
         return quality_by_compound
 
-    def _available_dry_set_options(self, state: SessionState) -> dict[str, list[dict[str, Any]]]:
+    def _available_set_options(self, state: SessionState) -> dict[str, list[dict[str, Any]]]:
         tyre_sets = state.raw.get("tyre_sets") or {}
+        if tyre_sets.get("car_index") != state.player.car_index:
+            return {}
         sets = tyre_sets.get("sets") or []
         options: dict[str, list[dict[str, Any]]] = {}
         for item in sets:
-            if not isinstance(item, dict) or not item.get("available"):
+            if not isinstance(item, dict) or not item.get("available") or item.get("fitted") or item.get("set_index") == tyre_sets.get("fitted_idx"):
                 continue
-            compound_name = _TYRE_VISUAL_COMPOUND_NAMES.get(int(item.get("visual_tyre_compound", -1)))
-            if compound_name not in _DRY_COMPOUND_ORDER:
+            compound_name = ACTUAL_COMPOUNDS.get(item.get("actual_tyre_compound"))
+            if compound_name is None:
                 continue
             usable_life = float(item.get("usable_life_laps", 0) or 0.0)
             life_span = float(item.get("life_span_laps", 0) or 0.0)
             wear_pct = float(item.get("wear_pct", 0) or 0.0)
             lap_delta_time_ms = float(item.get("lap_delta_time_ms", 0) or 0.0)
             recommended_session = int(item.get("recommended_session", 0) or 0)
-            fitted_bonus = 0.6 if item.get("fitted") else 0.0
             quality = _clamp(
                 (usable_life * 0.35)
                 + (life_span * 0.10)
                 - (wear_pct * 0.05)
                 - (max(lap_delta_time_ms, 0.0) / 4000.0)
-                + (0.5 if recommended_session else 0.0)
-                + fitted_bonus,
+                + (0.5 if recommended_session else 0.0),
                 -4.0,
                 4.0,
             )
@@ -888,6 +549,15 @@ class LongHorizonStrategyBaseline:
         for items in options.values():
             items.sort(key=lambda item: (item["quality"], item["usable_life_laps"], -item["wear_pct"]), reverse=True)
         return options
+
+    def _history_coverage_ratio(self, *, current_lap: int, session_history_summary: dict[str, Any]) -> float:
+        try:
+            recorded_laps = int(session_history_summary.get("num_laps", 0) or 0)
+        except (TypeError, ValueError):
+            recorded_laps = 0
+        if current_lap <= 0:
+            return 0.0
+        return _clamp01(recorded_laps / max(current_lap, 1))
 
     def _recommended_set_index(
         self,
@@ -951,9 +621,12 @@ class LongHorizonStrategyBaseline:
                 if remaining_required_stops == 0 and pit_window_open_prob < 0.10 and (lap_life_remaining_est or 0.0) >= 8.0:
                     projected = max(projected, 4)
                 start_offset = projected
-            start = current_lap + min(5, start_offset)
+            last_candidate = max(candidate.target_lap for candidate in pit_candidates)
+            if last_candidate <= current_lap:
+                return None, None, None
+            start = min(current_lap + start_offset, last_candidate)
             end_offset = max(start_offset, min(5, start_offset + 2))
-            end = current_lap + end_offset
+            end = min(current_lap + end_offset, last_candidate)
             return start, start, end
 
         best_pit = max(pit_candidates, key=lambda item: item.total_score)
@@ -974,11 +647,3 @@ class LongHorizonStrategyBaseline:
         if recommended is None and lap_life_remaining_est is not None:
             recommended = current_lap + max(1, min(5, int(round(lap_life_remaining_est))))
         return recommended, start, end
-
-
-def _clamp(value: float, lower: float, upper: float) -> float:
-    return max(lower, min(upper, value))
-
-
-def _clamp01(value: float) -> float:
-    return _clamp(value, 0.0, 1.0)

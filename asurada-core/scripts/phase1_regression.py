@@ -25,6 +25,9 @@ from asurada.arbiter import (
     TacticalContext,
 )
 from asurada.config import AppConfig
+from asurada.context_window import CONTEXT_WINDOW_SECONDS
+from asurada.snapshot_contract import snapshot_payload
+from asurada.live_dashboard_payload import build_dashboard_payload, dashboard_source_status
 from asurada.dashboard import DebugDashboardBuilder
 from asurada.decode import decode_snapshot
 from asurada.models import ContextProfile, DriverState, SessionState, StateAssessment, TyreState
@@ -209,8 +212,8 @@ def expected_sample_profile(sample: dict[str, Any]) -> dict[str, Any]:
         }
     if label == "ShortResultLike(8)":
         return {
-            "timing_mode": "session_type_estimated",
-            "timing_support_level": "estimated_only",
+            "timing_mode": "result_like",
+            "timing_support_level": "disabled",
             "session_type": "ShortResultLike(8)",
             "forbidden_dominant_gap_sources": {"official_lapdata_adjacent"},
         }
@@ -375,6 +378,9 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
     event_code_counts: Counter[str] = Counter()
     arbiter_primary_counts: Counter[str] = Counter()
     snapshot_count = 0
+    rejected_snapshot_count = 0
+    verified_decision_count = 0
+    verified_dashboard_count = 0
     last_debug: dict[str, Any] = {}
     latest_state = None
     latest_raw: dict[str, Any] = {}
@@ -390,7 +396,9 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
         config = AppConfig(replay_log_dir=runtime_dir)
         state_store = UnifiedStateStore()
         strategy = StrategyEngine(config.thresholds, config.usage_hooks_path)
-        logger = ReplayLogger(runtime_dir)
+        # Exercise logging for every accepted frame without retaining an entire
+        # second copy of the capture's expanded debug data in temporary storage.
+        logger = ReplayLogger(runtime_dir, max_archives=2)
         logger.reset()
         dashboard_builder = DebugDashboardBuilder(runtime_dir / "dashboard")
         voice_output = SilentVoiceOutput()
@@ -415,8 +423,25 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
 
             snapshot_count += 1
             state = decode_snapshot(snapshot)
-            state_store.update(state)
-            decision = strategy.evaluate(state, state_store.recent(12))
+            if not state_store.update(state):
+                rejected_snapshot_count += 1
+                continue
+            decision = strategy.evaluate(state, state_store.recent_seconds(CONTEXT_WINDOW_SECONDS))
+            restored = decode_snapshot(json.loads(json.dumps(snapshot_payload(state, decision), allow_nan=False)))
+            if restored.decision_record != decision.record:
+                raise AssertionError('replay_decision_roundtrip_mismatch')
+            if restored.session_event != state.session_event:
+                raise AssertionError('replay_session_event_roundtrip_mismatch')
+            web = json.loads(json.dumps(build_dashboard_payload(state, decision), allow_nan=False))
+            if (web['binding']['snapshot_id'] != decision.record.snapshot_id
+                    or web['binding']['decision_id'] != decision.record.decision_id
+                    or web['session_event'] != state.session_event):
+                raise AssertionError('replay_dashboard_binding_mismatch')
+            if (dashboard_source_status(web, now_ms=state.source_timestamp_ms)['status'] != 'live'
+                    or dashboard_source_status(web, now_ms=state.source_timestamp_ms + 15001)['status'] != 'stale'):
+                raise AssertionError('replay_dashboard_source_age_mismatch')
+            verified_dashboard_count += 1
+            verified_decision_count += 1
             logger.append(state, decision)
             latest_state = state
             latest_decision = decision
@@ -566,6 +591,10 @@ def analyze_capture(capture_path: Path, snapshot_limit: int | None) -> dict[str,
         "source": str(capture_path),
         "snapshot_limit": snapshot_limit,
         "normalized_snapshots": snapshot_count,
+        "rejected_snapshots": rejected_snapshot_count,
+        "verified_decision_roundtrips": verified_decision_count,
+        "verified_dashboard_contracts": verified_dashboard_count,
+        "context_window_seconds": CONTEXT_WINDOW_SECONDS,
         "packet_counts": dict(sorted(counter.items())),
         "missing_required_packet_kinds": missing_required,
         "latest_track": latest_state.track if latest_state is not None else None,
@@ -603,7 +632,7 @@ def analyze_arbiter_contract() -> dict[str, Any]:
         tactical_context=TacticalContext(tactical_state="neutral"),
         confidence_context=ConfidenceContext(confidence_score=0.9, confidence_level="high", mainline_allowed=True),
         fallback_context=FallbackContext(fallback_mode="none", voice_allowed=True, hud_only=False),
-        output_control=OutputControl(cooldown_hint=0, last_emitted_action=None, suppression_window=0),
+        output_control=OutputControl(voice_priority_floor=0),
     )
     priority_result = arbiter.arbitrate(priority_payload)
 
@@ -630,7 +659,7 @@ def analyze_arbiter_contract() -> dict[str, Any]:
         tactical_context=TacticalContext(tactical_state="neutral"),
         confidence_context=ConfidenceContext(confidence_score=0.9, confidence_level="high", mainline_allowed=True),
         fallback_context=FallbackContext(fallback_mode="none", voice_allowed=True, hud_only=False),
-        output_control=OutputControl(cooldown_hint=0, last_emitted_action="LOW_FUEL", suppression_window=1),
+        output_control=OutputControl(voice_priority_floor=0),
     )
     cooldown_result = arbiter.arbitrate(cooldown_payload)
 
@@ -664,7 +693,7 @@ def analyze_arbiter_contract() -> dict[str, Any]:
         tactical_context=TacticalContext(tactical_state="defence_active", state_priority_hint="DEFEND_WINDOW", state_lock=True),
         confidence_context=ConfidenceContext(confidence_score=0.95, confidence_level="high", mainline_allowed=True),
         fallback_context=FallbackContext(fallback_mode="none", voice_allowed=True, hud_only=False),
-        output_control=OutputControl(cooldown_hint=0, last_emitted_action=None, suppression_window=0),
+        output_control=OutputControl(voice_priority_floor=0),
     )
     dedupe_result = arbiter.arbitrate(dedupe_payload)
     deduped_codes = [item.code for item in dedupe_result.ordered_actions]
@@ -691,7 +720,7 @@ def analyze_arbiter_contract() -> dict[str, Any]:
         tactical_context=TacticalContext(tactical_state="defence_active", state_priority_hint="DEFEND_WINDOW", state_lock=True),
         confidence_context=ConfidenceContext(confidence_score=0.32, confidence_level="low", mainline_allowed=False),
         fallback_context=FallbackContext(fallback_mode="rule_only", voice_allowed=False, hud_only=True),
-        output_control=OutputControl(cooldown_hint=0, last_emitted_action=None, suppression_window=0),
+        output_control=OutputControl(voice_priority_floor=0),
     )
     fallback_result = arbiter.arbitrate(fallback_payload)
 
@@ -699,8 +728,8 @@ def analyze_arbiter_contract() -> dict[str, Any]:
         "priority_floor_calibrated": priority_result.final_strategy_stack.primary == "LOW_FUEL"
         and priority_result.ordered_actions
         and priority_result.ordered_actions[0].priority >= 70,
-        "cooldown_suppresses_last_action": cooldown_result.final_strategy_stack.primary == "NONE"
-        and any(item.suppression_reason == "cooldown_window" for item in cooldown_result.suppressed_actions),
+        "arbiter_does_not_claim_delivery_cooldown": cooldown_result.final_strategy_stack.primary == "LOW_FUEL"
+        and not any(item.suppression_reason == "cooldown_window" for item in cooldown_result.suppressed_actions),
         "duplicate_codes_deduped": deduped_codes.count("DEFEND_WINDOW") == 1,
         "low_confidence_falls_back_to_rules": fallback_result.final_strategy_stack.primary == "DEFEND_WINDOW"
         and any(item.suppression_reason == "fallback_rule_only" for item in fallback_result.suppressed_actions)

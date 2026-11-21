@@ -12,6 +12,10 @@ class RawPacket:
     payload: bytes
     source_host: str
     source_port: int
+    received_monotonic_ns: int | None = None
+    capture_submission_id: int | None = None
+    ingress_queue_ms: float | None = None
+    ingress_health: dict[str, Any] | None = None
 
 
 @dataclass

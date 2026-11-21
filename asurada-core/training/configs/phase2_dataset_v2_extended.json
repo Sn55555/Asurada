@@ -1,0 +1,17 @@
+{
+  "dataset_name": "phase2_dataset_v2_extended",
+  "sample_metadata_path": "/Users/sn5/Asurada/asurada-core/data/capture_samples/phase2_metadata_combined.json",
+  "sample_splits": {
+    "shanghai_qualifying_like_uid13": "train",
+    "shanghai_sprint_race_like_uid15": "train",
+    "shanghai_short_result_like_uid8": "val",
+    "shanghai_feature_race_like_uid16": "test",
+    "suzuka_sprint_race_like_uid15": "train",
+    "shanghai_feature_race_like_uid16_20lap": "train"
+  },
+  "next_segment_offsets_m": [
+    120.0,
+    280.0
+  ],
+  "max_history_frames": 12
+}

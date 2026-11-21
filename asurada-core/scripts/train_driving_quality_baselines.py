@@ -5,9 +5,13 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+from asurada.training_partition import session_partitions
+from asurada.training_provenance import training_provenance
 DEFAULT_FEATURES = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "features.csv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "training" / "reports" / "driving_quality_baselines"
 
@@ -116,7 +120,6 @@ def main() -> int:
         import lightgbm as lgb  # type: ignore
         import pandas as pd  # type: ignore
         from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score  # type: ignore
-        from sklearn.model_selection import train_test_split  # type: ignore
     except ModuleNotFoundError as exc:
         missing = exc.name or "required dependency"
         raise SystemExit(
@@ -124,7 +127,8 @@ def main() -> int:
         )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    features_df = pd.read_csv(args.features, low_memory=False)
+    provenance = training_provenance(args.features)
+    features_df = pd.read_csv(args.features, low_memory=False, dtype={"session_uid": "string"})
     features_df = features_df[features_df["timing_support_level"] == "official_preferred"].copy()
     if features_df.empty:
         raise SystemExit("No official-preferred rows available for driving-quality training.")
@@ -150,7 +154,7 @@ def main() -> int:
             mean_absolute_error=mean_absolute_error,
             mean_squared_error=mean_squared_error,
             r2_score=r2_score,
-            train_test_split=train_test_split,
+            provenance=provenance,
         )
         aggregate["models"][model_name] = summary
 
@@ -169,7 +173,7 @@ def train_one_model(
     mean_absolute_error,
     mean_squared_error,
     r2_score,
-    train_test_split,
+    provenance=None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -180,13 +184,8 @@ def train_one_model(
         df[column] = df[column].fillna("UNKNOWN").astype("category")
 
     model_columns = list(spec.numeric_features + spec.categorical_features)
-    data = df[model_columns + [spec.target, "split"]].dropna(subset=[spec.target]).copy()
-    train_df = data[data["split"] == "train"].copy()
-    test_df = data[data["split"] == "test"].copy()
-    if train_df.empty or test_df.empty:
-        raise SystemExit(f"Missing exported train/test rows for {spec.name}.")
-
-    train_df, val_df = train_test_split(train_df, test_size=0.2, random_state=42)
+    data = df[model_columns + [spec.target, "split", "session_uid"]].dropna(subset=[spec.target]).copy()
+    train_df, val_df, test_df, partition_manifest = session_partitions(data)
 
     X_train = train_df[model_columns]
     y_train = train_df[spec.target].astype(float)
@@ -234,20 +233,24 @@ def train_one_model(
     summary = {
         "model_name": spec.name,
         "target": spec.target,
+        "training_provenance": provenance or {"export_metadata_status": "not_provided"},
+        "context_window_version": (provenance or {}).get("context_window_version"),
+        "label_provenance": {"kind": "proxy_derived_from_features", "human_validated": False},
         "feature_columns": model_columns,
         "categorical_features": list(spec.categorical_features),
         "train_rows": int(len(X_train)),
         "val_rows": int(len(X_val)),
         "test_rows": int(len(X_test)),
-        "validation_source": "train_holdout_split",
-        "test_source": "exported_test_split",
+        "validation_source": "session_disjoint_validation",
+        "test_source": "session_disjoint_exported_test",
+        "partition_manifest": partition_manifest,
         "best_iteration": int(estimator.best_iteration_ or 0),
         "mae": round(mae, 4),
         "rmse": round(rmse, 4),
         "r2": round(r2, 4),
         "labeling": "proxy_distillation_from_features",
         "top_feature_importance": importances[:10],
-        "model_path": str(model_path),
+        "model_path": model_path.name,
     }
     report_path = output_dir / f"{spec.name}_baseline_report.json"
     report_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

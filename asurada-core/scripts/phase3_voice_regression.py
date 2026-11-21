@@ -250,10 +250,10 @@ def check_replace_pending(state: SessionState) -> dict[str, Any]:
     output.emit(
         make_strategy_decision(
             state=state,
-            code="ATTACK_WINDOW",
+            code="TYRE_MANAGE",
             priority=70,
-            title="进攻窗口",
-            detail="前车已经进入攻击区。",
+            title="管理轮胎",
+            detail="需要保护轮胎。",
         ),
         render=False,
     )

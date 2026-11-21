@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import math
 from dataclasses import dataclass
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(PROJECT_ROOT / "src"))
+from asurada.training_partition import session_partitions, exported_row_split, validate_session_frame
+from asurada.training_windows import future_windows, WINDOW_VERSION, write_target_windows
+from asurada.training_provenance import training_provenance
 DEFAULT_DATASET = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "features.csv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "training" / "reports" / "tyre_degradation_trend_baseline"
 
@@ -55,7 +60,9 @@ def main() -> int:
         )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    df = pd.read_csv(args.dataset, low_memory=False)
+    provenance = training_provenance(args.dataset)
+    df = pd.read_csv(args.dataset, low_memory=False, dtype={"session_uid":str})
+    df = validate_session_frame(df)
     if df.empty:
         raise SystemExit("No feature rows available for training.")
 
@@ -71,13 +78,15 @@ def main() -> int:
     df["wheel_slip_ratio_rr"] = pd.to_numeric(df["wheel_slip_ratio_rr"], errors="coerce")
 
     df = df.dropna(subset=["session_uid", "session_time_s", "lap_number", "tyre_wear_pct"]).copy()
-    df = df.sort_values(["session_uid", "session_time_s", "frame_identifier"]).reset_index(drop=True)
     labelled = build_future_targets(df=df, horizon_s=args.horizon_s, pd_module=pd)
     labelled = labelled.dropna(subset=[spec.target_column for spec in TARGET_SPECS]).copy()
     if labelled.empty:
         raise SystemExit("No rows retained after future-horizon target generation.")
 
     labelled["trend_split"] = labelled.apply(assign_trend_split, axis=1)
+    train_part,val_part,test_part,_ = session_partitions(labelled,split_column="trend_split")
+    labelled = pd.concat([train_part,val_part,test_part],ignore_index=True)
+    window_manifest=write_target_windows(labelled,output_dir=args.output_dir,targets=[spec.target_column for spec in TARGET_SPECS],split_column="trend_split",sources=[args.dataset])
 
     numeric_features = [
         "lap_number",
@@ -119,6 +128,7 @@ def main() -> int:
     summary: dict[str, object] = {
         "dataset": str(args.dataset),
         "horizon_s": args.horizon_s,
+        "target_windows": window_manifest,
         "rows": {
             "all": int(len(labelled)),
             "train": int((labelled["trend_split"] == "train").sum()),
@@ -138,6 +148,7 @@ def main() -> int:
             output_dir=args.output_dir / spec.name,
             lgb_module=lgb,
             pd_module=pd,
+            provenance=provenance,
             metrics_module={
                 "mae": mean_absolute_error,
                 "mse": mean_squared_error,
@@ -153,52 +164,32 @@ def main() -> int:
 
 
 def build_future_targets(*, df, horizon_s: float, pd_module):
-    rows = []
-    for _, group in df.groupby("session_uid", sort=False):
-        group = group.sort_values(["session_time_s", "frame_identifier"]).reset_index(drop=True)
-        future_index = 0
-        session_times = group["session_time_s"].tolist()
-        tyre_wear = group["tyre_wear_pct"].tolist()
-        overload = group["recent_front_overload_ratio"].fillna(0.0).tolist()
-        slip_avg = (
-            group[["wheel_slip_ratio_fl", "wheel_slip_ratio_fr", "wheel_slip_ratio_rl", "wheel_slip_ratio_rr"]]
-            .fillna(0.0)
-            .mean(axis=1)
-            .tolist()
-        )
-        for idx, row in group.iterrows():
-            target_time = float(row["session_time_s"]) + horizon_s
-            while future_index < len(session_times) and session_times[future_index] < target_time:
-                future_index += 1
-            if future_index >= len(session_times):
-                break
-            future_row = group.iloc[future_index]
-            wear_delta = max(0.0, float(tyre_wear[future_index]) - float(row["tyre_wear_pct"]))
-            overload_delta = max(0.0, float(overload[future_index]) - float(overload[idx]))
-            slip_delta = max(0.0, float(slip_avg[future_index]) - float(slip_avg[idx]))
-            grip_drop_score = min(100.0, wear_delta * 6.0 + overload_delta * 35.0 + slip_delta * 40.0)
-            row_dict = row.to_dict()
-            row_dict["future_tyre_wear_delta"] = wear_delta
-            row_dict["future_grip_drop_score"] = grip_drop_score
-            rows.append(row_dict)
-    return pd_module.DataFrame(rows)
+    rows=[]
+    wheels=['wheel_slip_ratio_fl','wheel_slip_ratio_fr','wheel_slip_ratio_rl','wheel_slip_ratio_rr']
+    for row,window,evidence in future_windows(df,horizon_s=horizon_s,
+            stable_columns=('tyre_compound',),reset_columns=('tyre_age_laps','tyre_wear_pct')):
+        last=window.iloc[-1]
+        if not all(math.isfinite(float(v)) for point in (row,last) for v in point[['tyre_wear_pct','recent_front_overload_ratio',*wheels]]):continue
+        wear_delta=max(0.,float(last['tyre_wear_pct'])-float(row['tyre_wear_pct']))
+        overload_delta=max(0.,float(last['recent_front_overload_ratio'])-float(row['recent_front_overload_ratio']))
+        slip_delta=max(0.,float(last[wheels].mean())-float(row[wheels].mean()))
+        values=(wear_delta,overload_delta,slip_delta)
+        if not all(math.isfinite(v) for v in values):continue
+        result=row.to_dict()
+        result.update(future_tyre_wear_delta=wear_delta,
+            future_grip_drop_score=min(100.,wear_delta*6.+overload_delta*35.+slip_delta*40.),
+            target_window=json.dumps(evidence,ensure_ascii=False))
+        rows.append(result)
+    return pd_module.DataFrame(rows,columns=[*df.columns,'future_tyre_wear_delta','future_grip_drop_score','target_window'])
 
 
 def assign_trend_split(row) -> str:
-    session_type = str(row.get("session_type") or "")
-    lap_number = int(row.get("lap_number") or 0)
-    if "FeatureRaceLike" in session_type:
-        return "test"
-    if "SprintRaceLike" in session_type and lap_number == 2:
-        return "val"
-    return "train"
+    return exported_row_split(row)
 
 
-def train_single_model(*, df, feature_columns, categorical_features, spec, output_dir, lgb_module, pd_module, metrics_module):
+def train_single_model(*, df, feature_columns, categorical_features, spec, output_dir, lgb_module, pd_module, metrics_module, provenance=None):
     output_dir.mkdir(parents=True, exist_ok=True)
-    train_df = df[df["trend_split"] == "train"].copy()
-    val_df = df[df["trend_split"] == "val"].copy()
-    test_df = df[df["trend_split"] == "test"].copy()
+    train_df, val_df, test_df, partition_manifest = session_partitions(df, split_column="trend_split")
     if train_df.empty or val_df.empty or test_df.empty:
         raise SystemExit(f"Insufficient train/val/test rows for {spec.name}.")
 
@@ -254,6 +245,9 @@ def train_single_model(*, df, feature_columns, categorical_features, spec, outpu
     booster.save_model(str(model_path))
     summary = {
         "target": spec.target_column,
+        "training_provenance": provenance or {'export_metadata_status': 'not_provided'},
+        "context_window_version": (provenance or {}).get('context_window_version'),
+        "label_provenance": {'kind': 'telemetry_delta' if spec.target_column == 'future_tyre_wear_delta' else 'formula_proxy', 'human_validated': False},
         "rows": {
             "train": int(len(train_df)),
             "val": int(len(val_df)),
@@ -261,8 +255,11 @@ def train_single_model(*, df, feature_columns, categorical_features, spec, outpu
         },
         "feature_columns": feature_columns,
         "categorical_features": list(categorical_features),
-        "validation_source": "exported_val_split",
-        "test_source": "exported_test_split",
+        "validation_source": "whole_session_partition",
+        "partition": partition_manifest,
+        "target_window_policy": WINDOW_VERSION,
+        "target_window_max_gap_s": 1.0,
+        "test_source": "exported_session_split",
         "best_iteration": int(best_iteration),
         "metrics": {
             "mae": mae,
@@ -270,7 +267,7 @@ def train_single_model(*, df, feature_columns, categorical_features, spec, outpu
             "r2": r2,
         },
         "top_feature_importance": importance[:20],
-        "model_path": str(model_path),
+        "model_path": model_path.name,
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary

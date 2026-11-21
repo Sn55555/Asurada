@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import ImmediateSpeechBackend, emit_result, runtime_clock
+
 import json
 import time
 from typing import Any
@@ -8,7 +10,7 @@ from asurada.audio_io import AudioFormat
 from asurada.asr_fast import KeywordFastIntentASR
 from asurada.llm_explainer import LlmExplainer
 from asurada.models import DriverState, SessionState, StrategyMessage, TyreState
-from asurada.output import ConsoleVoiceOutput, NullSpeechBackend
+from asurada.output import ConsoleVoiceOutput
 from asurada.persona_registry import get_default_persona
 from asurada.voice_input import VoiceInputCoordinator
 from asurada.voice_turn import VoiceTurn
@@ -22,7 +24,7 @@ class SuccessBackend:
             "status": "answerable",
             "answer_text": "好的，当前整体先守住后车，再处理处罚窗口",
             "confidence": 0.82,
-            "reason_fields": ["rear_pressure", "penalty_window"],
+            "reason_fields": ["state_snapshot.gap_behind_s", "state_snapshot.penalties.num_unserved_drive_through_pens"],
             "requires_confirmation": False,
             "metadata": {"request_id": request.request_id},
         }
@@ -111,6 +113,7 @@ def _make_turn(transcript_text: str, turn_id: str) -> VoiceTurn:
     )
 
 
+@runtime_clock(1777200000000)
 def run_phase3_llm_sidecar_integration_regression() -> dict[str, Any]:
     default_persona = get_default_persona()
     state = _make_state()
@@ -121,7 +124,7 @@ def run_phase3_llm_sidecar_integration_regression() -> dict[str, Any]:
         detail="后车已接近 DRS 线。",
     )
 
-    success_output = ConsoleVoiceOutput(backend=NullSpeechBackend())
+    success_output = ConsoleVoiceOutput(backend=ImmediateSpeechBackend())
     success_coordinator = VoiceInputCoordinator(
         fast_intent_asr=KeywordFastIntentASR(),
         llm_explainer=LlmExplainer(backend=SuccessBackend()),
@@ -136,7 +139,7 @@ def run_phase3_llm_sidecar_integration_regression() -> dict[str, Any]:
         render=False,
     )
 
-    timeout_output = ConsoleVoiceOutput(backend=NullSpeechBackend())
+    timeout_output = ConsoleVoiceOutput(backend=ImmediateSpeechBackend())
     timeout_coordinator = VoiceInputCoordinator(
         fast_intent_asr=KeywordFastIntentASR(),
         llm_explainer=LlmExplainer(backend=TimeoutBackend(), default_timeout_ms=100),
@@ -181,4 +184,4 @@ def run_phase3_llm_sidecar_integration_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_llm_sidecar_integration_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_llm_sidecar_integration_regression())

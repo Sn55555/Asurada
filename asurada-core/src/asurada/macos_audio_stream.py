@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from .paths import ASSET_ROOT
+from .capture_process import command_lines
+
 import json
 import os
 import shutil
@@ -42,7 +45,7 @@ class MacOSAudioStreamCapture:
     @classmethod
     def from_env(cls) -> "MacOSAudioStreamCapture":
         script_path = os.getenv("ASURADA_MACOS_AUDIO_STREAM_SCRIPT") or str(
-            Path(__file__).resolve().parents[2] / "scripts" / "macos_audio_stream.swift"
+            ASSET_ROOT / "scripts" / "macos_audio_stream.swift"
         )
         swift_binary = os.getenv("ASURADA_SWIFT_BINARY") or shutil.which("swift") or "/usr/bin/swift"
         return cls(
@@ -62,23 +65,15 @@ class MacOSAudioStreamCapture:
             return False
         swift_binary = os.getenv("ASURADA_SWIFT_BINARY") or "swift"
         script_path = os.getenv("ASURADA_MACOS_AUDIO_STREAM_SCRIPT") or str(
-            Path(__file__).resolve().parents[2] / "scripts" / "macos_audio_stream.swift"
+            ASSET_ROOT / "scripts" / "macos_audio_stream.swift"
         )
         return shutil.which(swift_binary) is not None and Path(script_path).exists()
 
-    def iter_events(self) -> Iterator[MacOSAudioStreamEvent]:
-        process = subprocess.Popen(
-            self._command(),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
-        assert process.stdout is not None
+    def iter_events(self, *, context=None) -> Iterator[MacOSAudioStreamEvent]:
+        lines = command_lines(self._command(), timeout_s=self.config.command_timeout_s, context=context)
         try:
-            for line in process.stdout:
-                raw = line.strip()
-                if not raw:
+            for raw in lines:
+                if not raw.strip():
                     continue
                 payload = json.loads(raw)
                 yield MacOSAudioStreamEvent(
@@ -92,18 +87,7 @@ class MacOSAudioStreamCapture:
                     metadata=dict(payload.get("metadata") or {}),
                 )
         finally:
-            try:
-                process.wait(timeout=self.config.command_timeout_s)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=1.0)
-                raise RuntimeError("macOS audio stream timed out")
-            stderr = process.stderr.read().strip() if process.stderr is not None else ""
-            if process.returncode != 0:
-                raise RuntimeError(
-                    "macOS audio stream failed: "
-                    f"code={process.returncode} stderr={stderr}"
-                )
+            lines.close()
 
     def _command(self) -> list[str]:
         cfg = self.config

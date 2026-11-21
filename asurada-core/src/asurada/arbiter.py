@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from .contributor_admission import valid_contribution
+
+import math
+
 from dataclasses import dataclass, field
 
 from .models import StrategyCandidate
@@ -76,11 +80,9 @@ class FallbackContext:
 
 @dataclass
 class OutputControl:
-    """Output cooldown and suppression state."""
+    """Minimum voice priority; delivery cooldown belongs to the speech owner."""
 
-    cooldown_hint: int = 0
-    last_emitted_action: str | None = None
-    suppression_window: int = 0
+    voice_priority_floor: int = 0
 
 
 @dataclass
@@ -218,21 +220,6 @@ class StrategyArbiterV2:
             sidecar_scores=payload.sidecar_scores,
         )
 
-        if payload.output_control.last_emitted_action and payload.output_control.suppression_window > 0:
-            filtered: list[_RankedAction] = []
-            for item in ranked:
-                if item.code == payload.output_control.last_emitted_action:
-                    suppressed.append(
-                        SuppressedAction(
-                            code=item.code,
-                            suppression_reason="cooldown_window",
-                        )
-                    )
-                    continue
-                filtered.append(item)
-            if filtered:
-                ranked = filtered
-
         if not ranked:
             neutral = _RankedAction(
                 code="NONE",
@@ -244,6 +231,12 @@ class StrategyArbiterV2:
             )
             ranked = [neutral]
 
+        if ranked[0].code == "BOX_WINDOW" and any(
+                candidate.code == "DYNAMICS_UNSTABLE" for candidate in rule_candidates):
+            # An observed stability alert takes precedence over a tyre pit window.
+            emergency = next((index for index, item in enumerate(ranked) if item.code == "DYNAMICS_UNSTABLE"), None)
+            if emergency is not None:
+                ranked.insert(0, ranked.pop(emergency))
         primary = ranked[0]
         secondary = ranked[1] if len(ranked) > 1 else None
 
@@ -257,7 +250,7 @@ class StrategyArbiterV2:
             final_voice_action = VoiceAction(
                 code=primary.code,
                 speak_text=primary.title,
-                priority=max(int(primary.score), payload.output_control.cooldown_hint),
+                priority=max(int(primary.score), payload.output_control.voice_priority_floor),
                 interrupt=self._should_interrupt(
                     primary_code=primary.code,
                     tactical_context=payload.tactical_context,
@@ -341,7 +334,7 @@ class StrategyArbiterV2:
             return True
         if tactical_context.tactical_state in {"defence_active", "counterattack_active"}:
             return True
-        return primary_code in {"SAFETY_CAR", "DEFEND_WINDOW", "ATTACK_WINDOW"}
+        return primary_code in {"LOCAL_YELLOW", "SAFETY_CAR", "DEFEND_WINDOW", "ATTACK_WINDOW"}
 
     def _model_output_priority(self, *, code: str, score: float) -> int:
         floor = self._MODEL_PRIORITY_FLOORS.get(code, 60)
@@ -374,6 +367,13 @@ class StrategyArbiterV2:
         tyre_trend_models = sidecar_scores.get("tyre_degradation_trend_models") or {}
         pit_window_support = sidecar_scores.get("pit_window_support") or {}
         long_horizon_strategy = sidecar_scores.get("long_horizon_strategy") or {}
+        # A plan depends on complete support and plan scores. A missing score is
+        # unavailable, not a zero-risk estimate or free pit execution bonus.
+        if not valid_contribution("pit_window_support", pit_window_support):
+            pit_window_support = {}
+            long_horizon_strategy = {}
+        elif not valid_contribution("long_horizon_strategy", long_horizon_strategy):
+            long_horizon_strategy = {}
 
         fuel_risk = self._extract_score(resource_models, "fuel_risk")
         dynamics_risk = self._extract_score(resource_models, "dynamics_risk")
@@ -385,8 +385,8 @@ class StrategyArbiterV2:
         tyre_wear_trend = self._extract_score(tyre_trend_models, "future_tyre_wear_delta")
         grip_drop = self._extract_score(tyre_trend_models, "future_grip_drop_score")
 
-        poor_corner_quality = min(entry_quality, apex_quality) if entry_quality and apex_quality else 0.0
-        strong_corner_quality = min(entry_quality, apex_quality) if entry_quality and apex_quality else 0.0
+        poor_corner_quality = min(entry_quality, apex_quality) if entry_quality is not None and apex_quality is not None else None
+        strong_corner_quality = min(entry_quality, apex_quality) if entry_quality is not None and apex_quality is not None else None
         pit_window_open_prob = self._extract_scalar(pit_window_support, "pit_window_open_prob")
         rejoin_traffic_penalty = self._extract_scalar(pit_window_support, "rejoin_traffic_penalty")
         pit_loss_now_score = self._extract_scalar(pit_window_support, "pit_loss_now_score")
@@ -410,44 +410,44 @@ class StrategyArbiterV2:
         for item in ranked:
             bonus = 0.0
             if item.code == "LOW_FUEL":
-                if fuel_risk >= 85.0:
+                if (fuel_risk is not None and fuel_risk >= 85.0):
                     bonus += 12.0
-                elif fuel_risk <= 35.0:
+                elif (fuel_risk is not None and fuel_risk <= 35.0):
                     bonus -= 10.0
             elif item.code == "DYNAMICS_UNSTABLE":
-                if dynamics_risk >= 65.0:
+                if (dynamics_risk is not None and dynamics_risk >= 65.0):
                     bonus += 10.0
-                elif dynamics_risk <= 25.0:
+                elif (dynamics_risk is not None and dynamics_risk <= 25.0):
                     bonus -= 8.0
-                if poor_corner_quality and poor_corner_quality <= 35.0:
+                if (poor_corner_quality is not None and poor_corner_quality <= 35.0):
                     bonus += 8.0
-                elif strong_corner_quality >= 72.0 and exit_traction >= 72.0:
+                elif (strong_corner_quality is not None and strong_corner_quality >= 72.0) and (exit_traction is not None and exit_traction >= 72.0):
                     bonus -= 5.0
             elif item.code == "DEFEND_WINDOW":
-                if rear_pressure >= 62.0:
+                if (rear_pressure is not None and rear_pressure >= 62.0):
                     bonus += 4.0
-                elif rear_pressure <= 30.0 and not tactical_context.state_lock:
+                elif (rear_pressure is not None and rear_pressure <= 30.0) and not tactical_context.state_lock:
                     bonus -= 3.0
-                if defence_cost >= 65.0 and tactical_context.tactical_state not in {"defence_active", "defence_prepare"}:
+                if (defence_cost is not None and defence_cost >= 65.0) and tactical_context.tactical_state not in {"defence_active", "defence_prepare"}:
                     bonus -= 6.0
-                if poor_corner_quality and poor_corner_quality <= 32.0 and not tactical_context.state_lock:
+                if (poor_corner_quality is not None and poor_corner_quality <= 32.0) and not tactical_context.state_lock:
                     bonus -= 5.0
-                elif exit_traction >= 80.0 and rear_pressure >= 55.0:
+                elif (exit_traction is not None and exit_traction >= 80.0) and (rear_pressure is not None and rear_pressure >= 55.0):
                     bonus += 2.0
                 if long_horizon_enabled:
                     bonus -= aggression_bias * 6.0
             elif item.code == "ATTACK_WINDOW":
-                if rear_pressure <= 20.0:
+                if (rear_pressure is not None and rear_pressure <= 20.0):
                     bonus += 4.0
-                if grip_drop >= 6.0:
+                if (grip_drop is not None and grip_drop >= 6.0):
                     bonus -= 5.0
-                if tyre_wear_trend >= 0.45:
+                if (tyre_wear_trend is not None and tyre_wear_trend >= 0.45):
                     bonus -= 4.0
-                if exit_traction >= 72.0 and strong_corner_quality >= 55.0 and grip_drop <= 3.5:
+                if (exit_traction is not None and exit_traction >= 72.0) and (strong_corner_quality is not None and strong_corner_quality >= 55.0) and (grip_drop is not None and grip_drop <= 3.5):
                     bonus += 6.0
-                if poor_corner_quality and poor_corner_quality <= 35.0:
+                if (poor_corner_quality is not None and poor_corner_quality <= 35.0):
                     bonus -= 6.0
-                if exit_traction <= 42.0:
+                if (exit_traction is not None and exit_traction <= 42.0):
                     bonus -= 5.0
                 if long_horizon_enabled:
                     bonus += aggression_bias * 8.0
@@ -456,9 +456,9 @@ class StrategyArbiterV2:
                     if remaining_required_stops > 0 and strategy_confidence >= 0.5 and pit_window_open_prob >= 0.10:
                         bonus -= 2.0
             elif item.code == "FRONT_LOAD":
-                if poor_corner_quality and poor_corner_quality <= 30.0:
+                if (poor_corner_quality is not None and poor_corner_quality <= 30.0):
                     bonus += 7.0
-                elif strong_corner_quality >= 70.0 and exit_traction >= 68.0:
+                elif (strong_corner_quality is not None and strong_corner_quality >= 70.0) and (exit_traction is not None and exit_traction >= 68.0):
                     bonus -= 4.0
             elif item.code == "TYRE_MANAGE":
                 if long_horizon_enabled and aggression_bias <= -0.15:
@@ -489,14 +489,18 @@ class StrategyArbiterV2:
                 item.score += bonus
                 item.output_priority += int(round(bonus))
 
-    def _extract_score(self, payload: dict[str, object], key: str) -> float:
+    def _extract_score(self, payload: dict[str, object], key: str) -> float | None:
         item = payload.get(key) if isinstance(payload, dict) else None
-        if not isinstance(item, dict):
-            return 0.0
+        if not isinstance(item, dict) or item.get("enabled") is False:
+            return None
+        value = item.get("score")
+        if isinstance(value, bool):
+            return None
         try:
-            return float(item.get("score") or 0.0)
-        except (TypeError, ValueError):
-            return 0.0
+            score = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return score if math.isfinite(score) else None
 
     def _extract_scalar(self, payload: dict[str, object], key: str) -> float:
         if not isinstance(payload, dict):

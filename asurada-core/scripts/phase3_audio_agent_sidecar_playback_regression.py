@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import json
 import os
 from pathlib import Path
@@ -203,13 +205,7 @@ def run_phase3_audio_agent_stream_preroll_regression() -> dict[str, object]:
 
 
 if __name__ == "__main__":
-    print(
-        json.dumps(
-            {
+    emit_result({
                 "buffered": run_phase3_audio_agent_sidecar_playback_regression(),
                 "stream_preroll": run_phase3_audio_agent_stream_preroll_regression(),
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
+            })

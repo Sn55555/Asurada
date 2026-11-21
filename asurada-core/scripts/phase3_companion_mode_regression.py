@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result, runtime_clock
+
 import json
 from typing import Any
 
@@ -100,6 +102,7 @@ def _make_turn(transcript_text: str, turn_id: str) -> VoiceTurn:
     )
 
 
+@runtime_clock(1777200000000)
 def run_phase3_companion_mode_regression() -> dict[str, Any]:
     primary_message = StrategyMessage(
         code="DEFEND_WINDOW",
@@ -164,8 +167,8 @@ def run_phase3_companion_mode_regression() -> dict[str, Any]:
             is False
         ),
         "racing_state_stays_structured": (racing_result.route_decision or {}).get("lane") == "structured",
-        "companion_timeout_retry_succeeds": "赛车之外的话题都行" in str(retry_event.get("speak_text") or ""),
-        "companion_timeout_retry_attempted_twice": retry_request_timeouts == [900, 3200],
+        "companion_timeout_produces_fallback": retry_event.get("action_code") == "QUERY_COMPANION_CHAT" and bool(retry_event.get("speak_text")),
+        "companion_timeout_does_not_renew_budget": len(retry_request_timeouts) == 1 and 0 < retry_request_timeouts[0] <= 900,
     }
 
     return {
@@ -182,4 +185,4 @@ def run_phase3_companion_mode_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_companion_mode_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_companion_mode_regression())

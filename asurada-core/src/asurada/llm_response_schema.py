@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from typing import Any
+import math
 
 
 ALLOWED_LLM_RESPONSE_STATUS = frozenset({"answerable", "needs_clarification", "unsupported", "unsafe"})
@@ -15,12 +16,15 @@ class LlmResponse:
     reason_fields: list[str] = field(default_factory=list)
     requires_confirmation: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    claims: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 def validate_llm_response(payload: dict[str, Any]) -> tuple[bool, str]:
+    if not isinstance(payload, dict):
+        return False, "invalid_payload"
     status = str(payload.get("status") or "")
     if status not in ALLOWED_LLM_RESPONSE_STATUS:
         return False, "invalid_status"
@@ -31,12 +35,12 @@ def validate_llm_response(payload: dict[str, Any]) -> tuple[bool, str]:
 
     try:
         confidence = float(payload.get("confidence"))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return False, "invalid_confidence"
-    if confidence < 0.0 or confidence > 1.0:
+    if isinstance(payload.get("confidence"), bool) or not math.isfinite(confidence) or confidence < 0.0 or confidence > 1.0:
         return False, "confidence_out_of_range"
 
-    reason_fields = payload.get("reason_fields") or []
+    reason_fields = payload.get("reason_fields", [])
     if not isinstance(reason_fields, list) or not all(isinstance(item, str) for item in reason_fields):
         return False, "invalid_reason_fields"
 
@@ -45,6 +49,8 @@ def validate_llm_response(payload: dict[str, Any]) -> tuple[bool, str]:
         return False, "invalid_requires_confirmation"
 
     metadata = payload.get("metadata", {})
+    if not isinstance(payload.get('claims', []), list):
+        return False, 'invalid_claims'
     if metadata is None:
         metadata = {}
     if not isinstance(metadata, dict):
@@ -64,4 +70,5 @@ def coerce_llm_response(payload: dict[str, Any]) -> LlmResponse:
         reason_fields=list(payload.get("reason_fields") or []),
         requires_confirmation=bool(payload.get("requires_confirmation", False)),
         metadata=dict(payload.get("metadata") or {}),
+        claims=list(payload.get('claims') or []),
     )

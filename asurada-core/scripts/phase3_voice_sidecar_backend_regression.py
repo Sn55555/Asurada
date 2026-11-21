@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import json
 import os
 import threading
@@ -22,7 +24,7 @@ class SuccessBackend:
             "status": "answerable",
             "answer_text": "当前先稳住节奏，后车已接近 DRS 线。",
             "confidence": 0.81,
-            "reason_fields": ["rear_pressure"],
+            "reason_fields": ["state_snapshot.gap_behind_s"],
             "requires_confirmation": False,
             "metadata": {"provider": "embedded_success_backend"},
         }
@@ -54,7 +56,7 @@ def run_phase3_voice_sidecar_backend_regression() -> dict[str, Any]:
             normalized_query_text="整体形势怎么样",
             route_reason="explainer_query",
             timeout_ms=1200,
-            state_summary={"summary_version": "v1", "state_snapshot": {"track": "Austria"}},
+            state_summary={"summary_version": "v1", "state_snapshot": {"track": "Austria", "gap_behind_s": 0.6, "penalties": {"num_unserved_drive_through_pens": 1}}},
             metadata={"case": "voice_sidecar_backend_regression"},
         )
         result = explainer.run(request=request)
@@ -83,4 +85,4 @@ def run_phase3_voice_sidecar_backend_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_voice_sidecar_backend_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_voice_sidecar_backend_regression())

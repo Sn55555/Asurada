@@ -1,0 +1,151 @@
+{
+  "model": "fuel_risk",
+  "target": "fuel_risk_label",
+  "rows": {
+    "all": 13400,
+    "train": 6663,
+    "val": 1666,
+    "test": 5071
+  },
+  "feature_columns": [
+    "session_time_s",
+    "lap_number",
+    "total_laps",
+    "speed_kph",
+    "throttle",
+    "brake",
+    "fuel_in_tank",
+    "fuel_capacity",
+    "fuel_laps_remaining",
+    "raw_fuel_laps_remaining",
+    "derived_fuel_laps_remaining",
+    "remaining_race_laps",
+    "fuel_margin_laps",
+    "ers_pct",
+    "tyre_wear_pct",
+    "tyre_age_laps",
+    "session_type",
+    "timing_mode",
+    "track",
+    "track_usage",
+    "weather",
+    "safety_car",
+    "driving_mode",
+    "fuel_laps_remaining_source"
+  ],
+  "validation_source": "train_holdout_split",
+  "test_source": "exported_test_split",
+  "best_iteration": 256,
+  "metrics": {
+    "mae": 20.79576238775022,
+    "rmse": 39.25864046188386,
+    "r2": 0.0,
+    "spearman": 0.0,
+    "within_5": 0.7207651350818379,
+    "within_10": 0.7207651350818379
+  },
+  "target_stats": {
+    "train_min": 20.0,
+    "train_max": 95.0,
+    "test_min": 20.0,
+    "test_max": 20.0
+  },
+  "top_feature_importance": [
+    {
+      "feature": "fuel_in_tank",
+      "importance": 60443392
+    },
+    {
+      "feature": "fuel_laps_remaining",
+      "importance": 16460070
+    },
+    {
+      "feature": "fuel_margin_laps",
+      "importance": 8326792
+    },
+    {
+      "feature": "track_usage",
+      "importance": 455271
+    },
+    {
+      "feature": "derived_fuel_laps_remaining",
+      "importance": 330657
+    },
+    {
+      "feature": "ers_pct",
+      "importance": 300047
+    },
+    {
+      "feature": "remaining_race_laps",
+      "importance": 119124
+    },
+    {
+      "feature": "lap_number",
+      "importance": 22866
+    },
+    {
+      "feature": "speed_kph",
+      "importance": 1427
+    },
+    {
+      "feature": "brake",
+      "importance": 41
+    },
+    {
+      "feature": "session_time_s",
+      "importance": 22
+    },
+    {
+      "feature": "tyre_wear_pct",
+      "importance": 6
+    },
+    {
+      "feature": "throttle",
+      "importance": 3
+    },
+    {
+      "feature": "raw_fuel_laps_remaining",
+      "importance": 1
+    },
+    {
+      "feature": "total_laps",
+      "importance": 0
+    },
+    {
+      "feature": "fuel_capacity",
+      "importance": 0
+    },
+    {
+      "feature": "tyre_age_laps",
+      "importance": 0
+    },
+    {
+      "feature": "session_type",
+      "importance": 0
+    },
+    {
+      "feature": "timing_mode",
+      "importance": 0
+    },
+    {
+      "feature": "track",
+      "importance": 0
+    }
+  ],
+  "model_path": "fuel_risk_baseline.txt",
+  "asset_manifest": {
+    "version": "model-asset-v1",
+    "model_sha256": "f9c9f6a7a851474d3b4d74b44986a75c353f252d57c6fe3e3725dee3ce699c73",
+    "feature_schema_sha256": "ff1653e8566e5001b08ac01379d9ea60660bed3ad501903e779f5807245a2e63"
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

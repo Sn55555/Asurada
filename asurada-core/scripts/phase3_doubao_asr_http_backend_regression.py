@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import json
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -112,4 +114,4 @@ def run_phase3_doubao_asr_http_backend_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_doubao_asr_http_backend_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_doubao_asr_http_backend_regression())

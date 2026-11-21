@@ -8,7 +8,7 @@ from typing import Any
 def _build_answer(query_kind: str, text: str) -> dict[str, Any]:
     if query_kind == "overall_situation":
         answer_text = "当前整体先守住后车，再观察处罚处理窗口。"
-        reason_fields = ["rear_pressure", "penalty_window"]
+        reason_fields = ["state_snapshot.gap_behind_s", "state_snapshot.penalties.num_unserved_drive_through_pens"]
     elif query_kind == "why_not_attack":
         answer_text = "当前不进攻，主要因为前车窗口还不够干净，后车压力更直接。"
         reason_fields = ["gap_ahead_s", "gap_behind_s"]

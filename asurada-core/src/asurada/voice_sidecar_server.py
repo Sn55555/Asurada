@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from .limits import SIDECAR_JSON_BODY_MAX, SIDECAR_STREAM_BODY_MAX, SIDECAR_STREAM_FRAME_MAX
+
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from .sidecar_execution import BoundedSidecarHTTPServer, BoundedSidecarTCPServer, ASR_EXECUTOR, await_asr, watch_stream
+from .task_runtime import TaskContext, TaskCancelled, TaskCapacityExceeded, BoundedTaskExecutor
+import uuid
 import base64
 import json
 import os
@@ -56,6 +61,8 @@ from .voice_sidecar_tts import (
     stream_render_from_response,
 )
 
+TTS_EXECUTOR = BoundedTaskExecutor(2)
+
 
 @dataclass(frozen=True)
 class VoiceSidecarServerConfig:
@@ -65,6 +72,10 @@ class VoiceSidecarServerConfig:
     asr_stream_port: int = 8789
     sidecar_name: str = "asurada_voice_sidecar"
     tts_enabled: bool = False
+    asr_timeout_ms: int = 15000
+    asr_stream_timeout_ms: int = 60000
+    llm_timeout_ms: int = 15000
+    tts_timeout_ms: int = 15000
 
 
 class VoiceSidecarServer:
@@ -77,6 +88,7 @@ class VoiceSidecarServer:
         tts_renderer: VoiceSidecarTtsRenderer | None = None,
     ) -> None:
         self.config = config or self.from_env().config
+        self._shutdown_requested = threading.Event()
         self.llm_explainer = llm_explainer or LlmExplainer(
             backend=resolve_embedded_llm_explainer_backend(),
             default_timeout_ms=llm_timeout_ms_from_env(),
@@ -84,7 +96,7 @@ class VoiceSidecarServer:
         self.asr_backend = asr_backend if asr_backend is not None else resolve_voice_sidecar_asr_backend()
         self.tts_renderer = tts_renderer if tts_renderer is not None else resolve_voice_sidecar_tts_renderer()
         handler_cls = self._make_handler_class()
-        self._httpd = ThreadingHTTPServer((self.config.host, self.config.port), handler_cls)
+        self._httpd = BoundedSidecarHTTPServer((self.config.host, self.config.port), handler_cls)
         self._asr_stream_server = self._build_asr_stream_server()
         self._asr_stream_thread: threading.Thread | None = None
 
@@ -131,6 +143,7 @@ class VoiceSidecarServer:
         self._httpd.serve_forever()
 
     def shutdown(self) -> None:
+        self._shutdown_requested.set()
         self._httpd.shutdown()
         self._httpd.server_close()
         if self._asr_stream_server is not None:
@@ -138,6 +151,22 @@ class VoiceSidecarServer:
             self._asr_stream_server.server_close()
         if self._asr_stream_thread is not None:
             self._asr_stream_thread.join(timeout=1.0)
+
+    def _explain_request(self, request, connection, transmitted_budget=None):
+        budget = int(transmitted_budget) if transmitted_budget is not None else request.timeout_ms
+        if isinstance(request.timeout_ms, bool) or request.timeout_ms <= 0 or budget <= 0:
+            raise ValueError('invalid_llm_budget')
+        context = TaskContext.start(request.request_id, min(budget, request.timeout_ms, self.config.llm_timeout_ms))
+        finished = threading.Event()
+        watcher = threading.Thread(target=watch_stream,
+            args=(context, connection, self._shutdown_requested, finished), daemon=True,
+            name='llm-sidecar-cancel')
+        watcher.start()
+        try:
+            return self.llm_explainer.run(request=request, context=context)
+        finally:
+            finished.set()
+            watcher.join(timeout=.2)
 
     def _make_handler_class(self) -> type[BaseHTTPRequestHandler]:
         outer = self
@@ -156,29 +185,56 @@ class VoiceSidecarServer:
                 self._send_json(404, {"error": "not_found"})
 
             def do_POST(self) -> None:  # noqa: N802
+                try:
+                    self._post()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except ValueError as exc:
+                    self._send_json(400, {'error':str(exc)})
+
+            def _post(self):
                 if self.path == "/v1/explainer":
                     body = self._read_json()
                     request = parse_explainer_request_envelope(body)
-                    result = outer.llm_explainer.run(request=request)
+                    result = outer._explain_request(request, self.connection, self.headers.get('X-Asurada-Timeout-Ms'))
                     self._send_json(200, build_explainer_result_envelope(result).to_dict())
                     return
                 if self.path == "/v1/asr/transcribe":
                     body = self._read_json()
                     request = parse_asr_transcribe_request_envelope(body)
-                    response = outer._transcribe_asr(request)
+                    budget = int(self.headers.get('X-Asurada-Timeout-Ms') or outer.config.asr_timeout_ms)
+                    if budget <= 0:raise ValueError('invalid_asr_budget')
+                    context = TaskContext.start('asr-server:'+uuid.uuid4().hex,min(budget,outer.config.asr_timeout_ms))
+                    try:
+                        future = ASR_EXECUTOR.submit(context,lambda:outer._transcribe_asr(request,context=context))
+                        response = await_asr(context,future,self.connection,outer._shutdown_requested)
+                    except TaskCancelled:
+                        return
+                    except TaskCapacityExceeded:
+                        self._send_json(503,{'error':'asr_capacity_exceeded'})
+                        return
+                    except TimeoutError:
+                        self._send_json(504,{'error':'asr_deadline'})
+                        return
                     self._send_json(200, build_asr_transcribe_response_envelope(response).to_dict())
                     return
-                if self.path == "/v1/tts/render":
+                if self.path in {"/v1/tts/render", "/v1/tts/stream"}:
                     body = self._read_json()
                     render_request = parse_tts_render_request_envelope(body)
-                    response = outer._render_tts(render_request)
-                    self._send_json(200, build_tts_render_response_envelope(response).to_dict())
-                    return
-                if self.path == "/v1/tts/stream":
-                    body = self._read_json()
-                    render_request = parse_tts_render_request_envelope(body)
-                    stream_render = outer._stream_render_tts(render_request)
-                    self._send_tts_stream(stream_render)
+                    streamed = self.path == '/v1/tts/stream'
+                    try:
+                        outer._tts_request(render_request, self.connection,
+                            self.headers.get('X-Asurada-Timeout-Ms'), streamed=streamed,
+                            deliver=self._send_tts_stream if streamed else lambda response:
+                                self._send_json(200, build_tts_render_response_envelope(response).to_dict()))
+                    except TaskCancelled:
+                        return
+                    except TaskCapacityExceeded:
+                        self._send_json(503, {'error': 'tts_capacity_exceeded'})
+                    except TimeoutError:
+                        self._send_json(504, {'error': 'tts_deadline'})
+                    except ValueError:
+                        self._send_json(400, {'error': 'invalid_tts_budget'})
                     return
                 self._send_json(404, {"error": "not_found"})
 
@@ -187,6 +243,8 @@ class VoiceSidecarServer:
 
             def _read_json(self) -> dict[str, Any]:
                 length = int(self.headers.get("Content-Length") or "0")
+                if not 0 <= length <= SIDECAR_JSON_BODY_MAX:
+                    raise ValueError('sidecar_request_too_large_or_invalid')
                 raw = self.rfile.read(length) if length > 0 else b"{}"
                 return json.loads(raw.decode("utf-8"))
 
@@ -217,9 +275,10 @@ class VoiceSidecarServer:
                 total_audio_bytes = 0
                 final_status = stream_render.status
                 end_metadata = dict(stream_render.metadata)
+                chunks = iter(stream_render.iter_chunks())
                 try:
                     if stream_render.status == "completed":
-                        for chunk in stream_render.iter_chunks():
+                        for chunk in chunks:
                             total_frames += 1
                             total_audio_bytes += len(chunk)
                             frame = build_tts_audio_frame_envelope(
@@ -240,6 +299,11 @@ class VoiceSidecarServer:
                             "error_type": type(exc).__name__,
                         }
                     )
+
+                finally:
+                    close = getattr(chunks, 'close', None)
+                    if close is not None:
+                        close()
 
                 end = build_tts_stream_end_envelope(
                     TtsStreamEnd(
@@ -262,16 +326,30 @@ class VoiceSidecarServer:
         class RealtimeHandler(socketserver.StreamRequestHandler):
             def handle(self) -> None:
                 session: Any | None = None
+                self.context = TaskContext.start('realtime-asr', outer.config.asr_stream_timeout_ms)
+                finished = threading.Event()
+                watcher = threading.Thread(target=watch_stream,
+                    args=(self.context, self.connection, outer._shutdown_requested, finished),
+                    name='sidecar-stream-cancel', daemon=True)
+                watcher.start()
+                total_bytes = 0
                 try:
                     while True:
-                        raw = self.rfile.readline()
+                        self.context.remaining()
+                        raw = self.rfile.readline(SIDECAR_STREAM_FRAME_MAX + 1)
+                        self.context.remaining()
+                        total_bytes += len(raw)
+                        if len(raw) > SIDECAR_STREAM_FRAME_MAX or total_bytes > SIDECAR_STREAM_BODY_MAX:
+                            raise ValueError('asr_stream_size_limit')
                         if not raw:
                             break
                         payload = json.loads(raw.decode("utf-8"))
                         message_type = str(payload.get("message_type") or "")
                         if message_type == "asr_realtime_start_request":
+                            if session is not None:
+                                raise ValueError('realtime_asr_already_started')
                             request = parse_asr_realtime_start_request_envelope(payload)
-                            session = outer._open_realtime_asr_session(request, emit_partial=self._emit_partial)
+                            session = outer._open_realtime_asr_session(request, emit_partial=self._emit_partial, context=self.context)
                             self._write_envelope(
                                 build_asr_realtime_started_envelope(
                                     AsrRealtimeStarted(
@@ -291,7 +369,7 @@ class VoiceSidecarServer:
                             return
                         if message_type == "asr_realtime_chunk":
                             chunk = parse_asr_realtime_chunk_envelope(payload)
-                            session.append_audio_chunk(base64.b64decode(chunk.audio_base64))
+                            session.append_audio_chunk(base64.b64decode(chunk.audio_base64, validate=True))
                             continue
                         if message_type == "asr_realtime_end_request":
                             request = parse_asr_realtime_end_request_envelope(payload)
@@ -315,13 +393,22 @@ class VoiceSidecarServer:
                                 ).to_dict()
                             )
                             return
+                        raise ValueError('unknown_realtime_asr_message')
+                except TaskCancelled:
+                    pass
                 except Exception as exc:
-                    self._write_error(
-                        "realtime_asr_stream_failed",
-                        error_type=type(exc).__name__,
-                        error=str(exc),
-                    )
+                    try:
+                        self._write_error(
+                            "realtime_asr_stream_failed",
+                            error_type=type(exc).__name__,
+                            error=str(exc),
+                        )
+                    except (OSError, TaskCancelled, TimeoutError):
+                        pass
                 finally:
+                    self.context.cancel()
+                    finished.set()
+                    watcher.join()
                     if session is not None:
                         try:
                             session.close()
@@ -355,14 +442,11 @@ class VoiceSidecarServer:
                 )
 
             def _write_envelope(self, payload: dict[str, Any]) -> None:
+                self.context.remaining()
                 self.wfile.write((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
                 self.wfile.flush()
 
-        class _ThreadingRealtimeServer(socketserver.ThreadingTCPServer):
-            allow_reuse_address = True
-            daemon_threads = True
-
-        return _ThreadingRealtimeServer(
+        return BoundedSidecarTCPServer(
             (self.config.asr_stream_host, self.config.asr_stream_port),
             RealtimeHandler,
         )
@@ -372,19 +456,45 @@ class VoiceSidecarServer:
         request: AsrRealtimeStartRequest,
         *,
         emit_partial: Any,
+        context=None,
     ) -> Any:
         backend = self.asr_backend
         if not hasattr(backend, "open_realtime_session"):
             raise RuntimeError("realtime_asr_not_supported")
         realtime_backend = backend
+        options = {'context': context} if context is not None and getattr(backend, 'supports_task_context', False) else {}
         return realtime_backend.open_realtime_session(
+            **options,
             locale=request.locale,
             prompt=request.prompt,
             metadata=request.metadata,
             partial_callback=emit_partial,
         )
 
-    def _render_tts(self, render_request: Any) -> TtsRenderResponse:
+    def _tts_request(self, request, connection, transmitted_budget=None, *, streamed=False, deliver=None):
+        budget = int(transmitted_budget) if transmitted_budget is not None else self.config.tts_timeout_ms
+        if budget <= 0 or self.config.tts_timeout_ms <= 0:
+            raise ValueError('invalid_tts_budget')
+        context = TaskContext.start('tts:' + uuid.uuid4().hex, min(budget, self.config.tts_timeout_ms))
+        finished = threading.Event()
+        watcher = threading.Thread(target=watch_stream,
+            args=(context, connection, self._shutdown_requested, finished), daemon=True, name='tts-sidecar-cancel')
+        watcher.start()
+        try:
+            render = self._stream_render_tts if streamed else self._render_tts
+            def produce_and_deliver():
+                response = render(request, context=context)
+                context.remaining()
+                if deliver is not None:
+                    deliver(response)
+                    context.remaining()
+                return response
+            return context.wait(TTS_EXECUTOR.submit(context, produce_and_deliver))
+        finally:
+            context.cancel()
+            finished.set(); watcher.join(timeout=.2)
+
+    def _render_tts(self, render_request: Any, *, context=None) -> TtsRenderResponse:
         if self.tts_renderer is None:
             return TtsRenderResponse(
                 status="unsupported",
@@ -394,7 +504,11 @@ class VoiceSidecarServer:
                 metadata={"reason": "tts_renderer_unavailable"},
             )
         try:
+            if getattr(self.tts_renderer, 'supports_task_context', False):
+                return self.tts_renderer.render(render_request, context=context)
             return self.tts_renderer.render(render_request)
+        except (TaskCancelled, TimeoutError):
+            raise
         except Exception as exc:  # pragma: no cover
             return TtsRenderResponse(
                 status="error",
@@ -413,7 +527,7 @@ class VoiceSidecarServer:
         except ValueError:
             return 8192
 
-    def _stream_render_tts(self, render_request: Any) -> TtsStreamRender:
+    def _stream_render_tts(self, render_request: Any, *, context=None) -> TtsStreamRender:
         if self.tts_renderer is None:
             return TtsStreamRender(
                 status="unsupported",
@@ -428,12 +542,15 @@ class VoiceSidecarServer:
                 return self.tts_renderer.stream_render(
                     render_request,
                     frame_size_bytes=self._stream_frame_size_bytes(),
+                    **({'context': context} if getattr(self.tts_renderer, 'supports_task_context', False) else {}),
                 )
-            response = self._render_tts(render_request)
+            response = self._render_tts(render_request, context=context)
             return stream_render_from_response(
                 response,
                 frame_size_bytes=self._stream_frame_size_bytes(),
             )
+        except (TaskCancelled, TimeoutError):
+            raise
         except Exception as exc:  # pragma: no cover
             return TtsStreamRender(
                 status="error",
@@ -447,7 +564,7 @@ class VoiceSidecarServer:
                 total_audio_bytes=0,
             )
 
-    def _transcribe_asr(self, asr_request: Any) -> AsrTranscribeResponse:
+    def _transcribe_asr(self, asr_request: Any, *, context=None) -> AsrTranscribeResponse:
         if self.asr_backend is None:
             return AsrTranscribeResponse(
                 status="unsupported",
@@ -459,7 +576,9 @@ class VoiceSidecarServer:
                 metadata={"reason": "asr_backend_unavailable"},
             )
         try:
+            options = {'context':context} if context is not None and getattr(self.asr_backend,'supports_task_context',False) else {}
             return self.asr_backend.transcribe_audio(
+                **options,
                 audio_bytes=base64.b64decode(asr_request.audio_base64),
                 audio_format=asr_request.audio_format,
                 locale=asr_request.locale,

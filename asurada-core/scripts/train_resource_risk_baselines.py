@@ -5,9 +5,14 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+from asurada.training_join import join_training_labels
+from asurada.training_partition import session_partitions
+from asurada.training_provenance import training_provenance
 DEFAULT_FEATURES = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "features.csv"
 DEFAULT_LABELS = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "labels.csv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "training" / "reports" / "resource_risk_baselines"
@@ -175,7 +180,6 @@ def main() -> int:
         import lightgbm as lgb  # type: ignore
         import pandas as pd  # type: ignore
         from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score  # type: ignore
-        from sklearn.model_selection import train_test_split  # type: ignore
     except ModuleNotFoundError as exc:
         missing = exc.name or "required dependency"
         raise SystemExit(
@@ -183,21 +187,10 @@ def main() -> int:
         )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    features_df = pd.read_csv(args.features, low_memory=False)
-    labels_df = pd.read_csv(args.labels, low_memory=False)
-    merged = features_df.merge(
-        labels_df[
-            [
-                "record_id",
-                "fuel_risk_label",
-                "ers_risk_label",
-                "tyre_risk_label",
-                "dynamics_risk_label",
-            ]
-        ],
-        on="record_id",
-        how="inner",
-    )
+    provenance = training_provenance(args.features, args.labels)
+    features_df = pd.read_csv(args.features, low_memory=False, dtype={"session_uid": "string"})
+    labels_df = pd.read_csv(args.labels, low_memory=False, dtype={"session_uid":str})
+    merged,join_manifest = join_training_labels(features_df,labels_df,targets=["fuel_risk_label","ers_risk_label","tyre_risk_label","dynamics_risk_label"])
 
     # 第一轮资源模型只使用官方可用 session，避免 estimated_only 干扰。
     merged = merged[merged["timing_support_level"] == "official_preferred"].copy()
@@ -205,6 +198,7 @@ def main() -> int:
         raise SystemExit("No official-preferred rows available for resource-risk training.")
 
     aggregate: dict[str, object] = {
+        "label_join": join_manifest,
         "features": str(args.features),
         "labels": str(args.labels),
         "filter": "timing_support_level == official_preferred",
@@ -221,7 +215,7 @@ def main() -> int:
             mean_absolute_error=mean_absolute_error,
             mean_squared_error=mean_squared_error,
             r2_score=r2_score,
-            train_test_split=train_test_split,
+            provenance=provenance,
         )
         aggregate["models"][model_name] = summary
 
@@ -240,7 +234,7 @@ def train_one_model(
     mean_absolute_error,
     mean_squared_error,
     r2_score,
-    train_test_split,
+    provenance=None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     df = merged_df[merged_df[spec.target].notna()].copy()
@@ -253,18 +247,7 @@ def train_one_model(
     for column in spec.categorical_features:
         df[column] = df[column].fillna("UNKNOWN").astype("category")
 
-    train_df = df[df["split"] == "train"].copy()
-    test_df = df[df["split"] == "test"].copy()
-    if train_df.empty or test_df.empty:
-        raise SystemExit(f"Missing exported train/test rows for {spec.name}.")
-
-    stratify_values = build_regression_stratify_labels(train_df[spec.target].tolist())
-    train_df, val_df = train_test_split(
-        train_df,
-        test_size=0.2,
-        random_state=42,
-        stratify=stratify_values,
-    )
+    train_df, val_df, test_df, partition_manifest = session_partitions(df)
 
     feature_columns = list(spec.numeric_features + spec.categorical_features)
     train_set = lgb.Dataset(
@@ -329,6 +312,11 @@ def train_one_model(
     summary = {
         "model": spec.name,
         "target": spec.target,
+        "labeling": "rule_pseudo_label",
+        "quality_claim": "rule_imitation_only_not_human_validated",
+        "training_provenance": provenance or {'export_metadata_status': 'not_provided'},
+        "context_window_version": (provenance or {}).get('context_window_version'),
+        "label_provenance": (provenance or {}).get('label_provenance'),
         "rows": {
             "all": int(len(df)),
             "train": int(len(train_df)),
@@ -336,8 +324,9 @@ def train_one_model(
             "test": int(len(test_df)),
         },
         "feature_columns": feature_columns,
-        "validation_source": "train_holdout_split",
-        "test_source": "exported_test_split",
+        "validation_source": "session_disjoint_validation",
+        "test_source": "session_disjoint_exported_test",
+        "partition_manifest": partition_manifest,
         "best_iteration": int(best_iteration),
         "metrics": {
             "mae": mae,
@@ -354,7 +343,7 @@ def train_one_model(
             "test_max": float(test_df[spec.target].max()),
         },
         "top_feature_importance": importance[:20],
-        "model_path": str(model_path),
+        "model_path": model_path.name,
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary

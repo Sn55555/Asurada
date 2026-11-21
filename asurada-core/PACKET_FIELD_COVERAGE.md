@@ -10,6 +10,31 @@ It is intended as a stage-two feature reference for:
 - replay analytics
 - dashboard/HUD extensions
 
+## Decoder rejection contract (2026-09-16)
+
+The public entry point remains `asurada.pdu_decoder.F125PacketDecoder.decode_raw`.
+Family implementations live under `asurada/decoders/`; moving them does not change
+packet envelopes or existing field names.
+
+- Supported wire identity: packet format `2025`, game year `25`, packet version `1`.
+  A game major/minor build change alone is accepted when the wire layout is unchanged.
+- All 16 known packet families require their complete documented fixed size.
+  Session requires **753 bytes**. There is no evidence that unknown 760/800-byte
+  layouts preserve existing field offsets, so they are rejected explicitly.
+- A rejected datagram raises `PacketDecodeError`; it never becomes a partial
+  normal envelope, refreshes a Session cache, or enters a strategy snapshot.
+- Wire-reading failures (`struct.error`, `IndexError`, `UnicodeDecodeError`) become
+  `PacketDecodeError`. Unrelated programming errors continue to propagate.
+- Live/capture loops expose bounded `decode_diagnostics` counters and the latest
+  error. Capture summaries, review projection manifests and per-sample training
+  export summaries include the same diagnostic information. Log messages name
+  the packet family, format, version, received size and expected size.
+- Unknown packet IDs retain the prior empty-body behavior; no guessed fields are decoded.
+
+This is controlled degradation with a visible error, not support for future layouts.
+It does not add a dashboard protocol-error indicator or claim 30-minute live fault
+injection acceptance.
+
 ## Current Packet Coverage
 
 Current decoded packet kinds in the main capture path:
@@ -134,6 +159,17 @@ Also available for all cars:
 - sector
 - pit status
 
+### LapData parser additions (not promoted to normalized driving state)
+
+Each 57-byte car record now exposes:
+
+- `speed_trap_fastest_speed_kph`: little-endian float at record offset 52, km/h.
+- `speed_trap_fastest_lap`: byte at record offset 56; `255` means not set.
+
+Both fields appear in the selected-player body and `all_cars`. The two Time Trial
+indices remain at packet offsets 1283 and 1284. These fields are historical speed
+trap maxima, not the current speed, and are not used for strategy or model labels.
+
 ### Participants
 
 - `name`
@@ -143,6 +179,12 @@ Also available for all cars:
 - `driver_id`
 - `network_id`
 - `ai_controlled`
+
+Participant records follow the F1 25 57-byte layout: the UTF-8 name occupies
+record offsets 7–38 (32 bytes), `telemetry_setting` is at 39, and
+`show_online_names` is at 40. The decoder additionally names `tech_level` (41–42),
+`platform` (43), `num_colours` (44) and up to four RGB `livery_colours` (45–56).
+These metadata bytes are no longer interpreted as part of a 48-byte name.
 
 ### LobbyInfo
 
@@ -358,7 +400,8 @@ Also available for all cars:
 Current status:
 - fully identified and named from packet id 15
 - exposes lap-position history matrix for up to `50` laps and `22` cars
-- currently retained in `raw` and coverage/debug paths
+- selected position-trend summaries are now promoted into deterministic answers and LLM state summaries
+- full lap-position history matrix remains retained in `raw` and coverage/debug paths
 
 ## Main Raw Snapshots For Stage Two
 
@@ -393,5 +436,6 @@ The most useful flattened model features already exposed are:
 
 ## Known Boundaries
 
-- some race-gap semantics are still estimated rather than protocol-perfect
+- some race-gap semantics for unknown session codes are still not protocol-final
+- `session_type 8` is now explicitly routed as `result_like / disabled / non-actionable` rather than treated as an estimated timing mode
 - packet coverage is broad, but not every auxiliary field is yet promoted into strategy logic

@@ -1,0 +1,317 @@
+{
+  "features": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/features.csv",
+  "labels": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/labels.csv",
+  "horizon_s": 3.0,
+  "rows": {
+    "all": 8235,
+    "train": 2146,
+    "val": 1019,
+    "test": 5070
+  },
+  "models": {
+    "risk_forecast_3s": {
+      "target": "risk_forecast_3s",
+      "rows": {
+        "train": 2146,
+        "val": 1019,
+        "test": 5070
+      },
+      "feature_columns": [
+        "lap_number",
+        "session_time_s",
+        "player_position",
+        "official_gap_ahead_s",
+        "official_gap_behind_s",
+        "gap_closing_rate_ahead",
+        "gap_closing_rate_behind",
+        "speed_kph",
+        "throttle",
+        "brake",
+        "steer",
+        "fuel_in_tank",
+        "fuel_laps_remaining",
+        "ers_pct",
+        "tyre_wear_pct",
+        "recent_unstable_ratio",
+        "recent_front_overload_ratio",
+        "front_rival_speed_delta",
+        "rear_rival_speed_delta",
+        "current_risk_score",
+        "fuel_risk_label",
+        "tyre_risk_label",
+        "ers_risk_label",
+        "dynamics_risk_label",
+        "attack_opportunity_label",
+        "defend_risk_label",
+        "session_type",
+        "track",
+        "track_zone",
+        "track_segment",
+        "track_usage",
+        "next_track_segment",
+        "next_track_usage",
+        "driving_mode",
+        "primary_action_label"
+      ],
+      "categorical_features": [
+        "session_type",
+        "track",
+        "track_zone",
+        "track_segment",
+        "track_usage",
+        "next_track_segment",
+        "next_track_usage",
+        "driving_mode",
+        "primary_action_label"
+      ],
+      "validation_source": "exported_val_split",
+      "test_source": "exported_test_split",
+      "best_iteration": 11,
+      "metrics": {
+        "mae": 25.141864011241672,
+        "rmse": 26.93769355437656,
+        "r2": -3.1625638511830036
+      },
+      "top_feature_importance": [
+        {
+          "feature": "official_gap_behind_s",
+          "importance": 1662239
+        },
+        {
+          "feature": "session_time_s",
+          "importance": 730074
+        },
+        {
+          "feature": "fuel_laps_remaining",
+          "importance": 331443
+        },
+        {
+          "feature": "track_segment",
+          "importance": 322223
+        },
+        {
+          "feature": "front_rival_speed_delta",
+          "importance": 308122
+        },
+        {
+          "feature": "track_usage",
+          "importance": 258703
+        },
+        {
+          "feature": "speed_kph",
+          "importance": 180002
+        },
+        {
+          "feature": "official_gap_ahead_s",
+          "importance": 179096
+        },
+        {
+          "feature": "fuel_in_tank",
+          "importance": 176821
+        },
+        {
+          "feature": "next_track_segment",
+          "importance": 126758
+        },
+        {
+          "feature": "steer",
+          "importance": 98331
+        },
+        {
+          "feature": "tyre_wear_pct",
+          "importance": 88051
+        },
+        {
+          "feature": "rear_rival_speed_delta",
+          "importance": 70588
+        },
+        {
+          "feature": "current_risk_score",
+          "importance": 60298
+        },
+        {
+          "feature": "player_position",
+          "importance": 28460
+        },
+        {
+          "feature": "gap_closing_rate_behind",
+          "importance": 19448
+        },
+        {
+          "feature": "next_track_usage",
+          "importance": 13723
+        },
+        {
+          "feature": "dynamics_risk_label",
+          "importance": 12986
+        },
+        {
+          "feature": "ers_pct",
+          "importance": 7628
+        },
+        {
+          "feature": "ers_risk_label",
+          "importance": 7553
+        }
+      ],
+      "model_path": "/Users/sn5/Asurada/asurada-core/training/reports/short_horizon_risk_forecast_baseline/risk_forecast_3s/risk_forecast_3s_baseline.txt"
+    },
+    "risk_forecast_next_zone": {
+      "target": "risk_forecast_next_zone",
+      "rows": {
+        "train": 2146,
+        "val": 1019,
+        "test": 5070
+      },
+      "feature_columns": [
+        "lap_number",
+        "session_time_s",
+        "player_position",
+        "official_gap_ahead_s",
+        "official_gap_behind_s",
+        "gap_closing_rate_ahead",
+        "gap_closing_rate_behind",
+        "speed_kph",
+        "throttle",
+        "brake",
+        "steer",
+        "fuel_in_tank",
+        "fuel_laps_remaining",
+        "ers_pct",
+        "tyre_wear_pct",
+        "recent_unstable_ratio",
+        "recent_front_overload_ratio",
+        "front_rival_speed_delta",
+        "rear_rival_speed_delta",
+        "current_risk_score",
+        "fuel_risk_label",
+        "tyre_risk_label",
+        "ers_risk_label",
+        "dynamics_risk_label",
+        "attack_opportunity_label",
+        "defend_risk_label",
+        "session_type",
+        "track",
+        "track_zone",
+        "track_segment",
+        "track_usage",
+        "next_track_segment",
+        "next_track_usage",
+        "driving_mode",
+        "primary_action_label"
+      ],
+      "categorical_features": [
+        "session_type",
+        "track",
+        "track_zone",
+        "track_segment",
+        "track_usage",
+        "next_track_segment",
+        "next_track_usage",
+        "driving_mode",
+        "primary_action_label"
+      ],
+      "validation_source": "exported_val_split",
+      "test_source": "exported_test_split",
+      "best_iteration": 11,
+      "metrics": {
+        "mae": 16.209620028523133,
+        "rmse": 17.16352394217114,
+        "r2": -0.8051536210898438
+      },
+      "top_feature_importance": [
+        {
+          "feature": "official_gap_behind_s",
+          "importance": 1962201
+        },
+        {
+          "feature": "speed_kph",
+          "importance": 410862
+        },
+        {
+          "feature": "fuel_laps_remaining",
+          "importance": 211125
+        },
+        {
+          "feature": "fuel_in_tank",
+          "importance": 202883
+        },
+        {
+          "feature": "ers_risk_label",
+          "importance": 142672
+        },
+        {
+          "feature": "track_segment",
+          "importance": 137814
+        },
+        {
+          "feature": "session_time_s",
+          "importance": 135626
+        },
+        {
+          "feature": "front_rival_speed_delta",
+          "importance": 95524
+        },
+        {
+          "feature": "tyre_wear_pct",
+          "importance": 87689
+        },
+        {
+          "feature": "rear_rival_speed_delta",
+          "importance": 59072
+        },
+        {
+          "feature": "next_track_segment",
+          "importance": 51862
+        },
+        {
+          "feature": "official_gap_ahead_s",
+          "importance": 45928
+        },
+        {
+          "feature": "dynamics_risk_label",
+          "importance": 45483
+        },
+        {
+          "feature": "ers_pct",
+          "importance": 35807
+        },
+        {
+          "feature": "current_risk_score",
+          "importance": 32263
+        },
+        {
+          "feature": "track_usage",
+          "importance": 27259
+        },
+        {
+          "feature": "tyre_risk_label",
+          "importance": 18447
+        },
+        {
+          "feature": "defend_risk_label",
+          "importance": 11135
+        },
+        {
+          "feature": "gap_closing_rate_ahead",
+          "importance": 8943
+        },
+        {
+          "feature": "steer",
+          "importance": 5647
+        }
+      ],
+      "model_path": "/Users/sn5/Asurada/asurada-core/training/reports/short_horizon_risk_forecast_baseline/risk_forecast_next_zone/risk_forecast_next_zone_baseline.txt"
+    }
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "dataset": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/tactical_features_v1.csv",
+  "target": "counterattack_candidate_label",
+  "status": "blocked_insufficient_positive_samples",
+  "rows": {
+    "all": 8007,
+    "train": 2025,
+    "val": 1012,
+    "test": 4970
+  },
+  "positive_rows": {
+    "train": 1,
+    "val": 1,
+    "test": 0
+  },
+  "required_positive_rows": {
+    "train": 12,
+    "val": 4,
+    "test": 4
+  },
+  "blocking_reason": "Current tactical exports do not contain enough post-loss counterattack rows to train a meaningful baseline.",
+  "notes": [
+    "Current player-view tactical samples contain almost no `position_lost_recently` rows.",
+    "FeatureRaceLike uid16 currently provides zero positive counterattack rows in exported test split.",
+    "Do not connect counterattack_window_model to runtime/mainline until richer loss-and-recovery samples exist."
+  ],
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

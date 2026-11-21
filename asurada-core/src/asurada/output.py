@@ -1,9 +1,30 @@
+"""Compatibility facade and the single owner of speech queue/session state.
+
+Adapters only prepare inputs and evidence; this class owns locking, arbitration,
+backend handles, cancellation acknowledgement and session retirement.
+"""
 from __future__ import annotations
-
-from dataclasses import asdict, dataclass
+from .retired_identities import RetiredIdentities
+from .capability_definitions import capability_speech_priority
+from dataclasses import asdict, dataclass, field
+from collections import deque
+import time
+from .speech_clock import speech_time
+from .wheel_telemetry import TYRE_DAMAGE, TYRE_WEAR_ALERT, TYRE_DAMAGE_WARNING_PCT, tyre_alert, tyre_damage_values
+from .defence_radio import DefenceRadio
+from .wing_damage import (
+    FRONT_WING_DAMAGE, FRONT_WING_ENTRY_COMPENSATION, FRONT_WING_WARNING_PCT, SIDES, approaching_wing_corner,
+    compensation_allowed, has_wing_compensation, wing_advice_current, wing_radio_text, wing_values,
+)
+import threading
+from functools import wraps
+from contextlib import contextmanager
 from typing import Any
-
 from .analysis import LapAnalysisSummary, SegmentAnalysis
+from .attack_mode import AttackModeController
+from .attack_opportunity import validate_attack_cue
+from .brake_point_assist import BrakePointAssistController
+from .corner_gear_assist import CornerGearAssistController
 from .interaction import (
     InteractionInputEvent,
     OutputLifecycleEvent,
@@ -22,6 +43,8 @@ from .interaction import (
 )
 from .models import SessionState, StrategyDecision, StrategyMessage
 from .persona_registry import get_default_persona
+from .personality_llm import PersonalityLlm, PersonalityLlmRequest, SUPPORTED_OPPORTUNITIES
+from .pit_feedback import PitFeedbackTracker
 from .tts_backends import (
     MacOSSayBackend,
     NullSpeechBackend,
@@ -30,26 +53,15 @@ from .tts_backends import (
     SpeechBackend,
     resolve_default_speech_backend,
 )
+from .output_contracts import EPISODE_CUES, EPISODE_RECOVERY, _SpeechEnvelope, _OutputProcessingResult, _serialized
+from .output_lap import ConsoleLapSummaryOutput
+from .output_envelopes import OutputEnvelopeBuilder
+from .output_queries import OutputQueryAdapter
+from .output_controls import OutputControlAdapter
+from .output_events import OutputEventRenderer
 
 
-@dataclass
-class _SpeechEnvelope:
-    job: SpeechJob
-    interaction_input_event: dict[str, Any]
-    task_handle: dict[str, Any]
-
-
-@dataclass
-class _OutputProcessingResult:
-    lifecycle_event: OutputLifecycleEvent
-    event_envelope: _SpeechEnvelope | None
-    completed_output_event: OutputLifecycleEvent | None = None
-    completed_envelope: _SpeechEnvelope | None = None
-    cancelled_output_event: OutputLifecycleEvent | None = None
-    cancelled_envelope: _SpeechEnvelope | None = None
-
-
-class ConsoleVoiceOutput:
+class ConsoleVoiceOutput(OutputEnvelopeBuilder, OutputQueryAdapter, OutputControlAdapter, OutputEventRenderer):
     """Temporary stand-in for voice copilot and HUD output.
 
     备注:
@@ -58,19 +70,153 @@ class ConsoleVoiceOutput:
     候选策略 -> 最终播报”按可读格式打印出来，便于快速校验策略逻辑。
     """
 
-    def __init__(self, *, backend: SpeechBackend | None = None) -> None:
+
+    def __init__(self, *, backend: SpeechBackend | None = None, pit_feedback: PitFeedbackTracker | None = None,
+                 personality_llm: PersonalityLlm | None = None) -> None:
+        from .speech_events import SpeechEventStream
+        self._event_stream = SpeechEventStream()
+        self._output_lock = threading.RLock()
         self.output_session_id = "voice-output:console"
         self.backend = backend or self._default_backend()
         self.persona = get_default_persona()
         self._event_counter = 0
+        self._session_scope = None
+        # Preserve every retired UID; spill to disk after the memory bound.
+        self._retired_sessions = RetiredIdentities()
+        self.session_events = []
         self._active_envelope: _SpeechEnvelope | None = None
         self._active_handle: Any = None
+        self.playback_health = {"status": "current", "error_type": None, "consecutive_failures": 0}
         self._pending_envelope: _SpeechEnvelope | None = None
         self._last_completed_envelope: _SpeechEnvelope | None = None
+        self._repeatable_history: deque[_SpeechEnvelope] = deque(maxlen=8)
+        self._last_fuel_broadcast_at: float | None = None
+        self._driver_attack_choice = None
+        self._announced_episodes: dict[str, float | None] = {}
+        self._wing_completed: dict[str, float] = {}
+        self._wing_corner_completed: dict[tuple[str, bool], float] = {}
+        self._wing_clear_samples: dict[str, int] = {}
+        self._last_repeat_state = None
+        self._microphone_status = ("unknown", 0.)
+        self._brake_point_assist = BrakePointAssistController()
+        self._corner_gear_assist = CornerGearAssistController()
+        self._attack_mode = AttackModeController()
+        self._defence_radio = DefenceRadio()
+        self._submission_guard = None
+        self._query_turns: dict[str, float] = {}
+        self.personality_live = False
+        self.pit_feedback = pit_feedback
+        from .personality_dialogue import PersonalityDialogue
+        from .driver_experience import RadioExperience
+        self._personality_dialogue = PersonalityDialogue()
+        self._radio_experience = RadioExperience.from_env()
+        self._personality_llm = personality_llm if personality_llm is not None else PersonalityLlm()
+        self._personality_generation: _SpeechEnvelope | None = None
 
-    def emit(self, decision: StrategyDecision, *, render: bool = True) -> dict:
+
+
+    @contextmanager
+    def submission_guard(self, guard):
+        """Bind validation to newly submitted work while preserving queued work."""
+        with self._output_lock:
+            previous = self._submission_guard
+            self._submission_guard = guard
+            try:
+                yield
+            finally:
+                self._submission_guard = previous
+
+
+    @_serialized
+    def bind_session(self, state: SessionState) -> bool:
+        scope = (state.session_uid, state.session_epoch)
+        previous = self._session_scope
+        invalid=isinstance(scope[1],bool) or not isinstance(scope[1],int) or scope[1]<0
+        stale=not invalid and previous is not None and ((scope[0]==previous[0] and scope[1]<previous[1]) or (scope[0]!=previous[0] and scope[0] in self._retired_sessions))
+        if invalid or stale:
+            self.session_events.append({"contract_version":"session-event-v1","type":"speech_scope_rejected","current":previous,"incoming":scope,"reason":"invalid_or_stale_scope"})
+            self.session_events[:]=self.session_events[-32:]
+            return False
+        if self._session_scope == scope:
+            return True
+        previous = self._session_scope
+        if previous is not None and previous[0]!=scope[0]:
+            self._retired_sessions.add(previous[0])
+        self._session_scope = scope
+        self._radio_experience.bind(scope)
+        self._cancel_personality_generation("session_scope_changed")
+        if self.pit_feedback is not None:
+            self.pit_feedback.end("session_scope_changed")
+        self._personality_dialogue.bind(replay=not self.personality_live)
+        if previous is None:
+            return True
+        event = {"contract_version": "session-event-v1", "type": "speech_scope_changed",
+                 "previous": previous, "current": scope, "cancelled_pending": None,
+                 "active_stop_requested": None}
+        if self._pending_envelope is not None:
+            event["cancelled_pending"] = self._pending_envelope.job.output_event_id
+            self._publish_transition(self._pending_envelope, "cancel", "session_scope_changed")
+            self._pending_envelope = None
+        self._last_completed_envelope = None
+        self._repeatable_history.clear()
+        self._last_fuel_broadcast_at = None
+        self._driver_attack_choice = None
+        self._announced_episodes.clear()
+        self._wing_completed.clear()
+        self._wing_corner_completed.clear()
+        self._wing_clear_samples.clear()
+        self._last_repeat_state = None
+        self._brake_point_assist = BrakePointAssistController()
+        self._corner_gear_assist = CornerGearAssistController()
+        self._attack_mode = AttackModeController()
+        self._defence_radio = DefenceRadio()
+        if self._active_envelope is not None:
+            self._active_envelope.job.metadata["cancel_requested"] = True
+            self._active_envelope.job.metadata["cancel_reason"] = "session_scope_changed"
+            event["active_stop_requested"] = self._active_envelope.job.output_event_id
+            self._request_stop_confirmation(self._active_envelope)
+            self._publish_transition(self._active_envelope, "cancel_requested", "session_scope_changed")
+            # Keep ownership until _poll_completed_active sees actual completion.
+        self.session_events.append(event)
+        self.session_events[:] = self.session_events[-32:]
+        return True
+
+
+    def _scope_rejection(self):
+        debug={}
+        event=self._build_event_from_envelope(None,"suppress",metadata={"reason":"stale_session_scope"})
+        self._write_debug_payload(debug=debug,result=_OutputProcessingResult(lifecycle_event=event,event_envelope=None))
+        return debug
+
+
+    @_serialized
+    def emit(self, decision: StrategyDecision, *, state: SessionState | None = None, render: bool = True) -> dict:
         """Emit one lifecycle-aware output step and return the lifecycle event."""
 
+        if state is not None and not self.bind_session(state):
+            rejected=self._scope_rejection()
+            decision.debug.update(rejected)
+            return rejected["output_lifecycle"]
+        if state is not None:
+            if self._driver_attack_choice and self._attack_subject(state) != self._driver_attack_choice[0]:
+                self._driver_attack_choice = None
+            self._update_wing_recovery(state)
+            self._last_repeat_state = state
+            active = self._active_envelope
+            if (active is not None and has_wing_compensation(active.job)
+                    and not wing_advice_current(state, active.job, playing=True)):
+                self._request_personality_stop(active, "wing_compensation_no_longer_applicable")
+            self._radio_experience.observe(state, decision.messages[0].code if decision.messages else "NONE")
+            self._personality_dialogue.observe_pit_advice(state, live=self.personality_live)
+            if self.pit_feedback is not None and not self.personality_live:
+                self.pit_feedback.observe(state)
+            previous = self._last_completed_envelope
+            if (previous is not None and previous.job.metadata.get("tyre_pit_original")
+                    and self._personality_dialogue.pit_advice.withdraws_repeat()):
+                self._last_completed_envelope = None
+        if state is not None and self._announced_episodes:
+            current_code = decision.messages[0].code if decision.messages else None
+            self._observe_cue_recovery(state, current_code)
         interaction_input_event = decision.debug.get("interaction_input_event", {}) or {}
         task_handle = decision.debug.get("task_handle", {}) or {}
         arbiter_output = (decision.debug.get("arbiter_v2", {}) or {}).get("output", {}) or {}
@@ -80,7 +226,109 @@ class ConsoleVoiceOutput:
             interaction_input_event=interaction_input_event,
             task_handle=task_handle,
             final_voice_action=final_voice_action,
+            state=state,
         )
+        if envelope is not None and envelope.job.action_code == FRONT_WING_DAMAGE:
+            title = decision.messages[0].title
+            sides = tuple(side for side, label in SIDES.items() if label in title)
+            levels = wing_values(state) if state is not None else {}
+            reported = {side: levels[side] for side in sides if levels.get(side) is not None}
+            active = self._active_envelope
+            active_meta = active.job.metadata if active and not active.job.metadata.get("cancel_requested") else {}
+            in_flight = {side: active_meta["wing_levels"][side]
+                         for side in active_meta.get("wing_report_sides", ())}
+            new_sides = tuple(side for side, value in reported.items()
+                              if value > max(self._wing_completed.get(side, -1), in_flight.get(side, -1)))
+            covered = not new_sides
+            corner = approaching_wing_corner(state)
+            compensation = corner is not None and corner["high_speed"]
+            if compensation:
+                radio_clear = (self._active_envelope is None and self._pending_envelope is None
+                               and not self.query_busy() and compensation_allowed(state, corner))
+                if not radio_clear or (not covered and (len(new_sides) != 1
+                                                       or approaching_wing_corner(state, combined=True) != corner)):
+                    corner = None
+                    compensation = False
+            needs_corner = (corner is not None and not in_flight and all(
+                value <= self._wing_completed.get(side, -1) for side, value in reported.items()
+            ) and any(value > self._wing_corner_completed.get((side, corner["high_speed"]), -1)
+                      for side, value in reported.items()))
+            if not sides or len(reported) != len(sides) or (covered and not needs_corner):
+                envelope = None
+            else:
+                relevant_sides = sides if corner is not None else new_sides
+                envelope.job.metadata.update(wing_sides=relevant_sides,
+                                             wing_levels={side: reported[side] for side in relevant_sides},
+                                             wing_report_sides=new_sides, wing_corner=corner)
+                if corner is None:
+                    envelope.job.metadata["semantic_subject"] = tuple((side, reported[side]) for side in new_sides)
+                envelope.job.speak_text = wing_radio_text(new_sides or sides, corner, levels=reported, corner_only=covered)
+                if compensation:
+                    if covered:
+                        envelope.job.action_code = FRONT_WING_ENTRY_COMPENSATION
+                    else:
+                        envelope.job.metadata["wing_compensation"] = "combined"
+                    envelope.job.priority = 60
+                    envelope.job.metadata["interrupt"] = False
+                    envelope.job.metadata["repeatable"] = False
+        if state is not None and "defence_forecast" in decision.debug:
+            defence = self._build_defence_envelope(state, decision, interaction_input_event, task_handle)
+            if defence is not None and (envelope is None or defence.rank > envelope.rank):
+                envelope = defence
+        brake_assist_envelope = None
+        corner_gear_envelope = None
+        attack_mode_envelope = None
+        if state is not None:
+            brake_assist_envelope = self._build_brake_point_assist_envelope(
+                state=state,
+                interaction_input_event=interaction_input_event,
+                task_handle=task_handle,
+            )
+            corner_gear_envelope = self._build_corner_gear_assist_envelope(
+                state=state,
+                interaction_input_event=interaction_input_event,
+                task_handle=task_handle,
+            )
+            attack_mode_envelope = self._build_attack_mode_envelope(
+                state=state,
+                decision=decision,
+                interaction_input_event=interaction_input_event,
+                task_handle=task_handle,
+            )
+        if brake_assist_envelope is not None and (
+            envelope is None or brake_assist_envelope.rank > envelope.rank
+        ):
+            envelope = brake_assist_envelope
+        if corner_gear_envelope is not None and (
+            envelope is None or corner_gear_envelope.rank > envelope.rank
+        ):
+            envelope = corner_gear_envelope
+        if attack_mode_envelope is not None and (
+            envelope is None or attack_mode_envelope.rank > envelope.rank
+        ):
+            envelope = attack_mode_envelope
+        if state is not None:
+            if (envelope is None or envelope.rank[0] < 3) and not self._personality_dialogue.context_current(
+                    state, live=self.personality_live):
+                self._cancel_optional_personality("personality_context_changed")
+            generation = self._personality_generation
+            if generation is not None and not self._generation_matches(generation, state):
+                self._cancel_personality_generation("personality_opportunity_changed")
+            if (envelope is None and not decision.debug.get("pit_broadcast_muted")
+                    and final_voice_action.get("code") in {"NONE", "BOX_WINDOW"}
+                    and self._active_envelope is None and self._pending_envelope is None and not self.query_busy()):
+                envelope = self._personality_dialogue.pit_follow_up(
+                    state, event=interaction_input_event, task=task_handle,
+                    output_id=self._next_output_event_id, persona=self.persona)
+            if (envelope is None and not self._personality_dialogue.quiet and not self.query_busy()
+                    and self._active_envelope is None and self._pending_envelope is None):
+                envelope = self._radio_experience.build_envelope(
+                    state, live=self.personality_live, event=interaction_input_event, task=task_handle,
+                    output_id=self._next_output_event_id, persona=self.persona)
+            if envelope is None:
+                envelope = self._build_personality_opportunity(state, interaction_input_event, task_handle)
+                if envelope is not None and self._begin_personality_generation(envelope):
+                    envelope = None
         result = self._process_submission(
             submitted_envelope=envelope,
             fallback_input_event=interaction_input_event,
@@ -101,9 +349,9 @@ class ConsoleVoiceOutput:
             if render:
                 print(f"[ASURADA][COMPLETE] {lifecycle_event.action_code}")
             return decision.debug["output_lifecycle"]
-        if lifecycle_event.event_type == "suppress":
+        if lifecycle_event.event_type in {"suppress", "failed", "silent"}:
             if render:
-                print(f"[ASURADA][SUPPRESS] {lifecycle_event.action_code}: {lifecycle_event.metadata.get('reason', 'suppressed')}")
+                print(f"[ASURADA][{lifecycle_event.event_type.upper()}] {lifecycle_event.action_code}: {lifecycle_event.metadata.get('reason', lifecycle_event.event_type)}")
             return decision.debug["output_lifecycle"]
         if lifecycle_event.event_type == "enqueue":
             if render:
@@ -118,6 +366,10 @@ class ConsoleVoiceOutput:
                 print(f"[ASURADA][CANCEL] {lifecycle_event.action_code}")
             return decision.debug["output_lifecycle"]
 
+        if lifecycle_event.action_code.startswith("PERSONALITY_") or not decision.messages:
+            if render and lifecycle_event.event_type == "start":
+                print(f"[ASURADA][PERSONALITY] {lifecycle_event.speak_text}")
+            return decision.debug["output_lifecycle"]
         top = decision.messages[0]
         prefix = f"P{top.priority}"
         if render:
@@ -127,307 +379,12 @@ class ConsoleVoiceOutput:
             self._emit_debug(decision)
         return decision.debug["output_lifecycle"]
 
-    def emit_query_response(
-        self,
-        *,
-        state: SessionState,
-        query_kind: str,
-        primary_message: StrategyMessage | None = None,
-        render: bool = True,
-    ) -> dict[str, Any]:
-        """Emit one structured query response through the same speech queue."""
-
-        input_event = build_snapshot_query_input_event(
-            state=state,
-            query_kind=query_kind,
-            primary_message=primary_message,
-        )
-        structured_query = build_structured_query_schema(input_event)
-        query_route = route_structured_query(structured_query)
-        confirmation_policy = build_confirmation_policy(
-            input_event=input_event,
-            schema=structured_query,
-            route=query_route,
-        )
-        task_handle = build_task_handle(
-            input_event=input_event,
-            route=query_route,
-            confirmation_policy=confirmation_policy,
-        )
-        return self._emit_prepared_query(
-            state=state,
-            input_event=input_event.to_dict(),
-            structured_query=structured_query.to_dict(),
-            query_route=query_route.to_dict(),
-            confirmation_policy=confirmation_policy.to_dict(),
-            task_handle=task_handle.to_dict(),
-            normalization_event=build_query_normalization_event(input_event).to_dict(),
-            primary_message=primary_message,
-            render=render,
-        )
-
-    def emit_voice_query_bundle(
-        self,
-        *,
-        state: SessionState,
-        bundle: Any,
-        primary_message: StrategyMessage | None = None,
-        render: bool = True,
-    ) -> dict[str, Any]:
-        """Emit one pre-normalized voice query bundle through the unified queue."""
-
-        bundle_dict = bundle.to_dict() if hasattr(bundle, "to_dict") else dict(bundle)
-        input_event = dict(bundle_dict.get("input_event") or {})
-        structured_query = dict(bundle_dict.get("structured_query") or {})
-        query_route = dict(bundle_dict.get("query_route") or {})
-        confirmation_policy = dict(bundle_dict.get("confirmation_policy") or {})
-        task_handle = dict(bundle_dict.get("task_handle") or {})
-        normalization_event = dict(bundle_dict.get("normalization_event") or {})
-        response_override = dict(bundle_dict.get("response_override") or {})
-        llm_explainer = dict(bundle_dict.get("llm_explainer") or {})
-        extra_debug = {
-            "fast_intent": bundle_dict.get("fast_intent"),
-            "voice_turn": bundle_dict.get("voice_turn"),
-        }
-        if llm_explainer:
-            extra_debug["llm_explainer"] = llm_explainer
-        return self._emit_prepared_query(
-            state=state,
-            input_event=input_event,
-            structured_query=structured_query,
-            query_route=query_route,
-            confirmation_policy=confirmation_policy,
-            task_handle=task_handle,
-            normalization_event=normalization_event,
-            response_override=response_override,
-            primary_message=primary_message,
-            render=render,
-            extra_debug=extra_debug,
-        )
-
-    def emit_control_query_bundle(
-        self,
-        *,
-        state: SessionState,
-        bundle: Any,
-        primary_message: StrategyMessage | None = None,
-        render: bool = True,
-    ) -> dict[str, Any]:
-        """Execute one control query against the current output queue."""
-
-        bundle_dict = bundle.to_dict() if hasattr(bundle, "to_dict") else dict(bundle)
-        input_event = dict(bundle_dict.get("input_event") or {})
-        structured_query = dict(bundle_dict.get("structured_query") or {})
-        query_route = dict(bundle_dict.get("query_route") or {})
-        confirmation_policy = dict(bundle_dict.get("confirmation_policy") or {})
-        task_handle = dict(bundle_dict.get("task_handle") or {})
-        normalization_event = dict(bundle_dict.get("normalization_event") or {})
-        query_kind = str(structured_query.get("query_kind") or "")
-
-        if query_kind == "repeat_last":
-            return self._emit_repeat_last_control(
-                input_event=input_event,
-                structured_query=structured_query,
-                query_route=query_route,
-                confirmation_policy=confirmation_policy,
-                task_handle=task_handle,
-                normalization_event=normalization_event,
-                render=render,
-                extra_debug={
-                    "fast_intent": bundle_dict.get("fast_intent"),
-                    "voice_turn": bundle_dict.get("voice_turn"),
-                },
-            )
-
-        if query_kind in {"stop", "cancel"}:
-            return self._emit_stop_cancel_control(
-                query_kind=query_kind,
-                input_event=input_event,
-                structured_query=structured_query,
-                query_route=query_route,
-                confirmation_policy=confirmation_policy,
-                task_handle=task_handle,
-                normalization_event=normalization_event,
-                render=render,
-                extra_debug={
-                    "fast_intent": bundle_dict.get("fast_intent"),
-                    "voice_turn": bundle_dict.get("voice_turn"),
-                },
-            )
-
-        return self._emit_prepared_query(
-            state=state,
-            input_event=input_event,
-            structured_query=structured_query,
-            query_route=query_route,
-            confirmation_policy=confirmation_policy,
-            task_handle=task_handle,
-            normalization_event=normalization_event,
-            primary_message=primary_message,
-            render=render,
-            extra_debug={
-                "fast_intent": bundle_dict.get("fast_intent"),
-                "voice_turn": bundle_dict.get("voice_turn"),
-            },
-        )
-
-    def _emit_prepared_query(
-        self,
-        *,
-        state: SessionState,
-        input_event: dict[str, Any],
-        structured_query: dict[str, Any],
-        query_route: dict[str, Any],
-        confirmation_policy: dict[str, Any],
-        task_handle: dict[str, Any],
-        normalization_event: dict[str, Any],
-        primary_message: StrategyMessage | None,
-        render: bool,
-        response_override: dict[str, Any] | None = None,
-        extra_debug: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        schema = StructuredQuerySchema(**structured_query)
-        default_speak_text, default_action_code = render_structured_query_response(
-            state=state,
-            schema=schema,
-            primary_message=primary_message,
-        )
-        speak_text = str((response_override or {}).get("speak_text") or default_speak_text)
-        action_code = str((response_override or {}).get("action_code") or default_action_code)
-        envelope = self._build_query_envelope(
-            input_event=input_event,
-            task_handle=task_handle,
-            schema=structured_query,
-            speak_text=speak_text,
-            action_code=action_code,
-        )
-        result = self._process_submission(
-            submitted_envelope=envelope,
-            fallback_input_event=input_event,
-            fallback_task_handle=task_handle,
-        )
-        debug: dict[str, Any] = {
-            "interaction_input_event": input_event,
-            "structured_query": structured_query,
-            "query_route": query_route,
-            "confirmation_policy": confirmation_policy,
-            "task_handle": task_handle,
-            "voice_pipeline_log": {
-                "asr": build_asr_stage_event(InteractionInputEvent(**input_event)).to_dict(),
-                "query_normalization": normalization_event,
-                "query_route": query_route,
-                "confirmation_policy": confirmation_policy,
-            },
-        }
-        if extra_debug:
-            debug.update(extra_debug)
-        if response_override:
-            debug["response_override"] = response_override
-            debug["voice_pipeline_log"]["llm_sidecar"] = {
-                "used": True,
-                "status": response_override.get("status"),
-                "source": response_override.get("source"),
-                "backend_name": response_override.get("backend_name"),
-                "fallback_reason": response_override.get("fallback_reason"),
-            }
-        elif extra_debug and extra_debug.get("llm_explainer"):
-            llm_result = ((extra_debug.get("llm_explainer") or {}).get("result") or {})
-            debug["voice_pipeline_log"]["llm_sidecar"] = {
-                "used": False,
-                "status": llm_result.get("status"),
-                "source": "llm_sidecar",
-                "backend_name": llm_result.get("backend_name"),
-                "fallback_reason": llm_result.get("fallback_reason"),
-            }
-        self._write_debug_payload(debug=debug, result=result)
-        if render:
-            event = result.lifecycle_event
-            if event.event_type == "start":
-                print(f"[ASURADA][QUERY] {event.speak_text}")
-            elif event.event_type == "enqueue":
-                print(f"[ASURADA][QUERY][QUEUE] {event.speak_text}")
-            elif event.event_type == "replace_pending":
-                print(f"[ASURADA][QUERY][QUEUE-REPLACE] {event.speak_text}")
-            elif event.event_type == "suppress":
-                print(f"[ASURADA][QUERY][SUPPRESS] {event.metadata.get('reason', 'suppressed')}")
-        return debug
 
     def _default_backend(self) -> SpeechBackend:
         return resolve_default_speech_backend()
 
-    def _build_strategy_envelope(
-        self,
-        *,
-        decision: StrategyDecision,
-        interaction_input_event: dict[str, Any],
-        task_handle: dict[str, Any],
-        final_voice_action: dict[str, Any],
-    ) -> _SpeechEnvelope | None:
-        if not decision.messages or not final_voice_action:
-            return None
 
-        top = decision.messages[0]
-        if top.code == "NONE":
-            return None
-        output_event_id = self._next_output_event_id()
-        return _SpeechEnvelope(
-            job=SpeechJob(
-                output_event_id=output_event_id,
-                interaction_session_id=str(interaction_input_event.get("interaction_session_id") or "runtime:unknown"),
-                turn_id=str(interaction_input_event.get("turn_id") or "turn:unknown"),
-                request_id=str(interaction_input_event.get("request_id") or "req:unknown"),
-                snapshot_binding_id=str(interaction_input_event.get("snapshot_binding_id") or "snap:unknown"),
-                source_kind="strategy_broadcast",
-                action_code=top.code,
-                priority=int(final_voice_action.get("priority") or top.priority or 0),
-                speak_text=str(final_voice_action.get("speak_text") or top.title),
-                cancelable=top.code != "SAFETY_CAR",
-                persona_id=self.persona.persona_id,
-                voice_profile_id=self.persona.voice_profile_id,
-                metadata={
-                    "source": "strategy_broadcast",
-                    "persona_id": self.persona.persona_id,
-                    "voice_profile_id": self.persona.voice_profile_id,
-                },
-            ),
-            interaction_input_event=interaction_input_event,
-            task_handle=task_handle,
-        )
-
-    def _build_query_envelope(
-        self,
-        *,
-        input_event: dict[str, Any],
-        task_handle: dict[str, Any],
-        schema: dict[str, Any],
-        speak_text: str,
-        action_code: str,
-    ) -> _SpeechEnvelope:
-        return _SpeechEnvelope(
-            job=SpeechJob(
-                output_event_id=self._next_output_event_id(),
-                interaction_session_id=str(input_event.get("interaction_session_id") or "runtime:unknown"),
-                turn_id=str(input_event.get("turn_id") or "turn:unknown"),
-                request_id=str(input_event.get("request_id") or "req:unknown"),
-                snapshot_binding_id=str(input_event.get("snapshot_binding_id") or "snap:unknown"),
-                source_kind="query_response",
-                action_code=action_code,
-                priority=95,
-                speak_text=speak_text,
-                cancelable=True,
-                persona_id=self.persona.persona_id,
-                voice_profile_id=self.persona.voice_profile_id,
-                metadata={
-                    "source": "query_response",
-                    "query_kind": schema.get("query_kind"),
-                    "persona_id": self.persona.persona_id,
-                    "voice_profile_id": self.persona.voice_profile_id,
-                },
-            ),
-            interaction_input_event=input_event,
-            task_handle=task_handle,
-        )
-
+    @_serialized
     def _process_submission(
         self,
         *,
@@ -435,30 +392,101 @@ class ConsoleVoiceOutput:
         fallback_input_event: dict[str, Any],
         fallback_task_handle: dict[str, Any],
     ) -> _OutputProcessingResult:
+        if submitted_envelope is not None:
+            if not submitted_envelope.job.metadata.get("optional_personality") or submitted_envelope.rank[0] > 0:
+                self._cancel_personality_generation("higher_priority_submission")
+            if self._submission_guard is not None:
+                submitted_envelope.start_guard = self._submission_guard
+        if submitted_envelope is not None and self._session_scope is not None:
+            submitted_envelope.job.metadata["session_scope"] = self._session_scope
+        completed_event_published = False
+        expired_pending = None
+        if self._pending_envelope is not None and self._expired(self._pending_envelope):
+            expired_pending = self._pending_envelope
+            self._pending_envelope = None
+            if submitted_envelope is not None:
+                self._publish_transition(expired_pending, "cancel", "expired_before_start")
+        if submitted_envelope is not None and self._expired(submitted_envelope):
+            return _OutputProcessingResult(
+                lifecycle_event=self._build_event_from_envelope(submitted_envelope, "cancel", metadata={"reason": "expired_before_start"}),
+                event_envelope=submitted_envelope,
+            )
+        pending = self._pending_envelope
+        if pending is not None and submitted_envelope is not None:
+            old, new = pending.job, submitted_envelope.job
+            if (self._ordinary_wing(old) and self._ordinary_wing(new)
+                    and old.metadata["wing_levels"] != new.metadata["wing_levels"]):
+                # The new candidate carries the latest confirmed sides and its
+                # own authoritative snapshot. Keep the queue's original expiry.
+                submitted_envelope.created_monotonic = pending.created_monotonic
+                self._pending_envelope = submitted_envelope
+                self._publish_transition(pending, "cancel", "wing_report_updated_before_start")
+                self._publish_transition(submitted_envelope, "replace_pending", "wing_report_updated_before_start")
+                submitted_envelope = None
+        active = self._active_envelope
+        if (submitted_envelope is not None and active is not None
+                and not (self._wing_job(active.job) and self._wing_job(submitted_envelope.job))
+                and (submitted_envelope.rank[0] == 4 or submitted_envelope.job.metadata.get("interrupt")
+                     or (has_wing_compensation(active.job) and submitted_envelope.rank[0] >= 3)
+                     or active.job.metadata.get("optional_personality") and not submitted_envelope.job.metadata.get("optional_personality"))
+                and submitted_envelope.rank > active.rank and active.job.cancelable
+                and submitted_envelope.dedup_key != active.dedup_key):
+            active.job.metadata.setdefault("stop_requested_at", speech_time())
+            active.job.metadata["cancel_requested"] = True
+            active.job.metadata["cancel_reason"] = "preempted_by_higher_priority"
+            # Retain ownership until the backend confirms it stopped.
+            if self._request_stop_confirmation(active):
+                self._active_envelope = None
+                self._active_handle = None
+                return _OutputProcessingResult(
+                    lifecycle_event=self._start_envelope(submitted_envelope),
+                    event_envelope=submitted_envelope,
+                    cancelled_output_event=self._build_event_from_envelope(active, "cancel", metadata={"reason": "preempted_by_higher_priority"}),
+                    cancelled_envelope=active,
+                )
+            self._publish_transition(active, "cancel_requested", "preempted_by_higher_priority")
         completed_envelope = self._poll_completed_active()
-        completed_output_event = self._build_event_from_envelope(completed_envelope, "complete") if completed_envelope is not None else None
+        completed_output_event = self._build_event_from_envelope(completed_envelope,
+            "cancel" if completed_envelope.job.metadata.get("cancel_requested") else
+            "failed" if completed_envelope.job.metadata.get("playback_error") else "complete",
+            metadata={"reason": completed_envelope.job.metadata["playback_error"]} if completed_envelope.job.metadata.get("playback_error") else None,
+        ) if completed_envelope is not None else None
         auto_started_envelope = None
         auto_started_event = None
 
-        if completed_envelope is not None and self._pending_envelope is not None:
+        if (self._active_envelope is None and self._pending_envelope is not None
+                and (submitted_envelope is None or self._pending_envelope.rank >= submitted_envelope.rank)):
             pending_to_start = self._pending_envelope
             self._pending_envelope = None
             auto_started_envelope = pending_to_start
             auto_started_event = self._start_envelope(pending_to_start)
+            if submitted_envelope is not None:
+                # This submission's result describes the new request, so retain
+                # the older completion/start before returning that result.
+                if completed_output_event is not None:
+                    self._event_stream.append(completed_output_event.to_dict())
+                    completed_event_published = True
+                self._event_stream.append(auto_started_event.to_dict())
 
         if submitted_envelope is None:
+            if expired_pending is not None and auto_started_event is None:
+                return _OutputProcessingResult(
+                    lifecycle_event=self._build_event_from_envelope(expired_pending, "cancel", metadata={"reason": "expired_before_start"}),
+                    event_envelope=expired_pending,
+                    completed_output_event=completed_output_event, completed_event_published=completed_event_published, completed_envelope=completed_envelope,
+                )
             if auto_started_event is not None and auto_started_envelope is not None:
                 return _OutputProcessingResult(
                     lifecycle_event=auto_started_event,
                     event_envelope=auto_started_envelope,
-                    completed_output_event=completed_output_event,
+                    completed_output_event=completed_output_event, completed_event_published=completed_event_published,
                     completed_envelope=completed_envelope,
                 )
             if completed_output_event is not None:
                 return _OutputProcessingResult(
                     lifecycle_event=completed_output_event,
                     event_envelope=completed_envelope,
-                    completed_output_event=completed_output_event,
+                    completed_output_event=completed_output_event, completed_event_published=completed_event_published,
                     completed_envelope=completed_envelope,
                 )
             return _OutputProcessingResult(
@@ -472,15 +500,26 @@ class ConsoleVoiceOutput:
                 event_envelope=None,
             )
 
-        if self._is_duplicate_code(submitted_envelope.job.action_code):
+        if submitted_envelope.job.metadata.get("optional_personality") and (
+                self._active_envelope is not None or self._pending_envelope is not None
+                or submitted_envelope.rank[0] == 0 and self.query_busy()):
+            return _OutputProcessingResult(
+                lifecycle_event=self._build_event_from_envelope(
+                    submitted_envelope, "suppress", metadata={"reason": "optional_speech_busy"}),
+                event_envelope=submitted_envelope,
+                completed_output_event=completed_output_event, completed_event_published=completed_event_published,
+                completed_envelope=completed_envelope,
+            )
+
+        if self._is_duplicate_submission(submitted_envelope):
             return _OutputProcessingResult(
                 lifecycle_event=self._build_event_from_envelope(
                     submitted_envelope,
                     "suppress",
-                    metadata={"reason": "duplicate_active_or_pending_code", "source_kind": submitted_envelope.job.source_kind},
+                    metadata={"reason": "duplicate_active_or_pending_submission", "source_kind": submitted_envelope.job.source_kind},
                 ),
                 event_envelope=submitted_envelope,
-                completed_output_event=completed_output_event,
+                completed_output_event=completed_output_event, completed_event_published=completed_event_published,
                 completed_envelope=completed_envelope,
             )
 
@@ -488,7 +527,7 @@ class ConsoleVoiceOutput:
             return _OutputProcessingResult(
                 lifecycle_event=self._start_envelope(submitted_envelope),
                 event_envelope=submitted_envelope,
-                completed_output_event=completed_output_event,
+                completed_output_event=completed_output_event, completed_event_published=completed_event_published,
                 completed_envelope=completed_envelope,
             )
 
@@ -501,11 +540,11 @@ class ConsoleVoiceOutput:
                     metadata={"source_kind": submitted_envelope.job.source_kind},
                 ),
                 event_envelope=submitted_envelope,
-                completed_output_event=completed_output_event,
+                completed_output_event=completed_output_event, completed_event_published=completed_event_published,
                 completed_envelope=completed_envelope,
             )
 
-        if submitted_envelope.job.priority > self._pending_envelope.job.priority:
+        if submitted_envelope.rank > self._pending_envelope.rank:
             cancelled_envelope = self._pending_envelope
             cancelled_output_event = self._build_event_from_envelope(
                 cancelled_envelope,
@@ -523,7 +562,7 @@ class ConsoleVoiceOutput:
                     },
                 ),
                 event_envelope=submitted_envelope,
-                completed_output_event=completed_output_event,
+                completed_output_event=completed_output_event, completed_event_published=completed_event_published,
                 completed_envelope=completed_envelope,
                 cancelled_output_event=cancelled_output_event,
                 cancelled_envelope=cancelled_envelope,
@@ -536,611 +575,528 @@ class ConsoleVoiceOutput:
                 metadata={"reason": "lower_priority_than_pending", "source_kind": submitted_envelope.job.source_kind},
             ),
             event_envelope=submitted_envelope,
-            completed_output_event=completed_output_event,
+            completed_output_event=completed_output_event, completed_event_published=completed_event_published,
             completed_envelope=completed_envelope,
         )
+
+
+    @_serialized
+    def is_playing(self) -> bool:
+        return self.playback_status()['status'] != 'idle'
+
+
+    @_serialized
+    def playback_status(self) -> dict:
+        if self._active_envelope is None:
+            return {'version': 'playback-status-v1', 'status': 'idle', 'error_type': None}
+        try:
+            active = self.backend.is_active(self._active_handle)
+        except Exception as exc:
+            return {'version': 'playback-status-v1', 'status': 'unknown', 'error_type': type(exc).__name__}
+        return {'version': 'playback-status-v1', 'status': 'playing' if active else 'idle', 'error_type': None}
+
+
+    @_serialized
+    def shutdown(self, timeout_s: float = 1.0) -> bool:
+        """Discard pending work and wait briefly for actual playback termination."""
+        self._cancel_personality_generation("shutdown")
+        self._radio_experience.cancel()
+        self._personality_llm.close()
+        if self._pending_envelope is not None:
+            self._publish_transition(self._pending_envelope, "cancel", "shutdown")
+        self._pending_envelope = None
+        if self._active_envelope is None:
+            return True
+        self._active_envelope.job.metadata["cancel_requested"] = True
+        self._active_envelope.job.metadata["cancel_reason"] = "shutdown"
+        active = self._active_envelope
+        stopped = self._request_stop_confirmation(active)
+        self._publish_transition(active, "cancel_requested", "shutdown")
+        deadline = time.monotonic() + max(timeout_s, 0)
+        while not stopped and time.monotonic() < deadline:
+            stopped = self._poll_completed_active() is not None
+            if stopped:
+                break
+            time.sleep(.01)
+        if not stopped:
+            return False
+        self._publish_transition(active, "cancel", "shutdown")
+        self._active_envelope = None
+        self._active_handle = None
+        return True
+
+
+    def _request_stop_confirmation(self, envelope) -> bool:
+        envelope.job.metadata.pop('stop_error_type', None)
+        try:
+            self.backend.stop(self._active_handle)
+            return not self.backend.is_active(self._active_handle)
+        except Exception as exc:
+            envelope.job.metadata['stop_error_type'] = type(exc).__name__
+            return False
+
+
+    def _publish_transition(self, envelope, event_type, reason):
+        """Publish ownership transitions that do not produce a submission debug result."""
+        self._event_stream.append(self._build_event_from_envelope(
+            envelope, event_type, metadata={"reason": reason}).to_dict())
+
+
+    def _expired(self, envelope: _SpeechEnvelope) -> bool:
+        if envelope.job.metadata.get("defence_window"):
+            return time.monotonic() - envelope.created_monotonic >= 1.0
+        ttl_s = 2.0 if envelope.job.metadata.get("optional_personality") else (
+            3.0 if envelope.job.source_kind == "strategy_broadcast" else 15.0)
+        return time.monotonic() - envelope.created_monotonic >= ttl_s
+
+
+    @_serialized
+    def tick(self) -> dict[str, Any]:
+        """Advance completion/expiry without submitting a new telemetry message."""
+        result = self._process_submission(submitted_envelope=self._poll_personality_generation(),
+                                          fallback_input_event={}, fallback_task_handle={})
+        debug: dict[str, Any] = {}
+        self._write_debug_payload(debug=debug, result=result)
+        return debug["output_lifecycle"]
+
+
+    def read_events(self, *, cursor=None, limit=64, timeout_s=.1):
+        import math
+        if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)) or not math.isfinite(timeout_s) or timeout_s <= 0:
+            raise ValueError('invalid_event_read_timeout')
+        if not self._output_lock.acquire(timeout=timeout_s):
+            raise TimeoutError('speech_event_reader_busy')
+        try:
+            return self._event_stream.read(cursor=cursor, limit=limit)
+        finally:
+            self._output_lock.release()
+
 
     def _poll_completed_active(self) -> _SpeechEnvelope | None:
         if self._active_envelope is None:
             return None
-        if self.backend.is_active(self._active_handle):
+        try:
+            active = self.backend.is_active(self._active_handle)
+        except Exception as exc:
+            self.playback_health = {"status": "unknown", "error_type": type(exc).__name__,
+                "consecutive_failures": self.playback_health['consecutive_failures'] + 1}
+            # A failed observation is not proof that the player stopped.
+            return None
+        self.playback_health = {"status": "current", "error_type": None, "consecutive_failures": 0}
+        if active:
             return None
         completed = self._active_envelope
+        if not completed.job.metadata.get("cancel_requested"):
+            try:
+                error = self.backend.completion_error(self._active_handle)
+            except Exception:
+                error = 'backend_result_unavailable'
+            if error:
+                completed.job.metadata['playback_error'] = error
         self._active_envelope = None
         self._active_handle = None
-        self._last_completed_envelope = completed
+        if not completed.job.metadata.get("cancel_requested") and not completed.job.metadata.get("playback_error"):
+            if (completed.job.action_code in {FRONT_WING_DAMAGE, FRONT_WING_ENTRY_COMPENSATION}
+                    and self._last_repeat_state is not None):
+                current = wing_values(self._last_repeat_state)
+                for side, value in completed.job.metadata.get("wing_levels", {}).items():
+                    if current.get(side) is not None and current[side] >= FRONT_WING_WARNING_PCT:
+                        if side in completed.job.metadata.get("wing_report_sides", ()):
+                            self._wing_completed[side] = max(value, self._wing_completed.get(side, -1))
+                        corner = completed.job.metadata.get("wing_corner")
+                        if corner:
+                            key = (side, corner["high_speed"])
+                            self._wing_corner_completed[key] = max(value, self._wing_corner_completed.get(key, -1))
+            self._personality_dialogue.completed(completed.job)
+            self._radio_experience.completed(completed.job)
+            self._attack_mode.on_completed(completed.job)
+            if self.pit_feedback is not None:
+                self.pit_feedback.playback_completed(completed.job)
+            if completed.job.metadata.get("repeatable", completed.rank[0] > 0):
+                self._last_completed_envelope = completed
+                self._repeatable_history.append(completed)
         return completed
 
+    def _attack_subject(self, state):
+        from .attack_opportunity import front_target
+        rival = front_target(state)
+        if rival is not None:
+            return state.session_uid, state.session_epoch, state.lap_number, rival.car_index
+        return None
+
+    def attack_deferred(self, state):
+        subject = self._attack_subject(state)
+        return (subject is not None and self._driver_attack_choice is not None
+                and self._driver_attack_choice[0] == subject and self._driver_attack_choice[2] in {"hold", "decline"})
+
+    def observe_attack_choice(self, state, meta, timestamp):
+        act = meta.get("radio_act")
+        if meta.get("radio_topic") != "attack" or act not in {"hold", "decline", "commit"}:
+            return
+        subject = self._attack_subject(state)
+        if subject is None or not isinstance(timestamp, int):
+            return
+        if self._driver_attack_choice and timestamp < self._driver_attack_choice[1]:
+            return
+        self._driver_attack_choice = subject, timestamp, act
+        pending = self._pending_envelope
+        if (act != "commit" and pending is not None
+                and pending.job.action_code in {"ATTACK_MODE_FORMING", "ATTACK_MODE_REMINDER","ATTACK_WINDOW","ATTACK_FORECAST"}):
+            self._pending_envelope = None
+            self._publish_transition(pending, "cancel", "driver_deferred_attack")
+
+    def _update_wing_recovery(self, state):
+        for side in tuple(self._wing_completed):
+            value = wing_values(state).get(side)
+            if value is None or value >= FRONT_WING_WARNING_PCT:
+                self._wing_clear_samples.pop(side, None)
+                continue
+            earlier = self._wing_clear_samples.setdefault(side, state.source_timestamp_ms)
+            if earlier < state.source_timestamp_ms:
+                del self._wing_completed[side]
+                self._wing_corner_completed.pop((side, False), None)
+                self._wing_corner_completed.pop((side, True), None)
+                del self._wing_clear_samples[side]
+
+    def _repeat_still_applicable(self, job, state) -> bool:
+        if state is None:
+            return True
+        scope = job.metadata.get("session_scope")
+        if scope is not None and scope != (state.session_uid, state.session_epoch):
+            return False
+        if self.personality_live and not 0 <= time.time() * 1000 - state.source_timestamp_ms <= 1500:
+            return False
+        if job.source_kind != "strategy_broadcast":
+            return True
+        if job.metadata.get("tyre_pit_original") and self._personality_dialogue.pit_advice.withdraws_repeat():
+            return False
+        record = state.decision_record
+        if job.action_code == "LOCAL_YELLOW":
+            return state.raw.get("marshal_zone_flag") == 3
+        if job.metadata.get("defence_window"):
+            from .defence_radio import applicable
+            now = state.raw.get("session_time_s")
+            if not isinstance(now, (int,float)):
+                return False
+            primary = record.actions[0].code if record and record.actions else "NONE"
+            return applicable(dict(job.metadata["defence_window"], clock_s=now), state, primary,
+                              completed_wing=self._wing_completed)
+        if job.action_code == FRONT_WING_DAMAGE:
+            return wing_advice_current(state, job)
+        if job.metadata.get("paired_tyre_alert"):
+            return tyre_alert(state.raw.get("tyres_damage_pct"), state.raw.get("tyres_wear_pct")) == (
+                job.action_code, job.speak_text)
+        if record is None:
+            return not self.personality_live and (self._last_repeat_state is None or state is self._last_repeat_state)
+        return any(action.code == job.action_code for action in record.actions)
+
+    def _latest_repeatable(self, state):
+        return next((envelope for envelope in reversed(self._repeatable_history)
+                     if self._repeat_still_applicable(envelope.job, state)), None)
+
+
+    def _observe_cue_recovery(self, state: SessionState, current_code: str | None) -> None:
+        time_s = state.raw.get("session_time_s")
+        labels = state.assessment.labels if state.assessment is not None else None
+        can_rearm = labels is not None and not state.raw.get("session_paused") and type(time_s) in (float, int)
+        for code, clear_at in tuple(self._announced_episodes.items()):
+            if not can_rearm or code == current_code:
+                self._announced_episodes[code] = None
+                continue
+            if code == "LOCAL_YELLOW":
+                recovered = state.raw.get("marshal_zone_flag") in (0, 1, 2)
+            elif code == TYRE_DAMAGE:
+                damage = tyre_damage_values(state.raw.get("tyres_damage_pct"))
+                wear = tyre_damage_values(state.raw.get("tyres_wear_pct"))
+                alert = tyre_alert(state.raw.get("tyres_damage_pct"), state.raw.get("tyres_wear_pct"))
+                recovered = len(damage) == 4 and (
+                    max(damage.values()) < TYRE_DAMAGE_WARNING_PCT
+                    or len(wear) == 4 and (alert is None or alert[0] != TYRE_DAMAGE)
+                )
+            elif code == TYRE_WEAR_ALERT:
+                wear = tyre_damage_values(state.raw.get("tyres_wear_pct"))
+                recovered = len(wear) == 4 and max(wear.values()) < TYRE_DAMAGE_WARNING_PCT
+            else:
+                field, required = EPISODE_RECOVERY[code]
+                recovered = getattr(labels, field) == required
+            if not recovered:
+                self._announced_episodes[code] = None
+            elif clear_at is None or time_s < clear_at:
+                self._announced_episodes[code] = time_s
+            elif time_s - clear_at >= 3:
+                del self._announced_episodes[code]
+
+    @staticmethod
+    def _wing_job(job) -> bool:
+        return job.action_code == FRONT_WING_DAMAGE or has_wing_compensation(job)
+
+    @staticmethod
+    def _ordinary_wing(job) -> bool:
+        return (job.action_code == FRONT_WING_DAMAGE and bool(job.metadata.get("wing_levels"))
+                and not job.metadata.get("wing_corner"))
+
     def _start_envelope(self, envelope: _SpeechEnvelope) -> OutputLifecycleEvent:
+        job = envelope.job
+        attack = job.metadata.get("attack_opportunity")
+        if attack and attack["phase"] == "forecast":
+            state = self._last_repeat_state
+            now = state.raw.get("session_time_s") if state else None
+            primary = state.decision_record.actions if state and state.decision_record else ()
+            elapsed = max(0., time.monotonic() - envelope.created_monotonic)
+            if now is None or not validate_attack_cue(
+                    attack, state, primary[0].code if primary else "NONE", completed_wing=self._wing_completed,
+                    delivery_delay_s=max(0., elapsed - (now - attack["observed_s"]))):
+                return self._build_event_from_envelope(envelope, "suppress", metadata={"reason": "attack_runway_expired"})
+        bound = job.metadata.get("defence_window")
+        if bound and "contact_s" in bound:
+            elapsed = max(0., time.monotonic() - envelope.created_monotonic)
+            if elapsed + bound["key_seconds"] + 1. > bound["contact_s"]:
+                return self._build_event_from_envelope(envelope, "suppress", metadata={"reason": "defence_runway_expired"})
+        if has_wing_compensation(job):
+            state = self._last_repeat_state
+            if state is None or not wing_advice_current(state, job):
+                return self._build_event_from_envelope(envelope, "suppress", metadata={"reason": "wing_compensation_no_longer_applicable"})
+        elif job.action_code == FRONT_WING_DAMAGE and job.metadata.get("wing_levels"):
+            state = self._last_repeat_state
+            if not self._repeat_still_applicable(job, state):
+                return self._build_event_from_envelope(envelope, "suppress", metadata={"reason": "wing_advice_no_longer_applicable"})
+        if job.metadata.get("paired_tyre_alert") and (
+                self._last_repeat_state is None or not self._repeat_still_applicable(job, self._last_repeat_state)):
+            return self._build_event_from_envelope(envelope, "suppress", metadata={"reason": "tyre_alert_no_longer_applicable"})
+        if (envelope.repeat_target is not None
+                and not self._repeat_still_applicable(envelope.repeat_target, self._last_repeat_state)):
+            return self._build_event_from_envelope(envelope, "suppress", metadata={"reason": "repeat_no_longer_applicable"})
+        if envelope.start_guard is not None:
+            try:
+                envelope.start_guard(envelope.job)
+            except Exception as exc:
+                return self._build_event_from_envelope(envelope, 'suppress', metadata={
+                    'reason': 'delivery_no_longer_applicable', 'error': f'{type(exc).__name__}: {exc}'})
+        audible = getattr(self.backend, "audible", True)
+        try:
+            handle = self.backend.start(envelope.job) if audible else None
+        except Exception as exc:
+            return self._build_event_from_envelope(envelope, "failed", metadata={
+                "reason": "backend_start_failed", "error_type": type(exc).__name__})
+        if (envelope.job.source_kind == "strategy_broadcast"
+                and envelope.job.action_code == "LOW_FUEL"
+                and self._session_scope is not None):
+            self._last_fuel_broadcast_at = time.monotonic()
+        if not audible:
+            return self._build_event_from_envelope(envelope, "silent", metadata={"reason": "silent_backend"})
+        if (self._session_scope is not None and envelope.job.source_kind == "strategy_broadcast"
+                and envelope.job.action_code in EPISODE_CUES):
+            self._announced_episodes[envelope.job.action_code] = None
+        if envelope.job.metadata.get("defence_window"):
+            self._defence_radio.started(envelope.job.metadata["defence_window"])
         self._active_envelope = envelope
-        self._active_handle = self.backend.start(envelope.job)
+        self._active_handle = handle
+        self._personality_dialogue.started(envelope.job)
+        self._attack_mode.on_started(envelope.job)
+        if self.pit_feedback is not None and self._session_scope is not None:
+            if envelope.job.metadata.get("pit_follow_up") == "admit":
+                self.pit_feedback.end("recommendation_withdrawn")
+            self.pit_feedback.start(envelope.job, self._session_scope)
         return self._build_event_from_envelope(
             envelope,
             "start",
-            metadata={"source_kind": envelope.job.source_kind},
+            metadata={"source_kind": envelope.job.source_kind,
+                      "submit_to_backend_start_ms": round((time.monotonic() - envelope.created_monotonic) * 1000, 3)},
         )
 
-    def _write_debug_payload(
-        self,
-        *,
-        debug: dict[str, Any],
-        result: _OutputProcessingResult,
-    ) -> None:
-        output_lifecycle = {
-            "event": result.lifecycle_event.to_dict(),
-            "completed_output": result.completed_output_event.to_dict() if result.completed_output_event is not None else None,
-            "cancelled_output": result.cancelled_output_event.to_dict() if result.cancelled_output_event is not None else None,
-            "active_output": self._summarize_envelope(self._active_envelope),
-            "pending_output": self._summarize_envelope(self._pending_envelope),
-        }
-        debug["output_lifecycle"] = output_lifecycle
-
-        event_task_payload = result.event_envelope.task_handle if result.event_envelope is not None else {}
-        event_type = result.lifecycle_event.event_type
-        if event_type == "start":
-            current_task_event = build_task_lifecycle_event(
-                task_handle=event_task_payload,
-                event_type="start",
-                status="running",
-            ).to_dict()
-        elif event_type in {"enqueue", "replace_pending"}:
-            current_task_event = build_task_lifecycle_event(
-                task_handle=event_task_payload,
-                event_type=event_type,
-                status="pending",
-            ).to_dict()
-        elif event_type == "complete":
-            current_task_event = build_task_lifecycle_event(
-                task_handle=event_task_payload,
-                event_type="complete",
-                status="completed",
-            ).to_dict()
-        elif event_type == "suppress":
-            current_task_event = build_task_lifecycle_event(
-                task_handle=event_task_payload,
-                event_type="suppress",
-                status="cancelled",
-                cancel_reason=str(result.lifecycle_event.metadata.get("reason") or "suppressed"),
-            ).to_dict()
-        elif event_type == "cancel":
-            current_task_event = build_task_lifecycle_event(
-                task_handle=event_task_payload,
-                event_type="cancel",
-                status="cancelled",
-                cancel_reason=str(result.lifecycle_event.metadata.get("reason") or "cancelled"),
-            ).to_dict()
-        else:
-            current_task_event = build_task_lifecycle_event(
-                task_handle=event_task_payload,
-                event_type="idle",
-                status="pending",
-            ).to_dict()
-
-        completed_task_event = None
-        if result.completed_envelope is not None:
-            completed_task_event = build_task_lifecycle_event(
-                task_handle=result.completed_envelope.task_handle,
-                event_type="complete",
-                status="completed",
-            ).to_dict()
-        cancelled_task_event = None
-        if result.cancelled_envelope is not None:
-            cancelled_task_event = build_task_lifecycle_event(
-                task_handle=result.cancelled_envelope.task_handle,
-                event_type="cancel",
-                status="cancelled",
-                cancel_reason="replaced_by_higher_priority_pending",
-                cancelled_by_request_id=result.event_envelope.job.request_id if result.event_envelope is not None else None,
-            ).to_dict()
-
-        debug["task_lifecycle"] = {
-            "event": current_task_event,
-            "completed_task": completed_task_event,
-            "cancelled_task": cancelled_task_event,
-            "active_task": self._task_summary(self._active_envelope),
-            "pending_task": self._task_summary(self._pending_envelope),
-        }
-        pipeline_log = debug.setdefault("voice_pipeline_log", {})
-        pipeline_log["tts"] = build_tts_stage_event(
-            interaction_input_event=(
-                result.event_envelope.interaction_input_event
-                if result.event_envelope is not None
-                else {}
-            ),
-            output_lifecycle_event=result.lifecycle_event.to_dict(),
-        ).to_dict()
-        if result.completed_output_event is not None and result.completed_envelope is not None:
-            pipeline_log["tts_completed"] = build_tts_stage_event(
-                interaction_input_event=result.completed_envelope.interaction_input_event,
-                output_lifecycle_event=result.completed_output_event.to_dict(),
-            ).to_dict()
-        else:
-            pipeline_log.pop("tts_completed", None)
-        if result.cancelled_output_event is not None and result.cancelled_envelope is not None:
-            pipeline_log["tts_cancelled"] = build_tts_stage_event(
-                interaction_input_event=result.cancelled_envelope.interaction_input_event,
-                output_lifecycle_event=result.cancelled_output_event.to_dict(),
-            ).to_dict()
-        else:
-            pipeline_log.pop("tts_cancelled", None)
-        pipeline_log["task_lifecycle"] = debug["task_lifecycle"]
-
-    def _build_event_from_envelope(
-        self,
-        envelope: _SpeechEnvelope | None,
-        event_type: str,
-        *,
-        metadata: dict[str, Any] | None = None,
-    ) -> OutputLifecycleEvent:
-        if envelope is None:
-            return OutputLifecycleEvent(
-                output_session_id=self.output_session_id,
-                output_event_id=self._next_output_event_id(),
-                event_type=event_type,
-                channel="voice",
-                action_code="NONE",
-                priority=0,
-                cancelable=True,
-                turn_id="turn:unknown",
-                request_id="req:unknown",
-                snapshot_binding_id="snap:unknown",
-                speak_text="",
-                metadata=metadata or {},
-            )
-        job = envelope.job
-        merged_metadata = {
-            "source_kind": job.source_kind,
-            "persona_id": job.persona_id,
-            "voice_profile_id": job.voice_profile_id,
-        }
-        if metadata:
-            merged_metadata.update(metadata)
-        return OutputLifecycleEvent(
-            output_session_id=self.output_session_id,
-            output_event_id=job.output_event_id,
-            event_type=event_type,
-            channel="voice",
-            action_code=job.action_code,
-            priority=job.priority,
-            cancelable=job.cancelable,
-            turn_id=job.turn_id,
-            request_id=job.request_id,
-            snapshot_binding_id=job.snapshot_binding_id,
-            speak_text=job.speak_text,
-            metadata=merged_metadata,
-        )
-
-    def _build_fallback_event(
-        self,
-        *,
-        event_type: str,
-        input_event: dict[str, Any],
-        task_handle: dict[str, Any],
-        action_code: str,
-        metadata: dict[str, Any] | None = None,
-    ) -> OutputLifecycleEvent:
-        return OutputLifecycleEvent(
-            output_session_id=self.output_session_id,
-            output_event_id=self._next_output_event_id(),
-            event_type=event_type,
-            channel="voice",
-            action_code=action_code,
-            priority=int(input_event.get("priority") or 0),
-            cancelable=bool(input_event.get("cancelable", True)),
-            turn_id=str(input_event.get("turn_id") or "turn:unknown"),
-            request_id=str(input_event.get("request_id") or task_handle.get("request_id") or "req:unknown"),
-            snapshot_binding_id=str(input_event.get("snapshot_binding_id") or "snap:unknown"),
-            speak_text="",
-            metadata=metadata or {},
-        )
-
-    def _summarize_envelope(self, envelope: _SpeechEnvelope | None) -> dict[str, Any] | None:
-        if envelope is None:
-            return None
-        return {
-            "output_session_id": self.output_session_id,
-            "output_event_id": envelope.job.output_event_id,
-            "action_code": envelope.job.action_code,
-            "priority": envelope.job.priority,
-            "source_kind": envelope.job.source_kind,
-            "request_id": envelope.job.request_id,
-            "persona_id": envelope.job.persona_id,
-            "voice_profile_id": envelope.job.voice_profile_id,
-        }
-
-    def _task_summary(self, envelope: _SpeechEnvelope | None) -> dict[str, Any] | None:
-        if envelope is None:
-            return None
-        return {
-            "task_id": envelope.task_handle.get("task_id"),
-            "request_id": envelope.task_handle.get("request_id"),
-            "handler": envelope.task_handle.get("handler"),
-            "status": "running" if envelope is self._active_envelope else "pending",
-        }
 
     def _active_action_code(self) -> str | None:
         if self._active_envelope is None:
             return None
         return self._active_envelope.job.action_code
 
-    def _is_duplicate_code(self, action_code: str) -> bool:
-        if self._active_envelope is not None and self._active_envelope.job.action_code == action_code:
-            return True
-        if self._pending_envelope is not None and self._pending_envelope.job.action_code == action_code:
-            return True
-        return False
+
+    def _is_duplicate_submission(self, envelope: _SpeechEnvelope) -> bool:
+        return any(queued is not None and queued.dedup_key == envelope.dedup_key
+                   for queued in (self._active_envelope, self._pending_envelope))
+
+    @_serialized
+    def reserve_query_turn(self, token: str, expires_at: float | None) -> None:
+        self.query_busy()
+        if expires_at is None:
+            self._query_turns.pop(token, None)
+        elif token in self._query_turns or len(self._query_turns) < 64:
+            self._query_turns[token] = expires_at
+            self._cancel_optional_personality("query_turn_started")
+        else:
+            raise ValueError("speech_query_turn_limit")
+
+    @_serialized
+    def observe_pit_evidence(self, state: SessionState) -> None:
+        if self.pit_feedback is not None:
+            self.pit_feedback.observe(state)
+
+    @_serialized
+    def end_pit_evidence(self, reason: str) -> None:
+        if self.pit_feedback is not None:
+            self.pit_feedback.end(reason)
+
+    @_serialized
+    def record_pit_feedback(self, *, state: SessionState, text: str, request_id: str, interpretation=None) -> dict:
+        if self.pit_feedback is None:
+            return {"status": "unavailable", "reason": "pit_evidence_disabled"}
+        self.tick()
+        self.pit_feedback.observe(state)
+        result = self.pit_feedback.feedback(state, text, request_id, interpretation=interpretation) if interpretation else self.pit_feedback.feedback(state, text, request_id)
+        record = self.pit_feedback.record
+        if (result["status"] in {"queued", "already_recorded"} and result.get("advice_kind") != "fuel" and record is not None
+                and self._personality_dialogue.record_pit_response(record["output_event_id"])):
+            pending = self._pending_envelope
+            if pending is not None and pending.job.metadata.get("pit_follow_up") == "insist":
+                self._pending_envelope = None
+                self._publish_transition(pending, "cancel", "pit_recommendation_answered")
+            active = self._active_envelope
+            if active is not None and active.job.metadata.get("pit_follow_up") == "insist":
+                self._request_personality_stop(active, "pit_recommendation_answered")
+        return result
+
+    @_serialized
+    def configure_personality(self, params: dict) -> dict:
+        preferences = self._personality_dialogue.configure(params)
+        if params:
+            if preferences["quiet"]:
+                self._radio_experience.cancel()
+            def blocked(job):
+                return self._personality_dialogue.suppresses_job(job) or (
+                    preferences["quiet"] and (job.metadata.get("attack_opportunity") or {}).get("phase") in {"forming", "outcome", "forecast"}
+                )
+            if not preferences["humor_enabled"] or preferences["humor"] != "normal":
+                self._cancel_personality_generation("personality_preferences_changed")
+            pending = self._pending_envelope
+            if pending is not None and blocked(pending.job):
+                self._pending_envelope = None
+                self._publish_transition(pending, "cancel", "personality_preferences_changed")
+            active = self._active_envelope
+            if active is not None and blocked(active.job):
+                self._request_personality_stop(active, "personality_preferences_changed")
+        return preferences
+
+    @_serialized
+    def set_radio_preference(self, enabled: bool) -> dict:
+        result = self._radio_experience.set_preference(enabled)
+        if not enabled and self._active_envelope is not None:
+            active = self._active_envelope
+            if active.job.metadata.get("experience_kind") == "deferred_reason":
+                self._request_personality_stop(active, "radio_preference_revoked")
+        return result
+
+    @_serialized
+    def correct_last_brake_habit(self) -> dict:
+        return self._radio_experience.correct_last_habit()
+
+    @_serialized
+    def personality_control_status(self) -> dict:
+        state = self._last_repeat_state
+        hint = state.personality if state is not None else None
+        return {
+            **self._personality_dialogue.configure({}),
+            "stage": hint.stage if hint is not None else None,
+            "microphone": self._microphone_status[0] if speech_time() < self._microphone_status[1] else "unknown",
+            "interaction_active": self.query_busy(),
+            "playback": self.playback_status()["status"],
+        }
+
+    @_serialized
+    def report_microphone(self, state: str, ttl_s: float) -> None:
+        self._microphone_status = (state, speech_time() + ttl_s)
+
+    def _cancel_optional_personality(self, reason: str) -> None:
+        self._cancel_personality_generation(reason)
+        active = self._active_envelope
+        if active is not None and active.job.metadata.get("optional_personality"):
+            self._request_personality_stop(active, reason)
+
+    def _begin_personality_generation(self, envelope: _SpeechEnvelope) -> bool:
+        """Return true only when the optional template is deferred."""
+        model = self._personality_llm
+        dialogue = self._personality_dialogue
+        if (model.mode == "disabled" or self.query_busy()
+                or self._active_envelope is not None or self._pending_envelope is not None
+                or not dialogue.humor_enabled or dialogue.humor_level != "normal"):
+            return False
+        job = envelope.job
+        context = job.metadata["personality"]
+        kind = context["opportunity"]
+        if not context["humorous"] or context["stage"] < 2 or kind not in SUPPORTED_OPPORTUNITIES:
+            return False
+        if not model.start(PersonalityLlmRequest(
+                request_id=job.output_event_id, decision_ref=job.snapshot_binding_id,
+                opportunity=kind, stage=context["stage"], tone=context.get("tone", ""))):
+            return False
+        if model.mode == "shadow":
+            return False
+        envelope.start_guard = self._submission_guard
+        job.metadata["session_scope"] = self._session_scope
+        self._personality_generation = envelope
+        return True
+
+    def _generation_matches(self, envelope: _SpeechEnvelope, state: SessionState) -> bool:
+        dialogue = self._personality_dialogue
+        if self._expired(envelope) or not dialogue.context_current(state, live=self.personality_live):
+            return False
+        hint = state.personality
+        context = envelope.job.metadata["personality"]
+        return (
+            hint.event_id == context["event_id"]
+            and hint.opportunity == context["opportunity"]
+            and hint.stage == context["stage"]
+            and hint.opportunity_age_s is not None
+            and 0 <= hint.opportunity_age_s <= 2
+        )
+
+    def _poll_personality_generation(self) -> _SpeechEnvelope | None:
+        result = self._personality_llm.poll()
+        envelope = self._personality_generation
+        if result is None or envelope is None:
+            return None
+        self._personality_generation = None
+        job = envelope.job
+        if (self._expired(envelope) or job.metadata["session_scope"] != self._session_scope
+                or self.query_busy() or self._personality_dialogue.suppresses_job(job)):
+            self._publish_transition(envelope, "cancel", "personality_model_context_expired")
+            return None
+        status = result.status
+        if result.request_id != job.output_event_id or result.decision_ref != job.snapshot_binding_id:
+            status = "invalid_binding"
+        if status == "ok" and result.fragment:
+            job.speak_text = f"{result.fragment} {job.speak_text}"
+        job.metadata["personality"]["model"] = {
+            "status": status, "elapsed_ms": result.elapsed_ms,
+            "used": status == "ok" and bool(result.fragment),
+        }
+        return envelope
+
+    def _cancel_personality_generation(self, reason: str) -> None:
+        self._personality_llm.cancel()
+        envelope = self._personality_generation
+        if envelope is not None:
+            self._personality_generation = None
+            self._publish_transition(envelope, "cancel", reason)
+
+    @_serialized
+    def personality_model_status(self) -> dict:
+        return self._personality_llm.snapshot()
+
+    def _request_personality_stop(self, active: _SpeechEnvelope, reason: str) -> None:
+        if active.job.metadata.get("cancel_requested"):
+            return
+        active.job.metadata.update(cancel_requested=True, cancel_reason=reason, stop_requested_at=speech_time())
+        self._request_stop_confirmation(active)
+        self._publish_transition(active, "cancel_requested", reason)
+
+    def query_busy(self) -> bool:
+        now = speech_time()
+        for token, deadline in tuple(self._query_turns.items()):
+            if deadline <= now:
+                del self._query_turns[token]
+        return bool(self._query_turns)
+
 
     def _next_output_event_id(self) -> str:
         self._event_counter += 1
         return f"out:{self._event_counter}"
-
-    def _emit_debug(self, decision: StrategyDecision) -> None:
-        """Render layered debug state for maintenance and tuning."""
-
-        context = decision.debug.get("context", {})
-        assessment = decision.debug.get("assessment", {})
-        risk_profile = decision.debug.get("risk_profile", {})
-        candidates = decision.debug.get("candidates", [])
-        interaction_input_event = decision.debug.get("interaction_input_event", {})
-        output_lifecycle = decision.debug.get("output_lifecycle", {})
-        task_lifecycle = decision.debug.get("task_lifecycle", {})
-
-        print("  [备注] 分层策略调试")
-        if interaction_input_event:
-            snapshot_binding = interaction_input_event.get("snapshot_binding", {})
-            print(
-                "    - 交互事件: "
-                f"{interaction_input_event.get('intent_type')} "
-                f"turn={interaction_input_event.get('turn_id')} "
-                f"request={interaction_input_event.get('request_id')} "
-                f"snapshot={snapshot_binding.get('snapshot_binding_id')}"
-            )
-        if output_lifecycle:
-            event = output_lifecycle.get("event", {})
-            print(
-                "    - 输出生命周期: "
-                f"{event.get('event_type')} "
-                f"action={event.get('action_code')} "
-                f"output_event={event.get('output_event_id')}"
-            )
-        if task_lifecycle:
-            event = task_lifecycle.get("event", {})
-            print(
-                "    - 任务生命周期: "
-                f"{event.get('event_type')} "
-                f"task={event.get('task_id')} "
-                f"status={event.get('status')}"
-            )
-        if context:
-            print(f"    - 上下文因子: {self._format_mapping(context)}")
-        if assessment:
-            print(f"    - 状态评估: {self._format_mapping(assessment)}")
-        if risk_profile:
-            print(f"    - 风险评分: {self._format_mapping(risk_profile)}")
-        if candidates:
-            ranked = ", ".join(
-                f"{item['code']}@{item['priority']}({item['layer']})"
-                for item in candidates[:5]
-            )
-            print(f"    - 候选策略: {ranked}")
-        if decision.messages:
-            ordered = " > ".join(f"{item.code}@{item.priority}" for item in decision.messages[:5])
-            print(f"    - 最终排序: {ordered}")
-
-    def _format_mapping(self, payload: dict) -> str:
-        """Format a flat mapping into one readable debug line."""
-
-        return ", ".join(f"{key}={value}" for key, value in payload.items())
-
-    def _emit_repeat_last_control(
-        self,
-        *,
-        input_event: dict[str, Any],
-        structured_query: dict[str, Any],
-        query_route: dict[str, Any],
-        confirmation_policy: dict[str, Any],
-        task_handle: dict[str, Any],
-        normalization_event: dict[str, Any],
-        render: bool,
-        extra_debug: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        base = self._active_envelope or self._pending_envelope or self._last_completed_envelope
-        if base is None:
-            return self._emit_control_idle(
-                input_event=input_event,
-                structured_query=structured_query,
-                query_route=query_route,
-                confirmation_policy=confirmation_policy,
-                task_handle=task_handle,
-                normalization_event=normalization_event,
-                render=render,
-                reason="no_repeatable_output",
-                extra_debug=extra_debug,
-            )
-
-        repeated = _SpeechEnvelope(
-            job=SpeechJob(
-                output_event_id=self._next_output_event_id(),
-                interaction_session_id=str(input_event.get("interaction_session_id") or "runtime:unknown"),
-                turn_id=str(input_event.get("turn_id") or "turn:unknown"),
-                request_id=str(input_event.get("request_id") or "req:unknown"),
-                snapshot_binding_id=str(input_event.get("snapshot_binding_id") or "snap:unknown"),
-                source_kind="query_response",
-                action_code="QUERY_REPEAT_LAST",
-                priority=95,
-                speak_text=base.job.speak_text,
-                cancelable=True,
-                persona_id=self.persona.persona_id,
-                voice_profile_id=self.persona.voice_profile_id,
-                metadata={
-                    "source": "query_response",
-                    "query_kind": "repeat_last",
-                    "repeated_action_code": base.job.action_code,
-                    "repeated_output_event_id": base.job.output_event_id,
-                    "persona_id": self.persona.persona_id,
-                    "voice_profile_id": self.persona.voice_profile_id,
-                },
-            ),
-            interaction_input_event=input_event,
-            task_handle=task_handle,
-        )
-        result = self._process_submission(
-            submitted_envelope=repeated,
-            fallback_input_event=input_event,
-            fallback_task_handle=task_handle,
-        )
-        debug = self._build_control_debug(
-            input_event=input_event,
-            structured_query=structured_query,
-            query_route=query_route,
-            confirmation_policy=confirmation_policy,
-            task_handle=task_handle,
-            normalization_event=normalization_event,
-            result=result,
-            extra_debug=extra_debug,
-        )
-        if render:
-            event = result.lifecycle_event
-            if event.event_type == "start":
-                print(f"[ASURADA][QUERY][REPEAT] {event.speak_text}")
-            elif event.event_type == "enqueue":
-                print(f"[ASURADA][QUERY][REPEAT-QUEUE] {event.speak_text}")
-            elif event.event_type == "replace_pending":
-                print(f"[ASURADA][QUERY][REPEAT-REPLACE] {event.speak_text}")
-            elif event.event_type == "suppress":
-                print(f"[ASURADA][QUERY][REPEAT-SUPPRESS] {event.metadata.get('reason', 'suppressed')}")
-        return debug
-
-    def _emit_stop_cancel_control(
-        self,
-        *,
-        query_kind: str,
-        input_event: dict[str, Any],
-        structured_query: dict[str, Any],
-        query_route: dict[str, Any],
-        confirmation_policy: dict[str, Any],
-        task_handle: dict[str, Any],
-        normalization_event: dict[str, Any],
-        render: bool,
-        extra_debug: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        lifecycle_event: OutputLifecycleEvent
-        event_envelope: _SpeechEnvelope | None
-        cancelled_output_event: OutputLifecycleEvent | None = None
-        cancelled_envelope: _SpeechEnvelope | None = None
-
-        if query_kind == "stop":
-            active = self._active_envelope
-            pending = self._pending_envelope
-            if active is not None:
-                self.backend.stop(self._active_handle)
-                self._active_handle = None
-                self._active_envelope = None
-                self._last_completed_envelope = active
-                lifecycle_event = self._build_event_from_envelope(
-                    active,
-                    "cancel",
-                    metadata={"reason": "voice_control_stop", "source_kind": active.job.source_kind},
-                )
-                event_envelope = active
-                if pending is not None:
-                    self._pending_envelope = None
-                    cancelled_envelope = pending
-                    cancelled_output_event = self._build_event_from_envelope(
-                        pending,
-                        "cancel",
-                        metadata={"reason": "voice_control_stop", "source_kind": pending.job.source_kind},
-                    )
-            elif pending is not None:
-                self._pending_envelope = None
-                lifecycle_event = self._build_event_from_envelope(
-                    pending,
-                    "cancel",
-                    metadata={"reason": "voice_control_stop_pending", "source_kind": pending.job.source_kind},
-                )
-                event_envelope = pending
-            else:
-                return self._emit_control_idle(
-                    input_event=input_event,
-                    structured_query=structured_query,
-                    query_route=query_route,
-                    confirmation_policy=confirmation_policy,
-                    task_handle=task_handle,
-                    normalization_event=normalization_event,
-                    render=render,
-                    reason="nothing_to_stop",
-                    extra_debug=extra_debug,
-                )
-        else:
-            pending = self._pending_envelope
-            active = self._active_envelope
-            if pending is not None:
-                self._pending_envelope = None
-                lifecycle_event = self._build_event_from_envelope(
-                    pending,
-                    "cancel",
-                    metadata={"reason": "voice_control_cancel_pending", "source_kind": pending.job.source_kind},
-                )
-                event_envelope = pending
-            elif active is not None and active.job.cancelable:
-                self.backend.stop(self._active_handle)
-                self._active_handle = None
-                self._active_envelope = None
-                self._last_completed_envelope = active
-                lifecycle_event = self._build_event_from_envelope(
-                    active,
-                    "cancel",
-                    metadata={"reason": "voice_control_cancel_active", "source_kind": active.job.source_kind},
-                )
-                event_envelope = active
-            else:
-                return self._emit_control_idle(
-                    input_event=input_event,
-                    structured_query=structured_query,
-                    query_route=query_route,
-                    confirmation_policy=confirmation_policy,
-                    task_handle=task_handle,
-                    normalization_event=normalization_event,
-                    render=render,
-                    reason="nothing_to_cancel",
-                    extra_debug=extra_debug,
-                )
-
-        result = _OutputProcessingResult(
-            lifecycle_event=lifecycle_event,
-            event_envelope=event_envelope,
-            cancelled_output_event=cancelled_output_event,
-            cancelled_envelope=cancelled_envelope,
-        )
-        debug = self._build_control_debug(
-            input_event=input_event,
-            structured_query=structured_query,
-            query_route=query_route,
-            confirmation_policy=confirmation_policy,
-            task_handle=task_handle,
-            normalization_event=normalization_event,
-            result=result,
-            extra_debug=extra_debug,
-        )
-        if render:
-            print(f"[ASURADA][QUERY][{query_kind.upper()}] {result.lifecycle_event.metadata.get('reason', query_kind)}")
-        return debug
-
-    def _emit_control_idle(
-        self,
-        *,
-        input_event: dict[str, Any],
-        structured_query: dict[str, Any],
-        query_route: dict[str, Any],
-        confirmation_policy: dict[str, Any],
-        task_handle: dict[str, Any],
-        normalization_event: dict[str, Any],
-        render: bool,
-        reason: str,
-        extra_debug: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        result = _OutputProcessingResult(
-            lifecycle_event=self._build_fallback_event(
-                event_type="idle",
-                input_event=input_event,
-                task_handle=task_handle,
-                action_code="NONE",
-                metadata={"reason": reason, "source_kind": "query_response"},
-            ),
-            event_envelope=None,
-        )
-        debug = self._build_control_debug(
-            input_event=input_event,
-            structured_query=structured_query,
-            query_route=query_route,
-            confirmation_policy=confirmation_policy,
-            task_handle=task_handle,
-            normalization_event=normalization_event,
-            result=result,
-            extra_debug=extra_debug,
-        )
-        if render:
-            print(f"[ASURADA][QUERY][IDLE] {reason}")
-        return debug
-
-    def _build_control_debug(
-        self,
-        *,
-        input_event: dict[str, Any],
-        structured_query: dict[str, Any],
-        query_route: dict[str, Any],
-        confirmation_policy: dict[str, Any],
-        task_handle: dict[str, Any],
-        normalization_event: dict[str, Any],
-        result: _OutputProcessingResult,
-        extra_debug: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        debug: dict[str, Any] = {
-            "interaction_input_event": input_event,
-            "structured_query": structured_query,
-            "query_route": query_route,
-            "confirmation_policy": confirmation_policy,
-            "task_handle": task_handle,
-            "voice_pipeline_log": {
-                "asr": build_asr_stage_event(InteractionInputEvent(**input_event)).to_dict(),
-                "query_normalization": normalization_event,
-                "query_route": query_route,
-                "confirmation_policy": confirmation_policy,
-            },
-        }
-        if extra_debug:
-            debug.update(extra_debug)
-        self._write_debug_payload(debug=debug, result=result)
-        return debug
-
-
-class ConsoleLapSummaryOutput:
-    """Print a compact single-lap review summary."""
-
-    def emit(self, summary: LapAnalysisSummary) -> None:
-        """Render lap summary metrics and segment review lines."""
-
-        print("[ASURADA][LAP] 单圈总结")
-        print(f"  - 最高车速: {summary.max_speed_kph:.0f} km/h")
-        print(f"  - 最低车速: {summary.min_speed_kph:.0f} km/h")
-        print(f"  - 重刹事件: {summary.heavy_braking_events}")
-        print(f"  - 姿态不稳事件: {summary.unstable_events}")
-        print(f"  - 前轮负荷过高事件: {summary.overload_events}")
-        print(f"  - 扇区切换次数: {summary.sector_transitions}")
-        if summary.top_risk_segments:
-            print("  [赛道复盘] 高风险区段")
-            for segment in summary.top_risk_segments:
-                print(f"    - {self._segment_line(segment)}")
-        if summary.dynamics_phases:
-            print("  [驾驶动态] 分阶段摘要")
-            for phase in summary.dynamics_phases:
-                print(
-                    "    - "
-                    f"{phase.phase}: sample={phase.sample_count}, "
-                    f"unstable={phase.unstable_events}, "
-                    f"front_load={phase.overload_events}, "
-                    f"heavy_brake={phase.heavy_braking_events}, "
-                    f"avg_speed={phase.avg_speed_kph:.0f}"
-                )
-        if summary.driver_style_summary:
-            print("  [驾驶风格] 标签")
-            print(f"    - {', '.join(summary.driver_style_summary)}")
-        if summary.deployment_segments:
-            print("  [赛道复盘] 主要部署区")
-            for segment in summary.deployment_segments:
-                print(
-                    "    - "
-                    f"{segment.name}: 最高 {segment.max_speed_kph:.0f} km/h, "
-                    f"最低 {segment.min_speed_kph:.0f} km/h"
-                )
-
-    def _segment_line(self, segment: SegmentAnalysis) -> str:
-        """Format one segment summary row."""
-
-        return (
-            f"{segment.name} ({segment.zone_type}) | "
-            f"unstable={segment.unstable_events}, "
-            f"front_load={segment.overload_events}, "
-            f"heavy_brake={segment.heavy_braking_events}, "
-            f"vmax={segment.max_speed_kph:.0f}"
-        )

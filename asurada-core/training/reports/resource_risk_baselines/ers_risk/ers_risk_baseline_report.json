@@ -1,0 +1,150 @@
+{
+  "model": "ers_risk",
+  "target": "ers_risk_label",
+  "rows": {
+    "all": 13400,
+    "train": 6663,
+    "val": 1666,
+    "test": 5071
+  },
+  "feature_columns": [
+    "session_time_s",
+    "lap_number",
+    "total_laps",
+    "speed_kph",
+    "throttle",
+    "brake",
+    "official_gap_ahead_s",
+    "official_gap_behind_s",
+    "ers_store_energy",
+    "ers_pct",
+    "drs_available",
+    "front_rival_ers_pct",
+    "rear_rival_ers_pct",
+    "front_rival_speed_delta",
+    "rear_rival_speed_delta",
+    "fuel_laps_remaining",
+    "session_type",
+    "timing_mode",
+    "track_usage",
+    "next_track_usage",
+    "ers_deploy_mode",
+    "safety_car",
+    "driving_mode"
+  ],
+  "validation_source": "train_holdout_split",
+  "test_source": "exported_test_split",
+  "best_iteration": 213,
+  "metrics": {
+    "mae": 0.23285988671922198,
+    "rmse": 1.3905521250154942,
+    "r2": 0.9609077880206437,
+    "spearman": 0.9800787096394609,
+    "within_5": 0.9976336028396766,
+    "within_10": 0.9990140011831986
+  },
+  "target_stats": {
+    "train_min": 15.0,
+    "train_max": 76.0,
+    "test_min": 15.0,
+    "test_max": 70.0
+  },
+  "top_feature_importance": [
+    {
+      "feature": "ers_store_energy",
+      "importance": 10233860
+    },
+    {
+      "feature": "track_usage",
+      "importance": 944006
+    },
+    {
+      "feature": "ers_pct",
+      "importance": 449513
+    },
+    {
+      "feature": "next_track_usage",
+      "importance": 222100
+    },
+    {
+      "feature": "driving_mode",
+      "importance": 168783
+    },
+    {
+      "feature": "speed_kph",
+      "importance": 30174
+    },
+    {
+      "feature": "session_time_s",
+      "importance": 12991
+    },
+    {
+      "feature": "official_gap_behind_s",
+      "importance": 8180
+    },
+    {
+      "feature": "rear_rival_speed_delta",
+      "importance": 5454
+    },
+    {
+      "feature": "fuel_laps_remaining",
+      "importance": 5010
+    },
+    {
+      "feature": "official_gap_ahead_s",
+      "importance": 3654
+    },
+    {
+      "feature": "front_rival_speed_delta",
+      "importance": 3206
+    },
+    {
+      "feature": "throttle",
+      "importance": 2941
+    },
+    {
+      "feature": "brake",
+      "importance": 1720
+    },
+    {
+      "feature": "rear_rival_ers_pct",
+      "importance": 1288
+    },
+    {
+      "feature": "front_rival_ers_pct",
+      "importance": 598
+    },
+    {
+      "feature": "total_laps",
+      "importance": 1
+    },
+    {
+      "feature": "lap_number",
+      "importance": 0
+    },
+    {
+      "feature": "drs_available",
+      "importance": 0
+    },
+    {
+      "feature": "session_type",
+      "importance": 0
+    }
+  ],
+  "model_path": "ers_risk_baseline.txt",
+  "asset_manifest": {
+    "version": "model-asset-v1",
+    "model_sha256": "2ff3aed1296f8940cf3caa90194e0d847edfe143f4bd3894b33b0c9c0f0838ae",
+    "feature_schema_sha256": "fe45bcb154f0d700309ad2eeba922c461f8a10a6846cd102c02275c4627734f1"
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(PROJECT_ROOT / "src"))
+from asurada.training_partition import session_partitions
 DEFAULT_DATASET = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "event_features_v1.csv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "training" / "reports" / "event_impact_baseline"
 
@@ -28,7 +31,6 @@ def main() -> int:
         import lightgbm as lgb  # type: ignore
         import pandas as pd  # type: ignore
         from sklearn.metrics import classification_report, confusion_matrix  # type: ignore
-        from sklearn.model_selection import train_test_split  # type: ignore
     except ModuleNotFoundError as exc:
         missing = exc.name or "required dependency"
         raise SystemExit(
@@ -36,7 +38,7 @@ def main() -> int:
         )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    df = pd.read_csv(args.dataset)
+    df = pd.read_csv(args.dataset, dtype={"session_uid": str})
     df = df[df["session_type"].fillna("").str.contains("RaceLike")].copy()
     df = df[df["event_code"].isin({"COLL", "LGOT", "OVTK", "PENA", "SSTA", "STLG"})].copy()
     if df.empty:
@@ -76,21 +78,8 @@ def main() -> int:
     for column in categorical_features:
         df[column] = df[column].fillna("UNKNOWN").astype("category")
 
-    train_df = df[df["split"] == "train"].copy()
-    val_df = df[df["split"] == "val"].copy()
-    test_df = df[df["split"] == "test"].copy()
-    if train_df.empty or test_df.empty:
-        raise SystemExit("Insufficient train/test rows after split filtering.")
-
-    generated_holdout_val = False
-    if val_df.empty or val_df[target_column].nunique() < 2:
-        train_df, val_df = train_test_split(
-            train_df,
-            test_size=0.2,
-            random_state=42,
-            stratify=train_df[target_column],
-        )
-        generated_holdout_val = True
+    generated_holdout_val = not (df["split"] == "val").any()
+    train_df, val_df, test_df, partition_manifest = session_partitions(df)
 
     feature_columns = numeric_features + categorical_features
     train_set = lgb.Dataset(
@@ -176,13 +165,14 @@ def main() -> int:
         "target": target_column,
         "features": feature_columns,
         "best_iteration": int(best_iteration),
-        "validation_source": "train_holdout_split" if generated_holdout_val else "exported_val_split",
+        "validation_source": "whole_session_holdout" if generated_holdout_val else "exported_session_split",
+        "partition": partition_manifest,
         "selected_threshold": threshold,
         "validation_threshold_scan": threshold_scan,
         "classification_report": report,
         "confusion_matrix": confusion,
         "top_feature_importance": importance[:20],
-        "model_path": str(model_path),
+        "model_path": model_path.name,
         "scale_pos_weight": scale_pos_weight,
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")

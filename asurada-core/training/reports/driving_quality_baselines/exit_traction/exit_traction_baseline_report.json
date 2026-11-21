@@ -1,0 +1,99 @@
+{
+  "model_name": "exit_traction",
+  "target": "exit_traction_label",
+  "feature_columns": [
+    "speed_kph",
+    "throttle",
+    "steer",
+    "g_force_longitudinal",
+    "wheel_slip_ratio_rl",
+    "wheel_slip_ratio_rr",
+    "tyre_wear_pct",
+    "recent_unstable_ratio",
+    "throttle_phase_factor",
+    "session_type",
+    "track_segment",
+    "track_usage",
+    "next_track_segment",
+    "next_track_usage",
+    "driving_mode",
+    "status_tags"
+  ],
+  "categorical_features": [
+    "session_type",
+    "track_segment",
+    "track_usage",
+    "next_track_segment",
+    "next_track_usage",
+    "driving_mode",
+    "status_tags"
+  ],
+  "train_rows": 6663,
+  "val_rows": 1666,
+  "test_rows": 5071,
+  "validation_source": "train_holdout_split",
+  "test_source": "exported_test_split",
+  "best_iteration": 400,
+  "mae": 0.4541,
+  "rmse": 0.6593,
+  "r2": 0.9968,
+  "labeling": "proxy_distillation_from_features",
+  "top_feature_importance": [
+    {
+      "feature": "steer",
+      "importance": 2764.0
+    },
+    {
+      "feature": "speed_kph",
+      "importance": 1859.0
+    },
+    {
+      "feature": "g_force_longitudinal",
+      "importance": 1196.0
+    },
+    {
+      "feature": "wheel_slip_ratio_rr",
+      "importance": 1026.0
+    },
+    {
+      "feature": "throttle",
+      "importance": 915.0
+    },
+    {
+      "feature": "tyre_wear_pct",
+      "importance": 903.0
+    },
+    {
+      "feature": "wheel_slip_ratio_rl",
+      "importance": 891.0
+    },
+    {
+      "feature": "recent_unstable_ratio",
+      "importance": 810.0
+    },
+    {
+      "feature": "track_segment",
+      "importance": 716.0
+    },
+    {
+      "feature": "next_track_segment",
+      "importance": 282.0
+    }
+  ],
+  "model_path": "exit_traction_baseline.txt",
+  "asset_manifest": {
+    "version": "model-asset-v1",
+    "model_sha256": "ac5398a6966a68d865920844a3b4fcc9ac604a554df58e2ecd56fde480bca34e",
+    "feature_schema_sha256": "a3123569ecbb746bcdb8c83e5ee2fdb02bfda1057d6bf7744352d55f58123036"
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

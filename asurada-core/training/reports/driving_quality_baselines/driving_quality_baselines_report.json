@@ -1,0 +1,267 @@
+{
+  "features": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/features.csv",
+  "filter": "timing_support_level == official_preferred",
+  "labeling": "proxy_distillation_from_features",
+  "models": {
+    "apex_quality": {
+      "model_name": "apex_quality",
+      "target": "apex_quality_label",
+      "feature_columns": [
+        "speed_kph",
+        "steer",
+        "g_force_lateral",
+        "yaw",
+        "roll",
+        "wheel_slip_ratio_fl",
+        "wheel_slip_ratio_fr",
+        "recent_front_overload_ratio",
+        "recent_unstable_ratio",
+        "steering_phase_factor",
+        "session_type",
+        "track_segment",
+        "track_usage",
+        "track_zone",
+        "driving_mode",
+        "status_tags"
+      ],
+      "categorical_features": [
+        "session_type",
+        "track_segment",
+        "track_usage",
+        "track_zone",
+        "driving_mode",
+        "status_tags"
+      ],
+      "train_rows": 6663,
+      "val_rows": 1666,
+      "test_rows": 5071,
+      "validation_source": "train_holdout_split",
+      "test_source": "exported_test_split",
+      "best_iteration": 400,
+      "mae": 0.3826,
+      "rmse": 0.5764,
+      "r2": 0.9892,
+      "labeling": "proxy_distillation_from_features",
+      "top_feature_importance": [
+        {
+          "feature": "g_force_lateral",
+          "importance": 2239.0
+        },
+        {
+          "feature": "steer",
+          "importance": 2142.0
+        },
+        {
+          "feature": "yaw",
+          "importance": 1723.0
+        },
+        {
+          "feature": "speed_kph",
+          "importance": 1134.0
+        },
+        {
+          "feature": "wheel_slip_ratio_fl",
+          "importance": 1001.0
+        },
+        {
+          "feature": "wheel_slip_ratio_fr",
+          "importance": 958.0
+        },
+        {
+          "feature": "roll",
+          "importance": 760.0
+        },
+        {
+          "feature": "track_segment",
+          "importance": 564.0
+        },
+        {
+          "feature": "recent_unstable_ratio",
+          "importance": 562.0
+        },
+        {
+          "feature": "recent_front_overload_ratio",
+          "importance": 406.0
+        }
+      ],
+      "model_path": "/Users/sn5/Asurada/asurada-core/training/reports/driving_quality_baselines/apex_quality/apex_quality_baseline.txt"
+    },
+    "entry_quality": {
+      "model_name": "entry_quality",
+      "target": "entry_quality_label",
+      "feature_columns": [
+        "speed_kph",
+        "brake",
+        "steer",
+        "g_force_longitudinal",
+        "g_force_lateral",
+        "wheel_slip_ratio_fl",
+        "wheel_slip_ratio_fr",
+        "recent_front_overload_ratio",
+        "recent_unstable_ratio",
+        "brake_phase_factor",
+        "session_type",
+        "track_segment",
+        "track_usage",
+        "track_zone",
+        "driving_mode",
+        "status_tags"
+      ],
+      "categorical_features": [
+        "session_type",
+        "track_segment",
+        "track_usage",
+        "track_zone",
+        "driving_mode",
+        "status_tags"
+      ],
+      "train_rows": 6663,
+      "val_rows": 1666,
+      "test_rows": 5071,
+      "validation_source": "train_holdout_split",
+      "test_source": "exported_test_split",
+      "best_iteration": 400,
+      "mae": 0.3427,
+      "rmse": 0.6511,
+      "r2": 0.9961,
+      "labeling": "proxy_distillation_from_features",
+      "top_feature_importance": [
+        {
+          "feature": "steer",
+          "importance": 2264.0
+        },
+        {
+          "feature": "g_force_longitudinal",
+          "importance": 1986.0
+        },
+        {
+          "feature": "speed_kph",
+          "importance": 1378.0
+        },
+        {
+          "feature": "wheel_slip_ratio_fr",
+          "importance": 1154.0
+        },
+        {
+          "feature": "wheel_slip_ratio_fl",
+          "importance": 1124.0
+        },
+        {
+          "feature": "g_force_lateral",
+          "importance": 817.0
+        },
+        {
+          "feature": "brake",
+          "importance": 705.0
+        },
+        {
+          "feature": "recent_front_overload_ratio",
+          "importance": 665.0
+        },
+        {
+          "feature": "track_segment",
+          "importance": 581.0
+        },
+        {
+          "feature": "recent_unstable_ratio",
+          "importance": 561.0
+        }
+      ],
+      "model_path": "/Users/sn5/Asurada/asurada-core/training/reports/driving_quality_baselines/entry_quality/entry_quality_baseline.txt"
+    },
+    "exit_traction": {
+      "model_name": "exit_traction",
+      "target": "exit_traction_label",
+      "feature_columns": [
+        "speed_kph",
+        "throttle",
+        "steer",
+        "g_force_longitudinal",
+        "wheel_slip_ratio_rl",
+        "wheel_slip_ratio_rr",
+        "tyre_wear_pct",
+        "recent_unstable_ratio",
+        "throttle_phase_factor",
+        "session_type",
+        "track_segment",
+        "track_usage",
+        "next_track_segment",
+        "next_track_usage",
+        "driving_mode",
+        "status_tags"
+      ],
+      "categorical_features": [
+        "session_type",
+        "track_segment",
+        "track_usage",
+        "next_track_segment",
+        "next_track_usage",
+        "driving_mode",
+        "status_tags"
+      ],
+      "train_rows": 6663,
+      "val_rows": 1666,
+      "test_rows": 5071,
+      "validation_source": "train_holdout_split",
+      "test_source": "exported_test_split",
+      "best_iteration": 400,
+      "mae": 0.4541,
+      "rmse": 0.6593,
+      "r2": 0.9968,
+      "labeling": "proxy_distillation_from_features",
+      "top_feature_importance": [
+        {
+          "feature": "steer",
+          "importance": 2764.0
+        },
+        {
+          "feature": "speed_kph",
+          "importance": 1859.0
+        },
+        {
+          "feature": "g_force_longitudinal",
+          "importance": 1196.0
+        },
+        {
+          "feature": "wheel_slip_ratio_rr",
+          "importance": 1026.0
+        },
+        {
+          "feature": "throttle",
+          "importance": 915.0
+        },
+        {
+          "feature": "tyre_wear_pct",
+          "importance": 903.0
+        },
+        {
+          "feature": "wheel_slip_ratio_rl",
+          "importance": 891.0
+        },
+        {
+          "feature": "recent_unstable_ratio",
+          "importance": 810.0
+        },
+        {
+          "feature": "track_segment",
+          "importance": 716.0
+        },
+        {
+          "feature": "next_track_segment",
+          "importance": 282.0
+        }
+      ],
+      "model_path": "/Users/sn5/Asurada/asurada-core/training/reports/driving_quality_baselines/exit_traction/exit_traction_baseline.txt"
+    }
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

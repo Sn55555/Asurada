@@ -4,57 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-CONTROL_QUERY_KINDS = frozenset({"repeat_last", "stop", "cancel"})
-
-STRUCTURED_QUERY_KINDS = frozenset(
-    {
-        "fuel_status",
-        "damage_status",
-        "damage_pit_advice",
-        "front_wing_damage_status",
-        "floor_damage_status",
-        "engine_damage_status",
-        "front_gap",
-        "front_rival_drs_status",
-        "rear_gap",
-        "rear_rival_drs_status",
-        "tyre_status",
-        "drs_status",
-        "ers_status",
-        "weather_status",
-        "race_control_status",
-        "penalty_status",
-        "pit_status",
-        "pit_penalty_plan",
-        "penalty_handling_strategy",
-        "current_strategy",
-    }
-)
-
-EXPLAINER_QUERY_KINDS = frozenset(
-    {
-        "overall_situation",
-        "attack_or_defend_summary",
-        "attack_defend_tradeoff",
-        "main_risk_summary",
-        "next_lap_focus",
-        "tyre_wear_outlook",
-        "risk_severity_followup",
-        "risk_escalation_timing",
-        "rear_pressure_relief_outlook",
-        "pit_delay_consequence",
-        "pit_one_lap_delay_consequence",
-        "tyre_management_advice",
-        "fuel_management_advice",
-        "defend_outcome_projection",
-        "attack_outcome_projection",
-        "why_defend",
-        "why_not_attack",
-        "why_current_strategy",
-        "why_not_pit",
-        "open_fallback",
-    }
-)
+from .capability_definitions import CAPABILITIES, CONTROL_QUERY_KINDS, STRUCTURED_QUERY_KINDS, EXPLAINER_QUERY_KINDS
 
 
 @dataclass(frozen=True)
@@ -92,6 +42,10 @@ class CapabilityRegistry:
     ) -> None:
         self.disallowed_patterns = tuple(item for item in (disallowed_patterns or self.DEFAULT_DISALLOWED_PATTERNS) if item)
 
+    def tool_catalog(self) -> list[dict[str, Any]]:
+        """Read-only tools only; speech controls are not exposed to model tool calls."""
+        return [spec.tool_schema() for spec in CAPABILITIES.values() if spec.handler_name is not None]
+
     def evaluate(self, *, query_kind: str | None, normalized_text: str) -> CapabilityCheck:
         text = str(normalized_text or "").strip().lower()
         if self.is_disallowed_domain(text):
@@ -111,29 +65,13 @@ class CapabilityRegistry:
                 llm_sidecar_eligible=False,
             )
 
-        if query_kind in CONTROL_QUERY_KINDS:
-            return CapabilityCheck(
-                allowed=True,
-                reason="control_query",
-                lane="control",
-                llm_sidecar_eligible=False,
-            )
-
-        if query_kind in STRUCTURED_QUERY_KINDS:
-            return CapabilityCheck(
-                allowed=True,
-                reason="structured_query",
-                lane="structured",
-                llm_sidecar_eligible=False,
-            )
-
-        if query_kind in EXPLAINER_QUERY_KINDS:
-            return CapabilityCheck(
-                allowed=True,
-                reason="explainer_query",
-                lane="explainer",
-                llm_sidecar_eligible=True,
-            )
+        spec = CAPABILITIES.get(query_kind)
+        if spec is not None and spec.lane == 'analysis_tool':
+            return CapabilityCheck(False,'requires_tool_execution','reject',False)
+        if spec is not None:
+            return CapabilityCheck(allowed=True, reason=f"{spec.lane}_query", lane=spec.lane,
+                                   llm_sidecar_eligible=spec.lane == "explainer",
+                                   metadata={"capability_version":spec.version, "permission":spec.permission})
 
         return CapabilityCheck(
             allowed=False,

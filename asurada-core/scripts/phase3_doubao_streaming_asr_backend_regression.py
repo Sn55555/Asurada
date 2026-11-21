@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import io
 import json
 import os
@@ -156,4 +158,4 @@ def _capture_ws(fake_socket: _FakeWebSocket, header: list[str], captured_headers
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_doubao_streaming_asr_backend_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_doubao_streaming_asr_backend_regression())

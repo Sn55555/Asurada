@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import json
 import os
 import stat
@@ -217,4 +219,4 @@ def _wait_until_inactive(backend: SpeechBackend, handle: Any, *, timeout_s: floa
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_piper_backend_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_piper_backend_regression())

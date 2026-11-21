@@ -31,6 +31,9 @@ class RawPacketCaptureRecorder:
         payload = packet.payload
         record = {
             "sequence_id": self._sequence_id,
+            "capture_submission_id": packet.capture_submission_id,
+            "ingress_health": packet.ingress_health,
+            "ingress_queue_ms": packet.ingress_queue_ms,
             "received_at_ms": received_at_ms,
             "received_at_utc": datetime.fromtimestamp(received_at_ms / 1000.0, tz=timezone.utc).isoformat(),
             "source_host": packet.source_host,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result
+
 import json
 import threading
 import time
@@ -19,7 +21,7 @@ class SuccessBackend:
             "status": "answerable",
             "answer_text": "当前整体先守住后车，再看处罚窗口。",
             "confidence": 0.83,
-            "reason_fields": ["rear_pressure", "penalty_window"],
+            "reason_fields": ["state_snapshot.gap_behind_s", "state_snapshot.penalties.num_unserved_drive_through_pens"],
             "requires_confirmation": False,
             "metadata": {"provider": "sidecar_regression"},
         }
@@ -59,7 +61,7 @@ def run_phase3_voice_sidecar_server_regression() -> dict[str, Any]:
             normalized_query_text="整体形势怎么样",
             route_reason="explainer_query",
             timeout_ms=1000,
-            state_summary={"summary_version": "v1", "state_snapshot": {"track": "Austria"}},
+            state_summary={"summary_version": "v1", "state_snapshot": {"track": "Austria", "gap_behind_s": 0.6, "penalties": {"num_unserved_drive_through_pens": 1}}},
             metadata={"case": "voice_sidecar_server_regression"},
         )
         explain_result = client.explain(request=request)
@@ -94,4 +96,4 @@ def run_phase3_voice_sidecar_server_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_voice_sidecar_server_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_voice_sidecar_server_regression())

@@ -3,3 +3,12 @@
 tmp/
 data.zip
 asurada-core/training/exports/
+
+# Generated Python packaging and test artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/

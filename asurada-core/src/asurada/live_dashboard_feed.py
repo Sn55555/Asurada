@@ -18,6 +18,9 @@ class CompositeRuntimeLogger:
         for sink in self.sinks:
             sink.reset()
 
+    def snapshot(self) -> dict[str, Any]:
+        return {str(index): sink.snapshot() for index, sink in enumerate(self.sinks) if hasattr(sink, "snapshot")}
+
     def append(self, state: SessionState, decision: StrategyDecision) -> None:
         for sink in self.sinks:
             sink.append(state, decision)
@@ -41,3 +44,18 @@ class DashboardFeedWriter:
         temp_path = self.path.with_suffix(".json.tmp")
         temp_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         temp_path.replace(self.path)
+
+
+class LatestSnapshotWriter:
+    """Atomic current-state interface; independent of history rotation and size."""
+    def __init__(self, directory: Path) -> None:
+        self.path = directory / "latest_snapshot.json"
+
+    def reset(self) -> None:
+        self.path.unlink(missing_ok=True)
+
+    def append(self, state: SessionState, decision: StrategyDecision) -> None:
+        from .snapshot_contract import snapshot_payload
+        temporary = self.path.with_suffix('.json.tmp')
+        temporary.write_text(json.dumps(snapshot_payload(state, decision), ensure_ascii=False), encoding='utf-8')
+        temporary.replace(self.path)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import time
+import math
 from typing import Any
 
 from .models import SessionState
@@ -32,13 +33,13 @@ class RuntimeContextDetector:
         source_timestamp_ms = _coerce_int(state.source_timestamp_ms)
         snapshot_age_ms = None
         if source_timestamp_ms is not None and source_timestamp_ms > 0:
-            snapshot_age_ms = max(current_ms - source_timestamp_ms, 0)
+            snapshot_age_ms = current_ms - source_timestamp_ms
 
         track = str(state.track or "").strip()
         track_key = track.lower()
         has_live_laps = int(state.total_laps or 0) > 0 and int(state.lap_number or 0) > 0
         has_player_position = int(getattr(state.player, "position", 0) or 0) > 0
-        stale_snapshot = snapshot_age_ms is None or snapshot_age_ms > self.stale_after_ms
+        stale_snapshot = snapshot_age_ms is None or snapshot_age_ms < 0 or snapshot_age_ms > self.stale_after_ms
 
         if track_key in _STANDBY_TRACKS:
             return RuntimeContext(
@@ -82,7 +83,7 @@ class RuntimeContextDetector:
                 racing_active=False,
                 stale_snapshot=True,
                 snapshot_age_ms=snapshot_age_ms,
-                reason="stale_snapshot",
+                reason="future_snapshot" if snapshot_age_ms is not None and snapshot_age_ms < 0 else "stale_snapshot",
                 metadata=self._metadata(
                     state=state,
                     source_timestamp_ms=source_timestamp_ms,
@@ -117,7 +118,9 @@ class RuntimeContextDetector:
 
 
 def _coerce_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
     try:
-        return None if value is None else int(value)
-    except (TypeError, ValueError):
+        return int(value) if math.isfinite(value) and value == int(value) and value > 0 else None
+    except (ValueError, OverflowError):
         return None

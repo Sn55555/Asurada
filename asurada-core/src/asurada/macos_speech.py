@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from .paths import ASSET_ROOT
+from .capture_process import command_json_text
+
 import json
 import os
 import shutil
@@ -35,6 +38,7 @@ class MacOSSpeechRecognitionResult:
 
 
 class MacOSSpeechRecognizer:
+    supports_task_context = True
     """Development-only macOS microphone recognizer backed by Swift Speech APIs."""
 
     def __init__(self, config: MacOSSpeechRecognizerConfig | None = None) -> None:
@@ -43,7 +47,7 @@ class MacOSSpeechRecognizer:
     @classmethod
     def from_env(cls) -> "MacOSSpeechRecognizer":
         script_path = os.getenv("ASURADA_MACOS_SPEECH_SCRIPT") or str(
-            Path(__file__).resolve().parents[2] / "scripts" / "macos_speech_capture.swift"
+            ASSET_ROOT / "scripts" / "macos_speech_capture.swift"
         )
         swift_binary = os.getenv("ASURADA_SWIFT_BINARY") or shutil.which("swift") or "/usr/bin/swift"
         return cls(
@@ -63,24 +67,27 @@ class MacOSSpeechRecognizer:
             return False
         swift_binary = os.getenv("ASURADA_SWIFT_BINARY") or "swift"
         script_path = os.getenv("ASURADA_MACOS_SPEECH_SCRIPT") or str(
-            Path(__file__).resolve().parents[2] / "scripts" / "macos_speech_capture.swift"
+            ASSET_ROOT / "scripts" / "macos_speech_capture.swift"
         )
         return shutil.which(swift_binary) is not None and Path(script_path).exists()
 
-    def listen_once(self) -> MacOSSpeechRecognitionResult:
-        completed = subprocess.run(
-            self._command(),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=self.config.command_timeout_s,
-        )
-        stdout = completed.stdout.strip()
-        if completed.returncode != 0:
-            raise RuntimeError(
-                "macOS speech capture failed: "
-                f"code={completed.returncode} stderr={completed.stderr.strip()}"
+    def listen_once(self, *, context=None) -> MacOSSpeechRecognitionResult:
+        if context is not None:
+            stdout = command_json_text(self._command(), timeout_s=self.config.command_timeout_s, context=context).strip()
+        else:
+            completed = subprocess.run(
+                self._command(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=self.config.command_timeout_s,
             )
+            stdout = completed.stdout.strip()
+            if completed.returncode != 0:
+                raise RuntimeError(
+                    "macOS speech capture failed: "
+                    f"code={completed.returncode} stderr={completed.stderr.strip()}"
+                )
         if not stdout:
             raise RuntimeError("macOS speech capture returned empty stdout")
         payload = json.loads(stdout)

@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from .packet_freshness import PacketFreshness, CACHE_POLICIES
+from .raw_projection import project_raw
+from .packet_epoch import PacketEpoch
+from .frame_counter import older
+from .long_horizon_shared import ACTUAL_COMPOUNDS
+from .input_quality import marshal_zone_flag, packet_inputs
+from collections import OrderedDict, deque
+
 from dataclasses import dataclass, field
 from typing import Any
 
 from .csv_ingest import build_dynamic_tags
+from .wheel_telemetry import wheel_value
 from .pdu import PacketEnvelope
 
 WEATHER_NAMES = {
@@ -15,12 +24,7 @@ WEATHER_NAMES = {
     5: "Storm",
 }
 
-SAFETY_CAR_NAMES = {
-    0: "NONE",
-    1: "FULL",
-    2: "VSC",
-    3: "FORMATION",
-}
+from .race_control import SAFETY_CAR_NAMES, decode_race_control
 
 SESSION_TYPE_NAMES = {
     0: "Unknown",
@@ -63,16 +67,6 @@ TRACK_NAMES = {
     41: "Zandvoort Reverse",
 }
 
-TYRE_COMPOUND_NAMES = {
-    16: "C5",
-    17: "C4",
-    18: "C3",
-    19: "C2",
-    20: "C1",
-    7: "Intermediate",
-    8: "Wet",
-}
-
 PIT_STATUS_NAMES = {
     0: "NONE",
     1: "PITTING",
@@ -102,23 +96,81 @@ class CaptureSnapshotAssembler:
     def __init__(self) -> None:
         self.latest_session_by_uid: dict[str, dict[str, Any]] = {}
         self.latest_session_header_by_uid: dict[str, dict[str, Any]] = {}
+        self.overtakes_by_uid = {}
         self.latest_event_by_uid: dict[str, dict[str, Any]] = {}
         self.latest_participants_by_uid: dict[str, dict[str, Any]] = {}
         self.latest_lobby_info_by_uid: dict[str, dict[str, Any]] = {}
         self.latest_car_setups_by_uid: dict[str, dict[str, Any]] = {}
+        self.latest_tyre_sets_by_uid = {}
+        self.player_packet_frames = {}
         self.latest_session_history_by_uid: dict[str, dict[str, Any]] = {}
         self.latest_final_classification_by_uid: dict[str, dict[str, Any]] = {}
         self.latest_lap_positions_by_uid: dict[str, dict[str, Any]] = {}
         self.session_start_fuel_by_uid: dict[str, float] = {}
         self.frames: dict[tuple[str, int], FrameBundle] = {}
+        self.cache_freshness = PacketFreshness()
+        self.cache_quality_by_uid = {}
+        self._last_received_by_uid = {}
+        self.packet_epochs = OrderedDict()
+        self.epoch_rejections = 0
+
+    def _clear_uid(self, uid):
+        for attribute, _ in CACHE_POLICIES.values():
+            getattr(self, attribute).pop(uid, None)
+        for kind in ("TyreSets", "SessionHistory"):
+            self.player_packet_frames.pop((uid, kind), None)
+        self.overtakes_by_uid.pop(uid, None)
+        self.latest_session_header_by_uid.pop(uid, None)
+        self.session_start_fuel_by_uid.pop(uid, None)
+        self.cache_quality_by_uid.pop(uid, None)
+        self._last_received_by_uid.pop(uid, None)
+        self.cache_freshness.observed = {key: value for key, value in self.cache_freshness.observed.items() if key[0] != uid}
+        self.frames = {key: value for key, value in self.frames.items() if key[0] != uid}
 
     def push(self, envelope: PacketEnvelope) -> dict[str, Any] | None:
         # 备注:
         # Session / Participants / Event 作为跨帧上下文缓存；
         # 只有必需主包齐全时，才产出一个可消费快照。
+        self.accepted_epoch: int | None = None
         header = dict(envelope.payload.get("header", {}))
         body = dict(envelope.payload.get("body", {}))
         session_uid = str(envelope.session_uid or "unknown")
+        received = self.cache_freshness.timestamp(header)
+        previous_received = self._last_received_by_uid.get(session_uid)
+        if received is None or (previous_received is not None and received < previous_received):
+            self.cache_freshness.rejected += 1
+            return None
+        if session_uid not in self.packet_epochs:
+            if len(self.packet_epochs) >= 4:
+                retired, _ = self.packet_epochs.popitem(last=False)
+                self._clear_uid(retired)
+            self.packet_epochs[session_uid] = PacketEpoch()
+        self.packet_epochs.move_to_end(session_uid)
+        epoch = self.packet_epochs[session_uid]
+        accepted, changed = epoch.observe(header)
+        if not accepted:
+            self.epoch_rejections += 1
+            return None
+        if changed:
+            self._clear_uid(session_uid)
+        self._last_received_by_uid[session_uid] = received
+        kind = "LapPositions" if envelope.kind == "Unknown(15)" else envelope.kind
+        if kind in {"TyreSets", "SessionHistory"}:
+            owner = body.get("car_index")
+            if type(owner) is not int or not 0 <= owner < 22 or owner != header.get("player_car_index"):
+                return None
+            key = (session_uid, kind)
+            frame = header.get("overall_frame_identifier")
+            previous = self.player_packet_frames.get(key)
+            if frame is None or (previous is not None and older(frame, previous)):
+                return None
+            self.player_packet_frames[key] = frame
+        if kind in CACHE_POLICIES:
+            valid_body = (kind != "Session" or self._is_session_valid(body)) and (kind != "Participants" or bool(body.get("all_cars"))) and (kind != "LobbyInfo" or bool(body.get("all_players")))
+            if valid_body and not self.cache_freshness.accept(session_uid, kind, header):
+                return None
+        self.accepted_epoch = epoch.epoch
+        self.cache_quality_by_uid[session_uid] = self.cache_freshness.expire(self, session_uid, header)
 
         if envelope.kind == "Session":
             if self._is_session_valid(body):
@@ -136,6 +188,9 @@ class CaptureSnapshotAssembler:
         if envelope.kind == "CarSetups":
             self.latest_car_setups_by_uid[session_uid] = body
             return None
+        if envelope.kind == "TyreSets":
+            self.latest_tyre_sets_by_uid[session_uid] = body
+            return None
         if envelope.kind == "SessionHistory":
             self.latest_session_history_by_uid[session_uid] = body
             return None
@@ -147,6 +202,16 @@ class CaptureSnapshotAssembler:
             return None
         if envelope.kind == "Event":
             self.latest_event_by_uid[session_uid] = body
+            if body.get("event_code") == "OVTK":
+                detail = body.get("event_detail") or {}
+                at_s = header.get("session_time_s")
+                cars = [detail.get(key) for key in ("overtaking_vehicle_idx", "being_overtaken_vehicle_idx")]
+                if (type(at_s) in (int, float) and at_s >= 0 and cars[0] != cars[1]
+                        and all(type(car) is int and 0 <= car < 22 for car in cars)):
+                    events = self.overtakes_by_uid.setdefault(session_uid, deque(maxlen=32))
+                    event = dict(at_s=at_s, overtaking_vehicle_idx=cars[0], being_overtaken_vehicle_idx=cars[1])
+                    if event not in events:
+                        events.append(event)
 
         frame_identifier = header.get("frame_identifier")
         if frame_identifier is None:
@@ -166,10 +231,21 @@ class CaptureSnapshotAssembler:
             self._prune_old_frames(session_uid=session_uid, newest_frame_identifier=int(frame_identifier))
             return None
 
+        self.cache_quality_by_uid[session_uid] = self.cache_freshness.expire(self, session_uid, header)
         snapshot = self._normalize_snapshot(bundle)
         del self.frames[bundle_key]
         self._prune_old_frames(session_uid=session_uid, newest_frame_identifier=int(frame_identifier))
         return snapshot
+
+    def _player_context(self, uid, kind, header):
+        attribute, _ = CACHE_POLICIES[kind]
+        body = getattr(self, attribute).get(uid, {})
+        source_frame = self.player_packet_frames.get((uid, kind))
+        if source_frame is None or body.get("car_index") != header.get("player_car_index"):
+            return {}
+        if older(header["overall_frame_identifier"], source_frame):
+            return {}
+        return body
 
     def _normalize_snapshot(self, bundle: FrameBundle) -> dict[str, Any]:
         # 备注:
@@ -184,11 +260,21 @@ class CaptureSnapshotAssembler:
         motion = bundle.packets["Motion"]["body"]
         motion_ex = bundle.packets["MotionEx"]["body"]
         base_header = bundle.packets["LapData"]["header"]
-        tyre_sets = bundle.packets.get("TyreSets", {}).get("body", {})
+        session_frame = session_header.get("overall_frame_identifier")
+        lap_frame = base_header.get("overall_frame_identifier")
+        shadow_context_available = (type(session_frame) is int and type(lap_frame) is int
+                                    and not older(lap_frame, session_frame))
+        tyre_sets = self._player_context(bundle.session_uid, "TyreSets", base_header)
         participants = self.latest_participants_by_uid.get(bundle.session_uid, {})
         lobby_info = self.latest_lobby_info_by_uid.get(bundle.session_uid, {})
         car_setup = self.latest_car_setups_by_uid.get(bundle.session_uid, {})
-        session_history = self.latest_session_history_by_uid.get(bundle.session_uid, {})
+        if tyre_sets:
+            fitted = tyre_sets.get("fitted_idx")
+            records = tyre_sets.get("sets", ())
+            if (type(fitted) is not int or not 0 <= fitted < len(records) or not records[fitted]["fitted"]
+                    or records[fitted]["actual_tyre_compound"] != status.get("actual_tyre_compound")):
+                tyre_sets = {}
+        session_history = self._player_context(bundle.session_uid, "SessionHistory", base_header)
         final_classification = self.latest_final_classification_by_uid.get(bundle.session_uid, {})
         lap_positions = self.latest_lap_positions_by_uid.get(bundle.session_uid, {})
 
@@ -199,9 +285,8 @@ class CaptureSnapshotAssembler:
         position = self._normalize_position(int(lap.get("car_position", 0)), session_type_code)
         pit_status_code = int(lap.get("pit_status", 0))
         pit_status_name = self._pit_status_name(pit_status_code, session_type_code)
-        throttle = float(telemetry.get("throttle", 0.0))
-        brake = float(telemetry.get("brake", 0.0))
-        steer = float(telemetry.get("steer", 0.0))
+        inputs, input_quality = packet_inputs(telemetry, bundle.packets['CarTelemetry']['header'].get('received_at_ms'))
+        throttle, brake, steer = (inputs[name] for name in ('throttle', 'brake', 'steer'))
         speed_kph = float(telemetry.get("speed_kph", 0.0))
         tyres_surface_temperature = [int(item) for item in telemetry.get("tyres_surface_temperature", [])]
         tyres_inner_temperature = [int(item) for item in telemetry.get("tyres_inner_temperature", [])]
@@ -232,7 +317,6 @@ class CaptureSnapshotAssembler:
             g_force_lateral=g_lat,
             g_force_longitudinal=g_lon,
             wheel_slip_ratio=motion_ex.get("wheel_slip_ratio", []),
-            tyre_damage_pct=damage.get("tyres_damage_pct", []),
         )
         rivals, player_gap_meta = self._build_rivals(
             player_lap=lap,
@@ -250,6 +334,7 @@ class CaptureSnapshotAssembler:
             player_total_distance_m=float(lap.get("total_distance_m", 0.0)),
             session_type_code=session_type_code,
         )
+        forecast_cars = {int(base_header.get("player_car_index", 0)), *(car["car_index"] for car in rivals)}
         front_rival = next((item for item in rivals if int(item.get("position", 0)) == position - 1), None)
         rear_rival = next((item for item in rivals if int(item.get("position", 0)) == position + 1), None)
         front_rival_car_gap_ahead_s, front_rival_car_gap_behind_s = self._car_relative_gap_pair(
@@ -265,45 +350,101 @@ class CaptureSnapshotAssembler:
 
         return {
             "session_uid": str(base_header.get("session_uid", session_header.get("session_uid", "unknown"))),
+            "session_epoch": self.packet_epochs[bundle.session_uid].epoch,
             "track": TRACK_NAMES.get(int(session.get("track_id", -1)), f"track_{session.get('track_id', 'unknown')}"),
             "lap_number": int(lap.get("current_lap_num", 0)),
             "total_laps": int(session.get("total_laps", 0)),
             "weather": WEATHER_NAMES.get(int(session.get("weather", -1)), f"Weather({session.get('weather', 'unknown')})"),
-            "safety_car": self._normalize_safety_car_name(session.get("safety_car_status", 0)),
+            "safety_car": self._normalize_safety_car_name(session.get("safety_car_status")),
             "source_timestamp_ms": int(base_header.get("received_at_ms", 0)),
             "player": {
                 "car_index": int(base_header.get("player_car_index", 0)),
                 "name": participants.get("player", {}).get("name") or "Player",
+                "team_id": participants.get("player", {}).get("team_id"),
+                "race_number": participants.get("player", {}).get("race_number"),
                 "position": position,
                 "lap": int(lap.get("current_lap_num", 0)),
                 "gap_ahead_s": gap_ahead_s,
                 "gap_behind_s": gap_behind_s,
+                "gap_source": player_gap_meta.get("gap_source_ahead") if gap_ahead_s is not None else player_gap_meta.get("gap_source_behind"),
+                "gap_confidence": (
+                    player_gap_meta.get("gap_confidence_ahead")
+                    if gap_ahead_s is not None
+                    else player_gap_meta.get("gap_confidence_behind")
+                ),
+                "gap_source_ahead": player_gap_meta.get("official_gap_source_ahead"),
+                "gap_source_behind": player_gap_meta.get("official_gap_source_behind"),
+                "gap_confidence_ahead": player_gap_meta.get("official_gap_confidence_ahead"),
+                "gap_confidence_behind": player_gap_meta.get("official_gap_confidence_behind"),
+                "estimated_gap_source": (
+                    player_gap_meta.get("estimated_gap_source_ahead")
+                    if gap_ahead_s is not None
+                    else player_gap_meta.get("estimated_gap_source_behind")
+                ),
+                "estimated_gap_confidence": (
+                    player_gap_meta.get("estimated_gap_confidence_ahead")
+                    if gap_ahead_s is not None
+                    else player_gap_meta.get("estimated_gap_confidence_behind")
+                ),
                 "fuel_laps_remaining": derived_fuel_laps_remaining,
                 "ers_pct": ers_pct,
                 "drs_available": bool(status.get("drs_allowed", False)),
+                "pit_status": pit_status_name,
                 "speed_kph": speed_kph,
                 "tyre": {
-                    "compound": TYRE_COMPOUND_NAMES.get(
-                        int(status.get("visual_tyre_compound", 0)),
-                        f"Compound({status.get('visual_tyre_compound', 0)})",
+                    "compound": ACTUAL_COMPOUNDS.get(
+                        status.get("actual_tyre_compound"),
+                        f"Compound({status.get('actual_tyre_compound')})",
                     ),
                     "wear_pct": tyre_wear_pct,
                     "age_laps": tyres_age_laps,
                     "surface_temperature_c": tyres_surface_temperature,
                     "inner_temperature_c": tyres_inner_temperature,
                 },
+                "tyre_damage_pct": round(sum(float(item) for item in damage.get("tyres_damage_pct", [0.0] * 4)) / 4.0, 2),
+                "engine_damage_pct": int(damage.get("engine_damage_pct", 0)),
+                "aero_damage_pct": max(
+                    int(damage.get("front_left_wing_damage_pct", 0)),
+                    int(damage.get("front_right_wing_damage_pct", 0)),
+                    int(damage.get("rear_wing_damage_pct", 0)),
+                    int(damage.get("floor_damage_pct", 0)),
+                    int(damage.get("diffuser_damage_pct", 0)),
+                    int(damage.get("sidepod_damage_pct", 0)),
+                ),
+                "lap_distance_m": lap_distance_m,
+                "world_position_x": float(motion.get("world_position", {}).get("x", 0.0)),
+                "world_position_y": float(motion.get("world_position", {}).get("y", 0.0)),
+                "world_position_z": float(motion.get("world_position", {}).get("z", 0.0)),
                 "status_tags": tags,
             },
             "rivals": rivals,
-            "raw": {
+            "raw": project_raw({
                 "frame_identifier": int(base_header.get("frame_identifier", 0)),
                 "overall_frame_identifier": int(base_header.get("overall_frame_identifier", 0)),
                 "session_time_s": float(base_header.get("session_time_s", 0.0)),
+                "cache_quality": self.cache_quality_by_uid.get(bundle.session_uid, {}),
                 "session_type": session_type,
+                "shadow_session": ({
+                    "spectating": session.get("is_spectating"),
+                    "ideal": session.get("pit_stop_window_ideal_lap"),
+                    "latest": session.get("pit_stop_window_latest_lap"),
+                    "forecast": [(sample["time_offset_minutes"], sample["weather"])
+                                 for sample in session.get("weather_forecast_samples", ())
+                                 if sample["session_type"] == session_type_code],
+                } if session and shadow_context_available else {}),
+                "visual_tyre_compound": status.get("visual_tyre_compound"),
+                "tyre_rule_settings": {key: session.get(key) for key in (
+                    "session_type", "session_length", "formula", "game_mode", "rule_set", "weekend_structure",
+                    "num_red_flag_periods")},
+                **({"session_paused": True} if session.get("game_paused") else {}),
                 "timing_mode": self._timing_mode_name(session_type_code),
                 "timing_support_level": self._timing_support_level(session_type_code),
                 "lap_distance_m": lap_distance_m,
                 "total_distance_m": float(lap.get("total_distance_m", 0.0)),
+                "marshal_zone_flag": marshal_zone_flag(
+                    session.get("marshal_zones", ()), lap_distance_m, track_length_m,
+                    session_age_ms=self.cache_quality_by_uid.get(bundle.session_uid, {}).get("Session", {}).get("age_ms"),
+                ),
                 "current_lap_time_ms": int(lap.get("current_lap_time_ms", 0)),
                 "last_lap_time_ms": int(lap.get("last_lap_time_ms", 0)),
                 "sector1_time_ms": int(lap.get("sector1_time_ms", 0)),
@@ -361,6 +502,7 @@ class CaptureSnapshotAssembler:
                 "throttle": throttle,
                 "brake": brake,
                 "steer": steer,
+                "input_quality": input_quality,
                 "gear": int(telemetry.get("gear", 0)),
                 "rpm": int(telemetry.get("engine_rpm", 0)),
                 "fuel_in_tank": fuel_in_tank,
@@ -368,6 +510,27 @@ class CaptureSnapshotAssembler:
                 "raw_fuel_laps_remaining": raw_fuel_laps_remaining,
                 "derived_fuel_laps_remaining": derived_fuel_laps_remaining,
                 "fuel_laps_remaining_source": fuel_laps_remaining_source,
+                "forecast_lap_times": {
+                    str(c["car_index"]): {key: c.get(key) for key in (
+                        "current_lap_num", "current_lap_invalid", "sector",
+                        "sector1_time_ms", "sector2_time_ms", "last_lap_time_ms")}
+                    for c in lap.get("all_cars", ()) if c.get("car_index") in forecast_cars and c.get("result_status") == 2
+                },
+                "forecast_rival_resources": {
+                    str(c["car_index"]): {"drs_allowed": c.get("drs_allowed"),
+                        "drs_activation_distance_m": c.get("drs_activation_distance"),
+                        "ers_store_energy": c.get("ers_store_energy")}
+                    for c in status.get("all_cars", ()) if c.get("car_index") in forecast_cars
+                },
+                "forecast_drs_allowed": status.get("drs_allowed"),
+                "drs_open": telemetry.get("drs"),
+                "drs_activation_distance_m": status.get("drs_activation_distance"),
+                "forecast_actual_compounds": {
+                    str(c["car_index"]): c["actual_tyre_compound"] for c in status.get("all_cars", ())
+                    if c.get("car_index") in forecast_cars and "actual_tyre_compound" in c
+                },
+                "forecast_tyre_ages": {str(c["car_index"]): c["tyres_age_laps"] for c in status.get("all_cars", ())
+                                      if c.get("car_index") in forecast_cars and "tyres_age_laps" in c},
                 "ers_store_energy": ers_store_energy,
                 "ers_deploy_mode": int(status.get("ers_deploy_mode", 0)),
                 "tyres_wear_pct": list(damage.get("tyres_wear_pct", [])),
@@ -447,6 +610,8 @@ class CaptureSnapshotAssembler:
                 "current_lap_invalid": bool(lap.get("current_lap_invalid", False)),
                 "time_trial_personal_best_car_idx": int(lap.get("time_trial_personal_best_car_idx", 255)),
                 "time_trial_rival_car_idx": int(lap.get("time_trial_rival_car_idx", 255)),
+                "recent_overtakes": [event for event in self.overtakes_by_uid.get(bundle.session_uid, ())
+                                     if 0 <= base_header.get("session_time_s", 0) - event["at_s"] <= 4],
                 "event_code": self.latest_event_by_uid.get(bundle.session_uid, {}).get("event_code"),
                 "event_detail": dict(self.latest_event_by_uid.get(bundle.session_uid, {}).get("event_detail", {})),
                 "tyre_wear_source": "car_damage_packet",
@@ -468,7 +633,7 @@ class CaptureSnapshotAssembler:
                 "final_classification": final_classification,
                 "lap_positions": lap_positions,
                 "auxiliary_packet_15": lap_positions,
-            },
+            }),
         }
 
     def _derive_fuel_laps_remaining(
@@ -529,13 +694,12 @@ class CaptureSnapshotAssembler:
     def _build_status_tags(
         self,
         speed_kph: float,
-        throttle: float,
-        brake: float,
-        steer: float,
+        throttle: float | None,
+        brake: float | None,
+        steer: float | None,
         g_force_lateral: float,
         g_force_longitudinal: float,
         wheel_slip_ratio: list[Any],
-        tyre_damage_pct: list[Any],
     ) -> list[str]:
         tags = build_dynamic_tags(
             speed_kmh=speed_kph,
@@ -551,12 +715,11 @@ class CaptureSnapshotAssembler:
         if max_slip > 0.22 and "unstable" not in tags:
             tags = [tag for tag in tags if tag != "stable"]
             tags.append("unstable")
-        if brake > 0.65 and max_slip > 0.12 and "front_tyre_overload" not in tags:
+        front_slip = (wheel_value(wheel_slip_ratio, "fl"), wheel_value(wheel_slip_ratio, "fr"))
+        if (brake is not None and brake > 0.65
+                and any(value is not None and abs(value) > 0.12 for value in front_slip)
+                and "front_tyre_overload" not in tags):
             tags.append("front_tyre_overload")
-        if tyre_damage_pct:
-            front_damage = max(float(tyre_damage_pct[0]), float(tyre_damage_pct[1]))
-            if front_damage >= 35 and "front_tyre_overload" not in tags:
-                tags.append("front_tyre_overload")
         if not tags:
             tags.append("stable")
         return tags
@@ -661,7 +824,7 @@ class CaptureSnapshotAssembler:
             lap_distance_m = self._normalize_lap_distance(float(item.get("lap_distance_m", 0.0)), track_length_m)
             total_distance_m = float(item.get("total_distance_m", 0.0))
             speed_kph = float(telemetry_by_index.get(car_index, {}).get("speed_kph", 0.0))
-            compound_code = int(status_by_index.get(car_index, {}).get("visual_tyre_compound", 0))
+            compound_code = int(status_by_index.get(car_index, {}).get("actual_tyre_compound", 0))
             age_laps = int(status_by_index.get(car_index, {}).get("tyres_age_laps", 0))
             rival_damage = damage_by_index.get(car_index, {})
             rival_motion = motion_by_index.get(car_index, {})
@@ -761,6 +924,10 @@ class CaptureSnapshotAssembler:
                     "fuel_laps_remaining": float(status_by_index.get(car_index, {}).get("fuel_remaining_laps", 0.0)),
                     "ers_pct": self._ers_pct(status_by_index.get(car_index, {}).get("ers_store_energy", 0.0)),
                     "drs_available": bool(telemetry_by_index.get(car_index, {}).get("drs", False)),
+                    "pit_status": self._pit_status_name(
+                        int(item.get("pit_status", 0)),
+                        session_type_code,
+                    ),
                     "speed_kph": speed_kph,
                     "gap_source": official_gap_source,
                     "gap_confidence": official_gap_confidence,
@@ -775,18 +942,52 @@ class CaptureSnapshotAssembler:
                     "estimated_gap_source": estimated_gap_source,
                     "estimated_gap_confidence": estimated_gap_confidence,
                     "tyre": {
-                        "compound": TYRE_COMPOUND_NAMES.get(compound_code, f"Compound({compound_code})"),
+                        "compound": ACTUAL_COMPOUNDS.get(compound_code, f"Compound({compound_code})"),
                         "wear_pct": rival_tyre_wear,
                         "age_laps": age_laps,
                     },
+                    "tyre_damage_pct": (
+                        round(
+                            sum(float(value) for value in rival_damage.get("tyres_damage_pct", []))
+                            / len(rival_damage.get("tyres_damage_pct", [])),
+                            2,
+                        )
+                        if rival_damage.get("tyres_damage_pct", [])
+                        else None
+                    ),
+                    "engine_damage_pct": int(rival_damage.get("engine_damage_pct", 0)),
+                    "aero_damage_pct": max(
+                        int(rival_damage.get("front_left_wing_damage_pct", 0)),
+                        int(rival_damage.get("front_right_wing_damage_pct", 0)),
+                        int(rival_damage.get("rear_wing_damage_pct", 0)),
+                        int(rival_damage.get("floor_damage_pct", 0)),
+                        int(rival_damage.get("diffuser_damage_pct", 0)),
+                        int(rival_damage.get("sidepod_damage_pct", 0)),
+                    ),
                     "world_position_x": float(rival_motion.get("world_position", {}).get("x", 0.0)),
                     "world_position_y": float(rival_motion.get("world_position", {}).get("y", 0.0)),
                     "world_position_z": float(rival_motion.get("world_position", {}).get("z", 0.0)),
-                    "status_tags": [],
+                    "status_tags": [] if result_status == 2 else ["not_racing"],
                 }
             )
         candidates.sort(key=lambda item: abs((item["position"] or 99) - player_position))
-        return candidates[:4], player_gap_meta
+        nearby = candidates[:4]
+        # Keep the adjacent timing chain for every racing pursuer within two seconds.
+        retained = {row["car_index"] for row in nearby}
+        gap = 0.
+        rear = sorted((row for row in candidates if row["position"] > player_position),
+                      key=lambda row: row["position"])
+        for rank, row in enumerate(rear, player_position + 1):
+            part = row["gap_ahead_s"]
+            if (row["position"] != rank or row["gap_confidence_ahead"] != "high"
+                    or part is None or part <= 0):
+                break
+            gap += part
+            if gap > 2.:
+                break
+            if row["car_index"] not in retained:
+                nearby.append(row)
+        return nearby, player_gap_meta
 
     def _estimate_gap_seconds(
         self,
@@ -854,6 +1055,8 @@ class CaptureSnapshotAssembler:
     def _timing_mode_name(self, session_type_code: int) -> str:
         if session_type_code == 1:
             return "time_trial_disabled"
+        if session_type_code == 8:
+            return "result_like"
         if session_type_code in {10, 15, 16}:
             return "race_like"
         if session_type_code in {5, 13}:
@@ -868,6 +1071,8 @@ class CaptureSnapshotAssembler:
         后续阶段二做特征筛选时，优先看这个字段而不是只看 gap 是否非空。
         """
         if session_type_code == 1:
+            return "disabled"
+        if session_type_code == 8:
             return "disabled"
         if session_type_code in {5, 10, 13, 15, 16}:
             return "official_preferred"
@@ -912,14 +1117,8 @@ class CaptureSnapshotAssembler:
         track_id = int(session.get("track_id", -1))
         return track_length_m > 1000 and track_id >= 0
 
-    def _normalize_safety_car_name(self, raw_status: Any) -> str:
-        try:
-            status = int(raw_status)
-        except (TypeError, ValueError):
-            return "NONE"
-        if status not in SAFETY_CAR_NAMES:
-            return "NONE"
-        return SAFETY_CAR_NAMES[status]
+    def _normalize_safety_car_name(self, raw_status: Any) -> str | None:
+        return decode_race_control(raw_status)
 
     def _is_lap_valid(self, bundle: FrameBundle, session: dict[str, Any]) -> bool:
         lap = bundle.packets["LapData"]["body"]
@@ -942,7 +1141,7 @@ class CaptureSnapshotAssembler:
         stale_keys = [
             key
             for key, bundle in self.frames.items()
-            if bundle.session_uid == session_uid and bundle.frame_identifier < newest_frame_identifier - 4
+            if bundle.session_uid == session_uid and 4 < ((newest_frame_identifier - bundle.frame_identifier) & 0xffffffff) < 0x80000000
         ]
         for key in stale_keys:
             del self.frames[key]

@@ -1,0 +1,5 @@
+include data/sample_session.jsonl
+recursive-include data/tracks *.json
+recursive-include data/strategy *.json
+recursive-include training/reports *.json *.txt
+include scripts/macos_*.swift

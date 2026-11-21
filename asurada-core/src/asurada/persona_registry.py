@@ -31,6 +31,12 @@ class PersonaProfile:
     open_fallback_penalty: str
     open_fallback_damage: str
     companion_mode_fallback: str
+    rationality: float = .95
+    pride: float = .82
+    stubbornness: float = .66
+    empathy: float = .72
+    humor_affinity: float = .25
+    competitiveness: float = .85
 
 
 LEGACY_VOICE_PROFILE_ID = "asurada_cn_ai_v1"

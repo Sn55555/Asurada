@@ -1,0 +1,476 @@
+{
+  "features_path": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/features.csv",
+  "labels_path": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/labels.csv",
+  "filter": "official_preferred race-like rows",
+  "models": {
+    "front_pressure": {
+      "model": "front_pressure",
+      "target": "front_pressure_proxy",
+      "label_source": "front_pressure_proxy_recomputed_from_features",
+      "label_type": "proxy_distillation_baseline",
+      "features_path": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/features.csv",
+      "labels_path": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/labels.csv",
+      "filter": "official_preferred race-like rows",
+      "validation_source": "exported_val_split",
+      "test_source": "exported_test_split",
+      "train_rows": 2147,
+      "val_rows": 1019,
+      "test_rows": 5071,
+      "mae": 11.9885,
+      "rmse": 12.4644,
+      "r2": 0.0,
+      "threat_ranking_accuracy": 0.0,
+      "best_iteration": 399,
+      "top_feature_importance": [
+        {
+          "feature": "front_rival_speed_delta",
+          "importance": 5384
+        },
+        {
+          "feature": "g_force_longitudinal",
+          "importance": 2686
+        },
+        {
+          "feature": "official_gap_ahead_s",
+          "importance": 2578
+        },
+        {
+          "feature": "g_force_lateral",
+          "importance": 2181
+        },
+        {
+          "feature": "front_rival_speed_kph",
+          "importance": 1783
+        },
+        {
+          "feature": "speed_kph",
+          "importance": 1668
+        },
+        {
+          "feature": "front_rival_ers_pct",
+          "importance": 1603
+        },
+        {
+          "feature": "ers_pct",
+          "importance": 1565
+        },
+        {
+          "feature": "fuel_laps_remaining",
+          "importance": 1434
+        },
+        {
+          "feature": "steer",
+          "importance": 1399
+        },
+        {
+          "feature": "session_time_s",
+          "importance": 977
+        },
+        {
+          "feature": "tyre_wear_pct",
+          "importance": 339
+        }
+      ],
+      "top_features": [
+        {
+          "feature": "front_rival_speed_delta",
+          "importance": 5384
+        },
+        {
+          "feature": "g_force_longitudinal",
+          "importance": 2686
+        },
+        {
+          "feature": "official_gap_ahead_s",
+          "importance": 2578
+        },
+        {
+          "feature": "g_force_lateral",
+          "importance": 2181
+        },
+        {
+          "feature": "front_rival_speed_kph",
+          "importance": 1783
+        },
+        {
+          "feature": "speed_kph",
+          "importance": 1668
+        },
+        {
+          "feature": "front_rival_ers_pct",
+          "importance": 1603
+        },
+        {
+          "feature": "ers_pct",
+          "importance": 1565
+        },
+        {
+          "feature": "fuel_laps_remaining",
+          "importance": 1434
+        },
+        {
+          "feature": "steer",
+          "importance": 1399
+        },
+        {
+          "feature": "session_time_s",
+          "importance": 977
+        },
+        {
+          "feature": "tyre_wear_pct",
+          "importance": 339
+        }
+      ],
+      "feature_columns": [
+        "session_time_s",
+        "lap_number",
+        "total_laps",
+        "player_position",
+        "official_gap_ahead_s",
+        "front_rival_speed_kph",
+        "front_rival_ers_pct",
+        "front_rival_speed_delta",
+        "speed_kph",
+        "throttle",
+        "brake",
+        "steer",
+        "fuel_laps_remaining",
+        "ers_pct",
+        "drs_available",
+        "tyre_wear_pct",
+        "recent_unstable_ratio",
+        "recent_front_overload_ratio",
+        "g_force_lateral",
+        "g_force_longitudinal",
+        "session_type",
+        "timing_mode",
+        "timing_support_level",
+        "track",
+        "track_segment",
+        "track_usage",
+        "next_track_segment",
+        "next_track_usage",
+        "driving_mode"
+      ],
+      "model_path": "/Users/sn5/Asurada/asurada-core/training/reports/rival_pressure_baseline/front_pressure/front_pressure_model_baseline.txt"
+    },
+    "rear_pressure": {
+      "model": "rear_pressure",
+      "target": "rear_pressure_proxy",
+      "label_source": "rear_pressure_proxy_recomputed_from_features",
+      "label_type": "proxy_distillation_baseline",
+      "features_path": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/features.csv",
+      "labels_path": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/labels.csv",
+      "filter": "official_preferred race-like rows",
+      "validation_source": "exported_val_split",
+      "test_source": "exported_test_split",
+      "train_rows": 2147,
+      "val_rows": 1019,
+      "test_rows": 5071,
+      "mae": 4.0431,
+      "rmse": 5.0826,
+      "r2": 0.9839,
+      "threat_ranking_accuracy": 0.9484,
+      "best_iteration": 168,
+      "top_feature_importance": [
+        {
+          "feature": "rear_rival_speed_delta",
+          "importance": 1924
+        },
+        {
+          "feature": "official_gap_behind_s",
+          "importance": 1555
+        },
+        {
+          "feature": "g_force_longitudinal",
+          "importance": 989
+        },
+        {
+          "feature": "rear_rival_speed_kph",
+          "importance": 882
+        },
+        {
+          "feature": "speed_kph",
+          "importance": 812
+        },
+        {
+          "feature": "rear_rival_ers_pct",
+          "importance": 761
+        },
+        {
+          "feature": "g_force_lateral",
+          "importance": 738
+        },
+        {
+          "feature": "ers_pct",
+          "importance": 537
+        },
+        {
+          "feature": "steer",
+          "importance": 439
+        },
+        {
+          "feature": "fuel_laps_remaining",
+          "importance": 433
+        },
+        {
+          "feature": "session_time_s",
+          "importance": 421
+        },
+        {
+          "feature": "gap_closing_rate_behind",
+          "importance": 311
+        }
+      ],
+      "top_features": [
+        {
+          "feature": "rear_rival_speed_delta",
+          "importance": 1924
+        },
+        {
+          "feature": "official_gap_behind_s",
+          "importance": 1555
+        },
+        {
+          "feature": "g_force_longitudinal",
+          "importance": 989
+        },
+        {
+          "feature": "rear_rival_speed_kph",
+          "importance": 882
+        },
+        {
+          "feature": "speed_kph",
+          "importance": 812
+        },
+        {
+          "feature": "rear_rival_ers_pct",
+          "importance": 761
+        },
+        {
+          "feature": "g_force_lateral",
+          "importance": 738
+        },
+        {
+          "feature": "ers_pct",
+          "importance": 537
+        },
+        {
+          "feature": "steer",
+          "importance": 439
+        },
+        {
+          "feature": "fuel_laps_remaining",
+          "importance": 433
+        },
+        {
+          "feature": "session_time_s",
+          "importance": 421
+        },
+        {
+          "feature": "gap_closing_rate_behind",
+          "importance": 311
+        }
+      ],
+      "feature_columns": [
+        "session_time_s",
+        "lap_number",
+        "total_laps",
+        "player_position",
+        "official_gap_behind_s",
+        "gap_closing_rate_behind",
+        "rear_rival_speed_kph",
+        "rear_rival_ers_pct",
+        "rear_rival_speed_delta",
+        "speed_kph",
+        "throttle",
+        "brake",
+        "steer",
+        "fuel_laps_remaining",
+        "ers_pct",
+        "drs_available",
+        "tyre_wear_pct",
+        "recent_unstable_ratio",
+        "recent_front_overload_ratio",
+        "g_force_lateral",
+        "g_force_longitudinal",
+        "session_type",
+        "timing_mode",
+        "timing_support_level",
+        "track",
+        "track_segment",
+        "track_usage",
+        "next_track_segment",
+        "next_track_usage",
+        "driving_mode"
+      ],
+      "model_path": "/Users/sn5/Asurada/asurada-core/training/reports/rival_pressure_baseline/rear_pressure/rear_pressure_model_baseline.txt"
+    },
+    "rival_pressure": {
+      "model": "rival_pressure",
+      "target": "rival_pressure_proxy",
+      "label_source": "rival_pressure_proxy_recomputed_from_features",
+      "label_type": "proxy_distillation_baseline",
+      "features_path": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/features.csv",
+      "labels_path": "/Users/sn5/Asurada/asurada-core/training/exports/phase2_dataset_v1/labels.csv",
+      "filter": "official_preferred race-like rows",
+      "validation_source": "exported_val_split",
+      "test_source": "exported_test_split",
+      "train_rows": 2147,
+      "val_rows": 1019,
+      "test_rows": 5071,
+      "mae": 25.479,
+      "rmse": 29.5207,
+      "r2": 0.4563,
+      "threat_ranking_accuracy": 0.8439,
+      "best_iteration": 167,
+      "top_feature_importance": [
+        {
+          "feature": "front_rival_speed_delta",
+          "importance": 1547
+        },
+        {
+          "feature": "rear_rival_speed_delta",
+          "importance": 1010
+        },
+        {
+          "feature": "official_gap_behind_s",
+          "importance": 952
+        },
+        {
+          "feature": "official_gap_ahead_s",
+          "importance": 775
+        },
+        {
+          "feature": "g_force_longitudinal",
+          "importance": 659
+        },
+        {
+          "feature": "g_force_lateral",
+          "importance": 619
+        },
+        {
+          "feature": "front_rival_speed_kph",
+          "importance": 599
+        },
+        {
+          "feature": "rear_rival_speed_kph",
+          "importance": 589
+        },
+        {
+          "feature": "rear_rival_ers_pct",
+          "importance": 496
+        },
+        {
+          "feature": "session_time_s",
+          "importance": 429
+        },
+        {
+          "feature": "steer",
+          "importance": 427
+        },
+        {
+          "feature": "speed_kph",
+          "importance": 425
+        }
+      ],
+      "top_features": [
+        {
+          "feature": "front_rival_speed_delta",
+          "importance": 1547
+        },
+        {
+          "feature": "rear_rival_speed_delta",
+          "importance": 1010
+        },
+        {
+          "feature": "official_gap_behind_s",
+          "importance": 952
+        },
+        {
+          "feature": "official_gap_ahead_s",
+          "importance": 775
+        },
+        {
+          "feature": "g_force_longitudinal",
+          "importance": 659
+        },
+        {
+          "feature": "g_force_lateral",
+          "importance": 619
+        },
+        {
+          "feature": "front_rival_speed_kph",
+          "importance": 599
+        },
+        {
+          "feature": "rear_rival_speed_kph",
+          "importance": 589
+        },
+        {
+          "feature": "rear_rival_ers_pct",
+          "importance": 496
+        },
+        {
+          "feature": "session_time_s",
+          "importance": 429
+        },
+        {
+          "feature": "steer",
+          "importance": 427
+        },
+        {
+          "feature": "speed_kph",
+          "importance": 425
+        }
+      ],
+      "feature_columns": [
+        "session_time_s",
+        "lap_number",
+        "total_laps",
+        "player_position",
+        "official_gap_ahead_s",
+        "official_gap_behind_s",
+        "gap_closing_rate_behind",
+        "front_rival_speed_kph",
+        "front_rival_ers_pct",
+        "front_rival_speed_delta",
+        "rear_rival_speed_kph",
+        "rear_rival_ers_pct",
+        "rear_rival_speed_delta",
+        "speed_kph",
+        "throttle",
+        "brake",
+        "steer",
+        "fuel_laps_remaining",
+        "ers_pct",
+        "drs_available",
+        "tyre_wear_pct",
+        "recent_unstable_ratio",
+        "recent_front_overload_ratio",
+        "g_force_lateral",
+        "g_force_longitudinal",
+        "session_type",
+        "timing_mode",
+        "timing_support_level",
+        "track",
+        "track_segment",
+        "track_usage",
+        "next_track_segment",
+        "next_track_usage",
+        "driving_mode"
+      ],
+      "model_path": "/Users/sn5/Asurada/asurada-core/training/reports/rival_pressure_baseline/rival_pressure/rival_pressure_model_baseline.txt"
+    }
+  },
+  "review_qualification": {
+    "version": "model-review-qualification-v1",
+    "label_quality_tier": "unknown",
+    "not_for_mainline": true,
+    "human_holdout": {
+      "status": "not_provided",
+      "metrics": null
+    },
+    "scope": "Asset integrity and pseudo-label metrics are not human quality approval; explicit admission evidence is still required."
+  }
+}

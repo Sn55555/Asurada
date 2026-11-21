@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from regression_support import emit_result, runtime_clock
+
 import json
 import time
 from typing import Any
@@ -92,6 +94,7 @@ def _make_state() -> SessionState:
     )
 
 
+@runtime_clock(1_777_600_000_000)
 def run_phase3_llm_explainer_regression() -> dict[str, Any]:
     state = _make_state()
     primary_message = StrategyMessage(
@@ -163,4 +166,4 @@ def run_phase3_llm_explainer_regression() -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_phase3_llm_explainer_regression(), ensure_ascii=False, indent=2))
+    emit_result(run_phase3_llm_explainer_regression())

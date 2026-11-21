@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import math
 from dataclasses import dataclass
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(PROJECT_ROOT / "src"))
+from asurada.training_join import join_training_labels
+from asurada.training_partition import session_partitions, exported_row_split, validate_session_frame
+from asurada.training_windows import future_windows, WINDOW_VERSION, write_target_windows
 DEFAULT_FEATURES = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "features.csv"
 DEFAULT_LABELS = PROJECT_ROOT / "training" / "exports" / "phase2_dataset_v1" / "labels.csv"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "training" / "reports" / "short_horizon_risk_forecast_baseline"
@@ -68,44 +73,31 @@ def main() -> int:
         )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    features = pd.read_csv(args.features, low_memory=False)
-    labels = pd.read_csv(args.labels, low_memory=False)
+    features = pd.read_csv(args.features, low_memory=False, dtype={"session_uid":str})
+    features = validate_session_frame(features)
+    labels = pd.read_csv(args.labels, low_memory=False, dtype={"session_uid":str})
     if features.empty or labels.empty:
         raise SystemExit("No exported feature/label rows available for training.")
 
-    features = features.merge(
-        labels[
-            [
-                "record_id",
-                "fuel_risk_label",
-                "tyre_risk_label",
-                "ers_risk_label",
-                "race_control_risk_label",
-                "dynamics_risk_label",
-                "attack_opportunity_label",
-                "defend_risk_label",
-                "primary_action_label",
-            ]
-        ],
-        on="record_id",
-        how="inner",
-    )
+    features,join_manifest = join_training_labels(features,labels,targets=["fuel_risk_label","tyre_risk_label","ers_risk_label","race_control_risk_label","dynamics_risk_label","attack_opportunity_label","defend_risk_label","primary_action_label"])
     features = features[features["timing_support_level"] == "official_preferred"].copy()
     features = features[features["session_type"].fillna("").str.contains("RaceLike")].copy()
     features["session_time_s"] = pd.to_numeric(features["session_time_s"], errors="coerce")
     features = features.dropna(subset=["session_uid", "session_time_s", "track_segment"]).copy()
-    features = features.sort_values(["session_uid", "session_time_s", "frame_identifier"]).reset_index(drop=True)
 
     for column in RISK_COLUMNS:
         features[column] = pd.to_numeric(features[column], errors="coerce").fillna(0.0)
     features["current_risk_score"] = features[RISK_COLUMNS].max(axis=1)
 
     labelled = build_future_targets(df=features, horizon_s=args.horizon_s, pd_module=pd)
-    labelled = labelled.dropna(subset=[spec.target_column for spec in TARGET_SPECS]).copy()
+    labelled = labelled.dropna(subset=[spec.target_column for spec in TARGET_SPECS], how="all").copy()
     if labelled.empty:
         raise SystemExit("No rows retained after future risk target generation.")
 
     labelled["forecast_split"] = labelled.apply(assign_forecast_split, axis=1)
+    train_part,val_part,test_part,_ = session_partitions(labelled,split_column="forecast_split")
+    labelled = pd.concat([train_part,val_part,test_part],ignore_index=True)
+    window_manifest=write_target_windows(labelled,output_dir=args.output_dir,targets=[spec.target_column for spec in TARGET_SPECS],split_column="forecast_split",sources=[args.features,args.labels])
 
     numeric_features = [
         "lap_number",
@@ -158,6 +150,8 @@ def main() -> int:
         "features": str(args.features),
         "labels": str(args.labels),
         "horizon_s": args.horizon_s,
+        "label_join": join_manifest,
+        "target_windows": window_manifest,
         "rows": {
             "all": int(len(labelled)),
             "train": int((labelled["forecast_split"] == "train").sum()),
@@ -191,53 +185,28 @@ def main() -> int:
 
 
 def build_future_targets(*, df, horizon_s: float, pd_module):
-    rows = []
-    for _, group in df.groupby("session_uid", sort=False):
-        group = group.sort_values(["session_time_s", "frame_identifier"]).reset_index(drop=True)
-        session_times = group["session_time_s"].tolist()
-        segments = group["track_segment"].tolist()
-        future_max_risk = group["current_risk_score"].tolist()
-
-        for idx, row in group.iterrows():
-            current_time = float(row["session_time_s"])
-            target_time = current_time + horizon_s
-
-            future_scores = []
-            next_zone_score = None
-            for later_idx in range(idx + 1, len(group)):
-                later_time = float(session_times[later_idx])
-                if later_time - current_time > horizon_s:
-                    break
-                future_scores.append(float(future_max_risk[later_idx]))
-                if next_zone_score is None and str(segments[later_idx]) != str(row["track_segment"]):
-                    next_zone_score = float(future_max_risk[later_idx])
-
-            if not future_scores:
-                continue
-
-            row_dict = row.to_dict()
-            row_dict["risk_forecast_3s"] = max(future_scores)
-            row_dict["risk_forecast_next_zone"] = next_zone_score if next_zone_score is not None else max(future_scores)
-            rows.append(row_dict)
-
-    return pd_module.DataFrame(rows)
+    rows=[]
+    for row,window,evidence in future_windows(df,horizon_s=horizon_s):
+        inside=window[window['session_time_s']<=float(row['session_time_s'])+horizon_s]
+        scores=inside['current_risk_score']
+        if inside.empty or not all(math.isfinite(float(v)) for v in scores):continue
+        next_zone=inside[inside['track_segment'].astype(str)!=str(row['track_segment'])]
+        result=row.to_dict()
+        result.update(risk_forecast_3s=float(scores.max()),
+            risk_forecast_next_zone=float(next_zone.iloc[0]['current_risk_score']) if not next_zone.empty else None,
+            target_window=json.dumps(evidence,ensure_ascii=False))
+        rows.append(result)
+    return pd_module.DataFrame(rows,columns=[*df.columns,'risk_forecast_3s','risk_forecast_next_zone','target_window'])
 
 
 def assign_forecast_split(row) -> str:
-    session_type = str(row.get("session_type") or "")
-    lap_number = int(row.get("lap_number") or 0)
-    if "FeatureRaceLike" in session_type:
-        return "test"
-    if "SprintRaceLike" in session_type and lap_number == 2:
-        return "val"
-    return "train"
+    return exported_row_split(row)
 
 
 def train_single_model(*, df, feature_columns, categorical_features, spec, output_dir, lgb_module, metrics_module):
     output_dir.mkdir(parents=True, exist_ok=True)
-    train_df = df[df["forecast_split"] == "train"].copy()
-    val_df = df[df["forecast_split"] == "val"].copy()
-    test_df = df[df["forecast_split"] == "test"].copy()
+    df = df.dropna(subset=[spec.target_column]).copy()
+    train_df, val_df, test_df, partition_manifest = session_partitions(df, split_column="forecast_split")
     if train_df.empty or val_df.empty or test_df.empty:
         raise SystemExit(f"Insufficient train/val/test rows for {spec.name}.")
 
@@ -300,8 +269,11 @@ def train_single_model(*, df, feature_columns, categorical_features, spec, outpu
         },
         "feature_columns": feature_columns,
         "categorical_features": list(categorical_features),
-        "validation_source": "exported_val_split",
-        "test_source": "exported_test_split",
+        "validation_source": "whole_session_partition",
+        "partition": partition_manifest,
+        "target_window_policy": WINDOW_VERSION,
+        "target_window_max_gap_s": 1.0,
+        "test_source": "exported_session_split",
         "best_iteration": int(best_iteration),
         "metrics": {
             "mae": mae,
@@ -309,7 +281,7 @@ def train_single_model(*, df, feature_columns, categorical_features, spec, outpu
             "r2": r2,
         },
         "top_feature_importance": importance[:20],
-        "model_path": str(model_path),
+        "model_path": model_path.name,
     }
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
